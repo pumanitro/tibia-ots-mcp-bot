@@ -1,4 +1,4 @@
-"""Sniff ALL client packets to discover what hotkeys send. Enable, then press the hotkey."""
+"""Capture all client-to-server packets to sniff_log.txt for protocol analysis."""
 import sys, os
 from pathlib import Path
 
