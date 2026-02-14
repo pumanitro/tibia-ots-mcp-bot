@@ -118,36 +118,33 @@ bot.log(msg)                                           # log to stderr
 
 ### Example: Auto-eat food
 
-`actions/eat_food.py` — eats a red ham from the backpack every 10 seconds:
+`actions/eat_food.py` — uses a hotkey-style packet so the server finds the food in any backpack/slot:
 
 ```python
-"""Eat food from backpack every 10 seconds."""
+"""Eat food every 10 seconds. Uses hotkey-style packet — works from any backpack/slot."""
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from protocol import build_use_item_packet
 
+FOOD_ID = 3583    # red ham on DBVictory
+INTERVAL = 10
 
 async def run(bot):
-    ITEM_ID = 3583        # red ham on DBVictory
-    CONTAINER = 65        # container ID (from packet sniffing)
-    SLOT = 1              # slot in that container
-    INTERVAL = 10         # seconds between eats
-
     while True:
         if bot.is_connected:
-            pkt = build_use_item_packet(0xFFFF, CONTAINER, SLOT, ITEM_ID, SLOT, 0)
+            # Hotkey-style: pos=(0xFFFF, 0, 0) — server finds the item automatically
+            pkt = build_use_item_packet(0xFFFF, 0, 0, FOOD_ID, 0, 0)
             await bot.inject_to_server(pkt)
-            bot.log(f"Ate food (item {ITEM_ID})")
         await bot.sleep(INTERVAL)
 ```
 
 ### Discovering item IDs
 
-Use the built-in `sniff_use_item` action to capture item IDs from the game client:
+Use the built-in `packet_sniffer` action to capture packets from the game client:
 
-1. Enable the sniffer: `toggle_action("sniff_use_item")`
-2. Right-click/use the item in-game
-3. Read `sniff_log.txt` to see the captured `item_id`, `container`, and `slot`
+1. Enable the sniffer: `toggle_action("packet_sniffer")`
+2. Right-click/use the item in-game (or press a hotkey)
+3. Read `sniff_log.txt` to see captured opcodes, positions, item IDs
 4. Disable the sniffer when done
 
 ### MCP tools for actions
@@ -158,3 +155,35 @@ Use the built-in `sniff_use_item` action to capture item IDs from the game clien
 | `toggle_action(name)` | Enable/disable an action + start/stop its background task |
 | `remove_action(name)` | Delete an action script and its settings |
 | `restart_action(name)` | Stop, reload `.py` from disk, and restart |
+
+## Roadmap
+
+Planned features, roughly in order of priority:
+
+### Server packet parsing — game state awareness
+Parse server-to-client packets to give actions access to real-time game state. The server opcodes are already defined in `protocol.py`:
+
+- [ ] **Player stats** (`PLAYER_STATS` 0xA0) — HP, max HP, mana, max mana, level, XP, cap
+- [ ] **Player position** — extracted from `MAP_DESCRIPTION` (0x64) and map slice packets (0x65-0x68)
+- [ ] **Creatures on screen** — from `TILE_ADD_THING` (0x6A), `CREATURE_MOVE` (0x6D), `CREATURE_HEALTH` (0x8C)
+- [ ] **Text messages** (`TEXT_MESSAGE` 0xB4) — capture server messages, loot drops, damage
+- [ ] **Container contents** (`OPEN_CONTAINER` 0x6E, `CREATE_IN_CONTAINER` 0x70) — know what's in backpacks
+
+This unlocks the BotContext API: `bot.hp`, `bot.max_hp`, `bot.mana`, `bot.position`, `bot.creatures`, etc.
+
+### Auto-healing
+Once HP/mana parsing is in place:
+
+- [ ] **Auto-heal with spells** — cast healing spell (`bot.say("exura")`) when HP drops below threshold
+- [ ] **Auto-heal with potions/runes** — use healing item on self via `USE_ON_CREATURE` (0x84) with own creature ID
+- [ ] **Auto-mana** — use mana potions when mana drops below threshold
+
+### Waypoint recording & playback (auto-hunting)
+Record player movement and replay it in a loop for AFK experience grinding:
+
+- [ ] **Record waypoints** — capture walk packets + player position into a route file
+- [ ] **Playback loop** — walk the recorded route continuously
+- [ ] **Auto-attack** — target nearest creature from `bot.creatures` and send `ATTACK` packet
+- [ ] **Spell rotation** — cast attack spells on cooldown during combat
+- [ ] **Loot pickup** — open corpses and move loot to backpack via `MOVE_THING` (0x78)
+- [ ] **Death handling** — detect death, pause actions, resume after respawn
