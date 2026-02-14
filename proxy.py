@@ -10,6 +10,7 @@ Handles TWO phases:
 import asyncio
 import struct
 import logging
+import sys
 import time
 from crypto import (
     rsa_decrypt, rsa_encrypt, xtea_decrypt, xtea_encrypt,
@@ -20,7 +21,8 @@ from protocol import PacketReader, PacketWriter, ServerOpcode, ClientOpcode
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s'
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    stream=sys.stderr,
 )
 log = logging.getLogger("proxy")
 

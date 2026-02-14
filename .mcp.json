@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "dbvictory-bot": {
+      "command": "C:\\Users\\patry\\Desktop\\dbv_exp\\venv\\Scripts\\python.exe",
+      "args": ["C:\\Users\\patry\\Desktop\\dbv_exp\\mcp_server.py"],
+      "transport": "stdio"
+    }
+  }
+}
