@@ -21,6 +21,7 @@ A man-in-the-middle proxy bot for the DBVictory game, controlled through Claude 
 | `bot.py` | Bot logic and helpers |
 | `start.py` | Standalone startup script |
 | `xtea_finder.py` | Utility for locating XTEA keys in memory |
+| `actions/` | Automated action scripts (Python) |
 
 ## Setup
 
@@ -85,3 +86,75 @@ You can now give Claude natural language commands like "walk north 5 steps", "sa
 - **get_status** — Check connection state and packet stats
 - **send_ping** — Ping the game server
 - **logout** — Disconnect from the server
+
+## Automated Actions
+
+The bot supports automated background actions — small Python scripts that run continuously while the bot is connected. Each action is a `.py` file in the `actions/` folder with an `async def run(bot)` entry point.
+
+### How it works
+
+1. **Create** an action by writing a `.py` file to `actions/` (Claude can do this for you via natural language)
+2. **Enable** it with `toggle_action` — it starts running as a background task
+3. **Disable** it with `toggle_action` — it stops immediately
+4. **Edit** the `.py` file and call `restart_action` to reload changes at runtime
+5. Enabled actions **auto-start** when `start_bot` connects to the game
+
+Settings (which actions are enabled) persist in `bot_settings.json` across sessions.
+
+### Action API
+
+Each action receives a `bot` object with:
+
+```python
+bot.use_item_in_container(item_id, container, slot)  # use item from backpack
+bot.use_item_on_map(x, y, z, item_id, stack_pos)     # use item on ground
+bot.say(text)                                          # send chat message
+bot.walk(direction, steps, delay)                      # walk in a direction
+bot.inject_to_server(packet)                           # send raw packet
+bot.sleep(seconds)                                     # async sleep
+bot.is_connected                                       # connection status
+bot.log(msg)                                           # log to stderr
+```
+
+### Example: Auto-eat food
+
+`actions/eat_food.py` — eats a red ham from the backpack every 10 seconds:
+
+```python
+"""Eat food from backpack every 10 seconds."""
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from protocol import build_use_item_packet
+
+
+async def run(bot):
+    ITEM_ID = 3583        # red ham on DBVictory
+    CONTAINER = 65        # container ID (from packet sniffing)
+    SLOT = 1              # slot in that container
+    INTERVAL = 10         # seconds between eats
+
+    while True:
+        if bot.is_connected:
+            pkt = build_use_item_packet(0xFFFF, CONTAINER, SLOT, ITEM_ID, SLOT, 0)
+            await bot.inject_to_server(pkt)
+            bot.log(f"Ate food (item {ITEM_ID})")
+        await bot.sleep(INTERVAL)
+```
+
+### Discovering item IDs
+
+Use the built-in `sniff_use_item` action to capture item IDs from the game client:
+
+1. Enable the sniffer: `toggle_action("sniff_use_item")`
+2. Right-click/use the item in-game
+3. Read `sniff_log.txt` to see the captured `item_id`, `container`, and `slot`
+4. Disable the sniffer when done
+
+### MCP tools for actions
+
+| Tool | Purpose |
+|---|---|
+| `list_actions` | Show all `.py` files with ON/OFF/running status and source preview |
+| `toggle_action(name)` | Enable/disable an action + start/stop its background task |
+| `remove_action(name)` | Delete an action script and its settings |
+| `restart_action(name)` | Stop, reload `.py` from disk, and restart |

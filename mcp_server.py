@@ -8,9 +8,13 @@ Transport: stdio  (stdout = JSON-RPC, all logging → stderr)
 """
 
 import asyncio
+import importlib.util
+import json
 import logging
 import sys
 import os
+import traceback
+from pathlib import Path
 
 # ── Logging to stderr (stdout reserved for MCP JSON-RPC) ────────────
 logging.basicConfig(
@@ -49,6 +53,24 @@ from protocol import (
 SERVER_HOST = "87.98.220.215"
 LOGIN_PORT = 7171
 GAME_PORT = 7172
+SETTINGS_FILE = Path(__file__).parent / "bot_settings.json"
+ACTIONS_DIR = Path(__file__).parent / "actions"
+
+
+def load_settings() -> dict:
+    """Load settings from disk, returning defaults if file doesn't exist."""
+    if SETTINGS_FILE.exists():
+        try:
+            return json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as e:
+            log.warning(f"Failed to load settings: {e}")
+    return {"actions": {}}
+
+
+def save_settings(settings: dict) -> None:
+    """Persist settings to disk."""
+    SETTINGS_FILE.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+
 
 # ── Global state ────────────────────────────────────────────────────
 
@@ -61,6 +83,8 @@ class BotState:
         self.ready: bool = False
         self._auto_task: asyncio.Task | None = None
         self._proxy_tasks: list[asyncio.Task] = []
+        self.settings: dict = load_settings()
+        self._action_tasks: dict[str, asyncio.Task] = {}
 
     @property
     def connected(self) -> bool:
@@ -68,6 +92,146 @@ class BotState:
 
 
 state = BotState()
+
+
+# ── Bot context (passed to action scripts as `bot`) ────────────────
+
+class BotContext:
+    """API surface available to action scripts via the `bot` parameter."""
+
+    def __init__(self):
+        self._log = logging.getLogger("action")
+
+    # ── connection ──────────────────────────────────────────────────
+    @property
+    def is_connected(self) -> bool:
+        return state.connected
+
+    # ── low-level ───────────────────────────────────────────────────
+    async def inject_to_server(self, packet: bytes) -> None:
+        if state.game_proxy:
+            await state.game_proxy.inject_to_server(packet)
+
+    async def sleep(self, seconds: float) -> None:
+        await asyncio.sleep(seconds)
+
+    # ── convenience helpers ─────────────────────────────────────────
+    async def use_item_in_container(
+        self, item_id: int, container: int = 0, slot: int = 0
+    ) -> None:
+        """Use an item from an open container.
+
+        Args:
+            item_id: The item's type/sprite ID.
+            container: Container ID (64=first backpack, 65=second, ...).
+                       Pass raw ID as captured from packets.
+            slot: Slot position within the container.
+        """
+        pkt = build_use_item_packet(0xFFFF, container, slot, item_id, slot, 0)
+        await self.inject_to_server(pkt)
+
+    async def use_item_on_map(
+        self, x: int, y: int, z: int, item_id: int,
+        stack_pos: int = 0, index: int = 0,
+    ) -> None:
+        pkt = build_use_item_packet(x, y, z, item_id, stack_pos, index)
+        await self.inject_to_server(pkt)
+
+    async def say(self, text: str) -> None:
+        await self.inject_to_server(build_say_packet(text))
+
+    async def walk(self, direction: str, steps: int = 1, delay: float = 0.3) -> None:
+        d = _resolve_direction(direction)
+        if d is None:
+            return
+        for _ in range(steps):
+            await self.inject_to_server(build_walk_packet(d))
+            if steps > 1:
+                await self.sleep(delay)
+
+    def log(self, msg: str) -> None:
+        self._log.info(msg)
+
+    # ── advanced (for packet sniffing / hooks) ──────────────────────
+    @property
+    def game_proxy(self):
+        return state.game_proxy
+
+    @property
+    def state(self):
+        return state
+
+
+bot_ctx = BotContext()
+
+
+# ── Action loader / runner ─────────────────────────────────────────
+
+def _load_action_module(name: str):
+    """Dynamically load (or reload) actions/<name>.py and return the module."""
+    path = ACTIONS_DIR / f"{name}.py"
+    if not path.exists():
+        return None
+    spec = importlib.util.spec_from_file_location(f"actions.{name}", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _start_action(name: str) -> str | None:
+    """Load an action script and launch its run(bot) as a background task.
+    Returns an error string on failure, None on success."""
+    # Don't double-start
+    if name in state._action_tasks and not state._action_tasks[name].done():
+        return f"'{name}' is already running."
+
+    mod = _load_action_module(name)
+    if mod is None:
+        return f"actions/{name}.py not found."
+    if not hasattr(mod, "run") or not asyncio.iscoroutinefunction(mod.run):
+        return f"actions/{name}.py has no async def run(bot)."
+
+    async def _wrapper():
+        try:
+            log.info(f"[action:{name}] Started")
+            await mod.run(bot_ctx)
+        except asyncio.CancelledError:
+            log.info(f"[action:{name}] Stopped")
+        except Exception:
+            log.error(f"[action:{name}] Crashed:\n{traceback.format_exc()}")
+
+    state._action_tasks[name] = asyncio.create_task(_wrapper())
+    return None
+
+
+def _stop_action(name: str) -> bool:
+    """Cancel a running action task. Returns True if it was running."""
+    task = state._action_tasks.pop(name, None)
+    if task and not task.done():
+        task.cancel()
+        return True
+    return False
+
+
+def _start_all_enabled_actions() -> int:
+    """Start background tasks for all enabled actions. Returns count started."""
+    count = 0
+    for name, cfg in state.settings.get("actions", {}).items():
+        if cfg.get("enabled", False):
+            err = _start_action(name)
+            if err:
+                log.warning(f"[action:{name}] Could not auto-start: {err}")
+            else:
+                count += 1
+    return count
+
+
+def _discover_actions() -> list[str]:
+    """Return sorted list of action names from .py files in actions/ dir."""
+    if not ACTIONS_DIR.exists():
+        return []
+    return sorted(p.stem for p in ACTIONS_DIR.glob("*.py") if p.stem != "__init__")
+
 
 # ── MCP Server ──────────────────────────────────────────────────────
 
@@ -164,6 +328,15 @@ async def start_bot() -> str:
         except ValueError:
             name = "?"
         log.debug(f"[C->S] 0x{opcode:02X} ({name})")
+        # Log USE_ITEM details so we can discover item IDs
+        if opcode == ClientOpcode.USE_ITEM:
+            try:
+                pos = reader.read_position()
+                item_id = reader.read_u16()
+                stack_pos = reader.read_u8()
+                log.info(f"[SNIFF] USE_ITEM pos={pos} item_id={item_id} stack={stack_pos}")
+            except Exception:
+                pass
 
     def on_login_success(keys):
         state.ready = True
@@ -184,9 +357,11 @@ async def start_bot() -> str:
     # Wait up to 120 s for the player to log in
     for _ in range(240):
         if state.ready:
+            actions_started = _start_all_enabled_actions()
+            actions_msg = f" {actions_started} automated action(s) started." if actions_started else ""
             return (
                 f"Bot started successfully. Patched {patched} IP(s). "
-                "Game session is active — you can now send commands."
+                f"Game session is active — you can now send commands.{actions_msg}"
             )
         await asyncio.sleep(0.5)
 
@@ -396,6 +571,155 @@ async def look_at(x: int, y: int, z: int, item_id: int, stack_pos: int = 0) -> s
 
     await state.game_proxy.inject_to_server(build_look_packet(x, y, z, item_id, stack_pos))
     return f"Looking at item {item_id} at ({x}, {y}, {z})."
+
+
+# ── Automated action tools ──────────────────────────────────────────
+
+@mcp.tool()
+async def list_actions() -> str:
+    """List all action scripts in the actions/ folder with their enabled/running status and source preview.
+
+    To create a new action, write a .py file to the actions/ folder with an
+    async def run(bot) entry point.  The `bot` object provides:
+      bot.use_item_in_container(item_id, container, slot)
+      bot.say(text)
+      bot.walk(direction, steps, delay)
+      bot.inject_to_server(packet)
+      bot.sleep(seconds)
+      bot.is_connected
+      bot.log(msg)
+    """
+    names = _discover_actions()
+    if not names:
+        return "No actions found. Create a .py file in the actions/ folder with async def run(bot)."
+
+    settings_actions = state.settings.get("actions", {})
+
+    # Gather data for each action
+    rows = []
+    for name in names:
+        cfg = settings_actions.get(name, {})
+        enabled = cfg.get("enabled", False)
+        task = state._action_tasks.get(name)
+        running = task is not None and not task.done()
+
+        if enabled and running:
+            status = ">>> RUNNING"
+        elif enabled:
+            status = "ON (idle)"
+        else:
+            status = "OFF"
+
+        # Read docstring as description
+        path = ACTIONS_DIR / f"{name}.py"
+        desc = ""
+        source = ""
+        try:
+            source = path.read_text(encoding="utf-8")
+            for line in source.splitlines():
+                s = line.strip().strip('"').strip("'")
+                if s:
+                    desc = s[:50]
+                    break
+        except OSError:
+            pass
+
+        rows.append((name, status, desc, source))
+
+    # Build ASCII table
+    name_w = max(max(len(r[0]) for r in rows), 6)
+    stat_w = max(max(len(r[1]) for r in rows), 6)
+    desc_w = max(max(len(r[2]) for r in rows), 11)
+
+    sep = f"+{'-' * (name_w + 2)}+{'-' * (stat_w + 2)}+{'-' * (desc_w + 2)}+"
+    hdr = f"| {'Action':<{name_w}} | {'Status':<{stat_w}} | {'Description':<{desc_w}} |"
+
+    lines = [sep, hdr, sep]
+    for name, status, desc, source in rows:
+        lines.append(f"| {name:<{name_w}} | {status:<{stat_w}} | {desc:<{desc_w}} |")
+    lines.append(sep)
+
+    # Append source preview for each action
+    for name, _, _, source in rows:
+        preview = source.rstrip()
+        if len(preview) > 500:
+            preview = preview[:500] + "\n... (truncated)"
+        lines.append(f"\n--- {name}.py ---")
+        lines.append(preview)
+
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def toggle_action(name: str, enabled: bool = True) -> str:
+    """Enable or disable an action, starting or stopping its background task.
+
+    Args:
+        name: Action name (filename without .py, e.g. "eat_food").
+        enabled: True to enable and start, False to disable and stop.
+    """
+    path = ACTIONS_DIR / f"{name}.py"
+    if not path.exists():
+        return f"actions/{name}.py not found."
+
+    actions = state.settings.setdefault("actions", {})
+    actions.setdefault(name, {})["enabled"] = enabled
+    save_settings(state.settings)
+
+    if enabled:
+        if state.connected:
+            err = _start_action(name)
+            if err:
+                return f"Enabled but failed to start: {err}"
+            return f"Action '{name}' enabled and started."
+        return f"Action '{name}' enabled. It will auto-start when the bot connects."
+    else:
+        was_running = _stop_action(name)
+        return f"Action '{name}' disabled{' and stopped' if was_running else ''}."
+
+
+@mcp.tool()
+async def remove_action(name: str) -> str:
+    """Delete an action script and its settings.
+
+    Args:
+        name: Action name (filename without .py, e.g. "eat_food").
+    """
+    _stop_action(name)
+
+    path = ACTIONS_DIR / f"{name}.py"
+    existed = path.exists()
+    if existed:
+        path.unlink()
+
+    actions = state.settings.get("actions", {})
+    was_in_settings = actions.pop(name, None) is not None
+    if was_in_settings:
+        save_settings(state.settings)
+
+    if not existed and not was_in_settings:
+        return f"Action '{name}' not found."
+    return f"Removed action '{name}'."
+
+
+@mcp.tool()
+async def restart_action(name: str) -> str:
+    """Stop and re-start a running action (reloads the .py file from disk).
+
+    Args:
+        name: Action name (filename without .py).
+    """
+    path = ACTIONS_DIR / f"{name}.py"
+    if not path.exists():
+        return f"actions/{name}.py not found."
+
+    _stop_action(name)
+    # Small delay so the cancelled task cleans up
+    await asyncio.sleep(0.1)
+    err = _start_action(name)
+    if err:
+        return f"Failed to restart: {err}"
+    return f"Action '{name}' restarted (code reloaded from disk)."
 
 
 @mcp.tool()

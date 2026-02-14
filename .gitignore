@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 *.pyo
 .env
+bot_settings.json
+sniff_log.txt
