@@ -1,4 +1,4 @@
-"""Sniff USE_ITEM packets from client to discover item IDs. Enable, then use an item in-game."""
+"""Sniff ALL client packets to discover what hotkeys send. Enable, then press the hotkey."""
 import sys, os
 from pathlib import Path
 
@@ -9,31 +9,49 @@ SNIFF_LOG = Path(__file__).parent.parent / "sniff_log.txt"
 
 
 async def run(bot):
-    # Access the live state from the running main module
     main = sys.modules["__main__"]
     proxy = main.state.game_proxy
     original_cb = proxy.on_client_packet
 
     def sniffer(opcode, reader):
-        if opcode == ClientOpcode.USE_ITEM:
+        try:
             try:
-                pos = reader.read_position()
-                item_id = reader.read_u16()
-                stack_pos = reader.read_u8()
-                line = f"USE_ITEM pos={pos} item_id={item_id} stack={stack_pos}\n"
-                bot.log(f"[SNIFF] {line.strip()}")
+                name = ClientOpcode(opcode).name
+            except ValueError:
+                name = "?"
+
+            # Save reader position to read raw bytes
+            raw = reader.read_bytes(reader.remaining) if reader.remaining > 0 else b""
+            hex_dump = raw.hex(" ") if raw else "(empty)"
+
+            line = f"0x{opcode:02X} ({name}) [{len(raw)} bytes] {hex_dump}\n"
+            bot.log(f"[SNIFF] {line.strip()}")
+            with open(SNIFF_LOG, "a") as f:
+                f.write(line)
+
+            # Also parse known packet types for readability
+            if opcode == ClientOpcode.USE_ITEM and len(raw) >= 8:
+                import struct
+                x = struct.unpack_from('<H', raw, 0)[0]
+                y = struct.unpack_from('<H', raw, 2)[0]
+                z = raw[4]
+                item_id = struct.unpack_from('<H', raw, 5)[0]
+                stack = raw[7]
+                detail = f"  -> USE_ITEM pos=({x}, {y}, {z}) item_id={item_id} stack={stack}\n"
                 with open(SNIFF_LOG, "a") as f:
-                    f.write(line)
-            except Exception as e:
-                with open(SNIFF_LOG, "a") as f:
-                    f.write(f"ERROR: {e}\n")
+                    f.write(detail)
+
+        except Exception as e:
+            with open(SNIFF_LOG, "a") as f:
+                f.write(f"ERROR: {e}\n")
+
         if original_cb:
             original_cb(opcode, reader)
 
     proxy.on_client_packet = sniffer
     with open(SNIFF_LOG, "w") as f:
-        f.write("--- Sniffer started ---\n")
-    bot.log("[SNIFF] Installed — use an item in-game to capture its ID")
+        f.write("--- Full packet sniffer started ---\n")
+    bot.log("[SNIFF] Full packet sniffer installed — press your hotkey now")
 
     try:
         while True:
