@@ -161,22 +161,17 @@ Use the built-in `packet_sniffer` action to capture packets from the game client
 Planned features, roughly in order of priority:
 
 ### Server packet parsing — game state awareness
-Parse server-to-client packets to give actions access to real-time game state. The server opcodes are already defined in `protocol.py`:
+Parse server-to-client packets to give actions access to real-time game state. The server opcodes are already defined in `protocol.py`. DBV uses a custom format with u32 HP/mana and u64 experience (see `game_state.py`).
 
-- [ ] **Player stats** (`PLAYER_STATS` 0xA0) — HP, max HP, mana, max mana, level, XP, cap
-- [ ] **Player position** — extracted from `MAP_DESCRIPTION` (0x64) and map slice packets (0x65-0x68)
-- [ ] **Creatures on screen** — from `TILE_ADD_THING` (0x6A), `CREATURE_MOVE` (0x6D), `CREATURE_HEALTH` (0x8C)
-- [ ] **Text messages** (`TEXT_MESSAGE` 0xB4) — capture server messages, loot drops, damage
-- [ ] **Container contents** (`OPEN_CONTAINER` 0x6E, `CREATE_IN_CONTAINER` 0x70) — know what's in backpacks
+- [x] **Player stats** (`PLAYER_STATS` 0xA0) — HP, max HP, mana, max mana, level, XP, cap, magic level, soul
+- [x] **Player position** — extracted from `MAP_DESCRIPTION` (0x64) and map slice packets (0x65-0x68)
+- [x] **Creatures on screen** — from `CREATURE_MOVE` (0x6D), `CREATURE_HEALTH` (0x8C)
+- [x] **Text messages** (`TEXT_MESSAGE` 0xB4) — capture server messages, loot drops, damage
 
-This unlocks the BotContext API: `bot.hp`, `bot.max_hp`, `bot.mana`, `bot.position`, `bot.creatures`, etc.
+This unlocks the BotContext API: `bot.hp`, `bot.max_hp`, `bot.mana`, `bot.position`, `bot.creatures`, `bot.messages`, etc.
 
 ### Auto-healing
-Once HP/mana parsing is in place:
-
-- [ ] **Auto-heal with spells** — cast healing spell (`bot.say("exura")`) when HP drops below threshold
-- [ ] **Auto-heal with potions/runes** — use healing item on self via `USE_ON_CREATURE` (0x84) with own creature ID
-- [ ] **Auto-mana** — use mana potions when mana drops below threshold
+- [x] **Power Up** — `actions/power_up.py` says "power up" every 1 second for healing
 
 ### Waypoint recording & playback (auto-hunting)
 Record player movement and replay it in a loop for AFK experience grinding:
