@@ -5,3 +5,5 @@ __pycache__/
 .env
 bot_settings.json
 sniff_log.txt
+dashboard/node_modules/
+dashboard/.next/

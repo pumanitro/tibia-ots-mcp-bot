@@ -11,6 +11,7 @@ import asyncio
 import importlib.util
 import json
 import logging
+import subprocess
 import sys
 import os
 import traceback
@@ -233,6 +234,76 @@ def _discover_actions() -> list[str]:
     return sorted(p.stem for p in ACTIONS_DIR.glob("*.py") if p.stem != "__init__")
 
 
+# ── Shared async functions (used by MCP tools AND dashboard_api) ────
+
+async def _async_toggle_action(name: str, enabled: bool) -> str:
+    """Enable or disable an action. Returns a status message."""
+    path = ACTIONS_DIR / f"{name}.py"
+    if not path.exists():
+        return f"actions/{name}.py not found."
+
+    actions = state.settings.setdefault("actions", {})
+    actions.setdefault(name, {})["enabled"] = enabled
+    save_settings(state.settings)
+
+    if enabled:
+        if state.connected:
+            err = _start_action(name)
+            if err:
+                return f"Enabled but failed to start: {err}"
+            return f"Action '{name}' enabled and started."
+        return f"Action '{name}' enabled. It will auto-start when the bot connects."
+    else:
+        was_running = _stop_action(name)
+        return f"Action '{name}' disabled{' and stopped' if was_running else ''}."
+
+
+async def _async_restart_action(name: str) -> str:
+    """Stop and re-start an action. Returns a status message."""
+    path = ACTIONS_DIR / f"{name}.py"
+    if not path.exists():
+        return f"actions/{name}.py not found."
+
+    _stop_action(name)
+    await asyncio.sleep(0.1)
+    err = _start_action(name)
+    if err:
+        return f"Failed to restart: {err}"
+    return f"Action '{name}' restarted (code reloaded from disk)."
+
+
+_dashboard_launched = False
+
+
+def _launch_dashboard() -> None:
+    """Fire-and-forget launch of the Electron dashboard. Only launches once."""
+    global _dashboard_launched
+    if _dashboard_launched:
+        return
+    import shutil
+    dashboard_dir = Path(__file__).parent / "dashboard"
+    if not (dashboard_dir / "package.json").exists():
+        log.warning("Dashboard not found — skipping launch.")
+        return
+
+    npm = shutil.which("npm.cmd") or shutil.which("npm")
+    if npm is None:
+        log.warning("npm not found on PATH — cannot launch dashboard.")
+        return
+
+    try:
+        subprocess.Popen(
+            f'"{npm}" run electron:dev',
+            cwd=str(dashboard_dir),
+            shell=True,
+            creationflags=subprocess.CREATE_NEW_CONSOLE,
+        )
+        _dashboard_launched = True
+        log.info(f"Dashboard launched (npm={npm}).")
+    except Exception as e:
+        log.warning(f"Failed to launch dashboard: {e}")
+
+
 # ── MCP Server ──────────────────────────────────────────────────────
 
 mcp = FastMCP(
@@ -283,7 +354,11 @@ async def start_bot() -> str:
     to log in through the game client.
     """
     if state.ready:
-        return "Bot is already running and connected."
+        # Ensure dashboard API is running even on re-calls
+        import dashboard_api
+        dashboard_api.start_api(asyncio.get_running_loop(), state)
+        _launch_dashboard()
+        return "Bot is already running and connected. Dashboard launched."
 
     # ── Patch client memory ─────────────────────────────────────────
     try:
@@ -359,6 +434,12 @@ async def start_bot() -> str:
         if state.ready:
             actions_started = _start_all_enabled_actions()
             actions_msg = f" {actions_started} automated action(s) started." if actions_started else ""
+
+            # Start dashboard API and Electron window
+            import dashboard_api
+            dashboard_api.start_api(asyncio.get_running_loop(), state)
+            _launch_dashboard()
+
             return (
                 f"Bot started successfully. Patched {patched} IP(s). "
                 f"Game session is active — you can now send commands.{actions_msg}"
@@ -658,24 +739,7 @@ async def toggle_action(name: str, enabled: bool = True) -> str:
         name: Action name (filename without .py, e.g. "eat_food").
         enabled: True to enable and start, False to disable and stop.
     """
-    path = ACTIONS_DIR / f"{name}.py"
-    if not path.exists():
-        return f"actions/{name}.py not found."
-
-    actions = state.settings.setdefault("actions", {})
-    actions.setdefault(name, {})["enabled"] = enabled
-    save_settings(state.settings)
-
-    if enabled:
-        if state.connected:
-            err = _start_action(name)
-            if err:
-                return f"Enabled but failed to start: {err}"
-            return f"Action '{name}' enabled and started."
-        return f"Action '{name}' enabled. It will auto-start when the bot connects."
-    else:
-        was_running = _stop_action(name)
-        return f"Action '{name}' disabled{' and stopped' if was_running else ''}."
+    return await _async_toggle_action(name, enabled)
 
 
 @mcp.tool()
@@ -709,17 +773,7 @@ async def restart_action(name: str) -> str:
     Args:
         name: Action name (filename without .py).
     """
-    path = ACTIONS_DIR / f"{name}.py"
-    if not path.exists():
-        return f"actions/{name}.py not found."
-
-    _stop_action(name)
-    # Small delay so the cancelled task cleans up
-    await asyncio.sleep(0.1)
-    err = _start_action(name)
-    if err:
-        return f"Failed to restart: {err}"
-    return f"Action '{name}' restarted (code reloaded from disk)."
+    return await _async_restart_action(name)
 
 
 @mcp.tool()
