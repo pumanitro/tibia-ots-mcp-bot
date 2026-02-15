@@ -8,6 +8,7 @@ mutating endpoints dispatch to the main asyncio loop.
 import asyncio
 import json
 import logging
+import sys
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
@@ -114,31 +115,49 @@ class _Handler(BaseHTTPRequestHandler):
         pkt_server = st.game_proxy.packets_from_server if st.game_proxy else 0
         pkt_client = st.game_proxy.packets_from_client if st.game_proxy else 0
 
+        gs = st.game_state
+        player = {
+            "hp": gs.hp,
+            "max_hp": gs.max_hp,
+            "mana": gs.mana,
+            "max_mana": gs.max_mana,
+            "level": gs.level,
+            "experience": gs.experience,
+            "position": list(gs.position),
+            "magic_level": gs.magic_level,
+            "soul": gs.soul,
+        }
+
         self._json_response({
             "connected": st.connected,
             "actions": actions,
             "packets_from_server": pkt_server,
             "packets_from_client": pkt_client,
+            "player": player,
         })
 
     # ── POST /api/actions/{name}/toggle ────────────────────────────
     def _handle_toggle(self, name: str):
         body = self._read_body()
         enabled = body.get("enabled", True)
+        log.info(f"Toggle request: {name} -> enabled={enabled}")
 
         if _main_loop is None:
+            log.warning("Toggle failed: _main_loop is None")
             self._json_response({"error": "bot not started"}, 503)
             return
 
-        # Import the shared async function
-        from mcp_server import _async_toggle_action
+        # Access the real __main__ module (mcp_server runs as __main__)
+        main_mod = sys.modules["__main__"]
         future = asyncio.run_coroutine_threadsafe(
-            _async_toggle_action(name, enabled), _main_loop
+            main_mod._async_toggle_action(name, enabled), _main_loop
         )
         try:
             result = future.result(timeout=5)
+            log.info(f"Toggle result: {result}")
             self._json_response({"ok": True, "message": result})
         except Exception as e:
+            log.error(f"Toggle error: {e}")
             self._json_response({"error": str(e)}, 500)
 
     # ── POST /api/actions/{name}/restart ───────────────────────────
@@ -147,9 +166,9 @@ class _Handler(BaseHTTPRequestHandler):
             self._json_response({"error": "bot not started"}, 503)
             return
 
-        from mcp_server import _async_restart_action
+        main_mod = sys.modules["__main__"]
         future = asyncio.run_coroutine_threadsafe(
-            _async_restart_action(name), _main_loop
+            main_mod._async_restart_action(name), _main_loop
         )
         try:
             result = future.result(timeout=5)

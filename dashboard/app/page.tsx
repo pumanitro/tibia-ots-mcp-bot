@@ -2,9 +2,9 @@
 
 import { useBot } from "@/lib/useBot";
 import { toggleAction, restartAction } from "@/lib/api";
-import type { ActionInfo } from "@/lib/api";
+import type { ActionInfo, PlayerInfo } from "@/lib/api";
 
-function StatusBadge({ connected }: { connected: boolean }) {
+function StatusBadge({ label, connected }: { label: string; connected: boolean }) {
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
@@ -18,7 +18,7 @@ function StatusBadge({ connected }: { connected: boolean }) {
           connected ? "bg-emerald-400 animate-pulse" : "bg-red-400"
         }`}
       />
-      {connected ? "Connected" : "Disconnected"}
+      {label}
     </span>
   );
 }
@@ -99,24 +99,74 @@ function ActionCard({
   );
 }
 
+function StatBar({
+  label,
+  current,
+  max,
+  color,
+}: {
+  label: string;
+  current: number;
+  max: number;
+  color: string;
+}) {
+  const pct = max > 0 ? Math.round((current / max) * 100) : 0;
+  return (
+    <div>
+      <div className="flex justify-between text-xs mb-1">
+        <span className="text-gray-400">{label}</span>
+        <span className="tabular-nums">
+          {current} / {max}
+        </span>
+      </div>
+      <div className="h-3 rounded-full bg-gray-700 overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-300 ${color}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function PlayerStats({ player }: { player: PlayerInfo }) {
+  const [x, y, z] = player.position;
+  return (
+    <div className="rounded-lg border border-gray-700 bg-gray-800 p-4 mb-8 space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold text-gray-300">
+          Level {player.level}
+        </span>
+        <span className="text-xs text-gray-500 tabular-nums">
+          ({x}, {y}, {z})
+        </span>
+      </div>
+      <StatBar label="HP" current={player.hp} max={player.max_hp} color="bg-red-500" />
+      <StatBar label="Mana" current={player.mana} max={player.max_mana} color="bg-blue-500" />
+    </div>
+  );
+}
+
 export default function Dashboard() {
-  const { state, error, refresh } = useBot();
+  const { state, mcpConnected, refresh } = useBot();
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-xl font-bold tracking-tight">DBVictory Bot</h1>
-        {state ? (
-          <StatusBadge connected={state.connected} />
-        ) : error ? (
-          <span className="text-xs text-red-400">{error}</span>
-        ) : (
-          <span className="text-xs text-gray-500">Loading...</span>
-        )}
+        <div className="flex items-center gap-2">
+          <StatusBadge label="MCP" connected={mcpConnected} />
+          <StatusBadge label="Game" connected={state?.connected ?? false} />
+        </div>
       </div>
 
-      {/* Stats */}
+      {/* Player Stats */}
+      {state?.connected && state.player && (
+        <PlayerStats player={state.player} />
+      )}
+
+      {/* Packet Stats */}
       {state && (
         <div className="grid grid-cols-2 gap-4 mb-8">
           <div className="rounded-lg border border-gray-700 bg-gray-800 p-4">

@@ -1,6 +1,6 @@
 const { app, BrowserWindow } = require("electron");
 
-const NEXT_URL = "http://localhost:3000";
+const NEXT_URL = "http://localhost:4747";
 
 const LOADING_HTML = `data:text/html,
 <html>

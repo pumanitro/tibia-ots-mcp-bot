@@ -8,6 +8,7 @@ Transport: stdio  (stdout = JSON-RPC, all logging → stderr)
 """
 
 import asyncio
+import importlib
 import importlib.util
 import json
 import logging
@@ -31,6 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from mcp.server.fastmcp import FastMCP
 
 from proxy import OTProxy
+from game_state import GameState, parse_server_packet, scan_packet
 from protocol import (
     Direction,
     build_walk_packet,
@@ -86,6 +88,7 @@ class BotState:
         self._proxy_tasks: list[asyncio.Task] = []
         self.settings: dict = load_settings()
         self._action_tasks: dict[str, asyncio.Task] = {}
+        self.game_state: GameState = GameState()
 
     @property
     def connected(self) -> bool:
@@ -152,6 +155,47 @@ class BotContext:
 
     def log(self, msg: str) -> None:
         self._log.info(msg)
+
+    # ── game state properties ────────────────────────────────────────
+    @property
+    def hp(self) -> int:
+        return state.game_state.hp
+
+    @property
+    def max_hp(self) -> int:
+        return state.game_state.max_hp
+
+    @property
+    def mana(self) -> int:
+        return state.game_state.mana
+
+    @property
+    def max_mana(self) -> int:
+        return state.game_state.max_mana
+
+    @property
+    def level(self) -> int:
+        return state.game_state.level
+
+    @property
+    def experience(self) -> int:
+        return state.game_state.experience
+
+    @property
+    def capacity(self) -> int:
+        return state.game_state.capacity
+
+    @property
+    def position(self) -> tuple[int, int, int]:
+        return state.game_state.position
+
+    @property
+    def creatures(self) -> dict:
+        return state.game_state.creatures
+
+    @property
+    def messages(self):
+        return state.game_state.messages
 
     # ── advanced (for packet sniffing / hooks) ──────────────────────
     @property
@@ -273,6 +317,28 @@ async def _async_restart_action(name: str) -> str:
 
 
 _dashboard_launched = False
+DASHBOARD_PORT = 4747
+
+
+def _kill_port(port: int) -> None:
+    """Kill any process listening on the given TCP port (Windows)."""
+    try:
+        result = subprocess.run(
+            f'netstat -ano | findstr "LISTENING" | findstr ":{port} "',
+            capture_output=True, text=True, shell=True,
+        )
+        pids = set()
+        for line in result.stdout.strip().splitlines():
+            parts = line.split()
+            if parts:
+                pids.add(parts[-1])
+        for pid in pids:
+            if pid and pid != "0":
+                subprocess.run(f"taskkill /F /PID {pid}", shell=True,
+                               capture_output=True)
+                log.info(f"Killed PID {pid} on port {port}")
+    except Exception as e:
+        log.debug(f"_kill_port({port}): {e}")
 
 
 def _launch_dashboard() -> None:
@@ -291,6 +357,9 @@ def _launch_dashboard() -> None:
         log.warning("npm not found on PATH — cannot launch dashboard.")
         return
 
+    # Kill anything already on the dashboard port
+    _kill_port(DASHBOARD_PORT)
+
     try:
         subprocess.Popen(
             f'"{npm}" run electron:dev',
@@ -299,7 +368,7 @@ def _launch_dashboard() -> None:
             creationflags=subprocess.CREATE_NEW_CONSOLE,
         )
         _dashboard_launched = True
-        log.info(f"Dashboard launched (npm={npm}).")
+        log.info(f"Dashboard launched on port {DASHBOARD_PORT} (npm={npm}).")
     except Exception as e:
         log.warning(f"Failed to launch dashboard: {e}")
 
@@ -342,6 +411,79 @@ def _resolve_direction(direction: str, allow_diagonal: bool = True) -> Direction
     return TURN_DIR_MAP.get(d)
 
 
+# ── Bot reset / hot-reload ───────────────────────────────────────────
+
+async def _reset_bot() -> str:
+    """Tear down the running bot, hot-reload modules, and reset state."""
+    global _dashboard_launched
+    import game_state as _gs_mod
+    import dashboard_api as _da_mod
+
+    log.info("=== RESETTING BOT ===")
+
+    # 1. Stop all running actions
+    for name in list(state._action_tasks):
+        _stop_action(name)
+    await asyncio.sleep(0.1)
+
+    # 2. Cancel proxy tasks
+    for task in state._proxy_tasks:
+        if not task.done():
+            task.cancel()
+    state._proxy_tasks.clear()
+
+    # 3. Close proxy connections
+    for proxy in (state.game_proxy, state.login_proxy):
+        if proxy:
+            try:
+                if proxy.client_writer:
+                    proxy.client_writer.close()
+                if proxy.server_writer:
+                    proxy.server_writer.close()
+            except Exception:
+                pass
+
+    # 4. Kill dashboard (Electron + Next.js dev server)
+    _kill_port(DASHBOARD_PORT)
+    try:
+        subprocess.run(
+            'taskkill /F /IM electron.exe',
+            shell=True, capture_output=True,
+        )
+    except Exception:
+        pass
+    _dashboard_launched = False
+
+    # 5. Hot-reload Python modules
+    try:
+        importlib.reload(_gs_mod)
+        log.info("Reloaded game_state.py")
+    except Exception as e:
+        log.warning(f"Failed to reload game_state: {e}")
+    try:
+        importlib.reload(_da_mod)
+        log.info("Reloaded dashboard_api.py")
+    except Exception as e:
+        log.warning(f"Failed to reload dashboard_api: {e}")
+
+    # Re-import after reload
+    from game_state import GameState, scan_packet as _sp
+    globals()['scan_packet'] = _sp
+    globals()['parse_server_packet'] = __import__('game_state').parse_server_packet
+
+    # 6. Reset global state
+    state.login_proxy = None
+    state.game_proxy = None
+    state.ready = False
+    state._auto_task = None
+    state._action_tasks.clear()
+    state.game_state = GameState()
+    state.settings = load_settings()
+
+    log.info("Bot reset complete.")
+    return "Bot reset. Call start_bot to reconnect."
+
+
 # ── Tools ───────────────────────────────────────────────────────────
 
 @mcp.tool()
@@ -354,11 +496,9 @@ async def start_bot() -> str:
     to log in through the game client.
     """
     if state.ready:
-        # Ensure dashboard API is running even on re-calls
-        import dashboard_api
-        dashboard_api.start_api(asyncio.get_running_loop(), state)
-        _launch_dashboard()
-        return "Bot is already running and connected. Dashboard launched."
+        # Auto-reset: tear down everything and continue to fresh start
+        log.info("Bot already running — auto-resetting...")
+        await _reset_bot()
 
     # ── Patch client memory ─────────────────────────────────────────
     try:
@@ -381,7 +521,8 @@ async def start_bot() -> str:
     pm.close_process()
 
     if patched == 0:
-        return "ERROR: Could not patch any server IPs. Try running as Administrator."
+        # Client may already be patched from a previous session — continue anyway
+        log.warning("No IPs patched (client may already be patched). Continuing...")
 
     log.info(f"Patched {patched} server IP(s)")
 
@@ -396,6 +537,7 @@ async def start_bot() -> str:
         except ValueError:
             name = "?"
         log.debug(f"[S->C] 0x{opcode:02X} ({name})")
+        parse_server_packet(opcode, reader, state.game_state)
 
     def on_client_packet(opcode, reader):
         try:
@@ -417,9 +559,13 @@ async def start_bot() -> str:
         state.ready = True
         log.info("=== BOT READY — game session established ===")
 
+    def on_raw_server_data(data):
+        scan_packet(data, state.game_state)
+
     state.game_proxy.on_server_packet = on_server_packet
     state.game_proxy.on_client_packet = on_client_packet
     state.game_proxy.on_login_success = on_login_success
+    state.game_proxy.on_raw_server_data = on_raw_server_data
 
     # ── Launch proxies as background tasks ──────────────────────────
     state._proxy_tasks = [

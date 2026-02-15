@@ -7,15 +7,16 @@ const POLL_INTERVAL = 1500;
 
 export function useBot() {
   const [state, setState] = useState<BotState | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [mcpConnected, setMcpConnected] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
       const data = await fetchState();
       setState(data);
-      setError(null);
+      setMcpConnected(true);
     } catch {
-      setError("Cannot reach bot API");
+      setState(null);
+      setMcpConnected(false);
     }
   }, []);
 
@@ -25,5 +26,5 @@ export function useBot() {
     return () => clearInterval(id);
   }, [refresh]);
 
-  return { state, error, refresh };
+  return { state, mcpConnected, refresh };
 }

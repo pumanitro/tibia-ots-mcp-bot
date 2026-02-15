@@ -7,11 +7,24 @@ export interface ActionInfo {
   description: string;
 }
 
+export interface PlayerInfo {
+  hp: number;
+  max_hp: number;
+  mana: number;
+  max_mana: number;
+  level: number;
+  experience: number;
+  position: [number, number, number];
+  magic_level: number;
+  soul: number;
+}
+
 export interface BotState {
   connected: boolean;
   actions: ActionInfo[];
   packets_from_server: number;
   packets_from_client: number;
+  player: PlayerInfo;
 }
 
 export async function fetchState(): Promise<BotState> {
@@ -24,11 +37,15 @@ export async function toggleAction(
   name: string,
   enabled: boolean
 ): Promise<void> {
-  await fetch(`${API_BASE}/api/actions/${name}/toggle`, {
+  const res = await fetch(`${API_BASE}/api/actions/${name}/toggle`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ enabled }),
   });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    console.error("Toggle failed:", res.status, err);
+  }
 }
 
 export async function restartAction(name: string): Promise<void> {

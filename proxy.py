@@ -67,6 +67,7 @@ class OTProxy:
         self.on_server_packet = None
         self.on_client_packet = None
         self.on_login_success = None
+        self.on_raw_server_data = None  # Called with full decrypted bytes
         self._inject_queue = asyncio.Queue()
 
         # Stats
@@ -315,17 +316,23 @@ class OTProxy:
                 if self.on_login_success:
                     self.on_login_success(self.xtea_keys)
 
-            if self.logged_in and self.on_server_packet:
+            if self.logged_in and (self.on_server_packet or self.on_raw_server_data):
                 try:
                     decrypted = self._decrypt_game_packet(raw)
                     if decrypted:
-                        pr = PacketReader(decrypted)
-                        if pr.remaining > 0:
-                            opcode = pr.read_u8()
+                        if self.on_raw_server_data:
                             try:
-                                self.on_server_packet(opcode, pr)
-                            except Exception as e:
-                                log.debug(f"Server packet callback error: {e}")
+                                self.on_raw_server_data(decrypted)
+                            except Exception:
+                                pass
+                        if self.on_server_packet:
+                            pr = PacketReader(decrypted)
+                            if pr.remaining > 0:
+                                opcode = pr.read_u8()
+                                try:
+                                    self.on_server_packet(opcode, pr)
+                                except Exception as e:
+                                    log.debug(f"Server packet callback error: {e}")
                 except Exception:
                     pass
 
