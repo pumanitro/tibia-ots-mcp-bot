@@ -279,12 +279,11 @@ def build_walk_packet(direction: Direction) -> bytes:
     return pw.data
 
 
-def build_attack_packet(creature_id: int, seq: int = 0) -> bytes:
+def build_attack_packet(creature_id: int) -> bytes:
     """Build an attack packet targeting a creature."""
     pw = PacketWriter()
     pw.write_u8(ClientOpcode.ATTACK)
     pw.write_u32(creature_id)
-    pw.write_u32(seq)
     return pw.data
 
 
@@ -344,12 +343,11 @@ def build_look_packet(x: int, y: int, z: int, item_id: int, stack_pos: int) -> b
     return pw.data
 
 
-def build_follow_packet(creature_id: int, seq: int = 0) -> bytes:
+def build_follow_packet(creature_id: int) -> bytes:
     """Build a follow creature packet."""
     pw = PacketWriter()
     pw.write_u8(ClientOpcode.FOLLOW)
     pw.write_u32(creature_id)
-    pw.write_u32(seq)
     return pw.data
 
 

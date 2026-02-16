@@ -190,6 +190,10 @@ class BotContext:
         return state.game_state.position
 
     @property
+    def player_id(self) -> int:
+        return state.game_state.player_id
+
+    @property
     def creatures(self) -> dict:
         return state.game_state.creatures
 

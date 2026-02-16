@@ -128,12 +128,18 @@ class _Handler(BaseHTTPRequestHandler):
             "soul": gs.soul,
         }
 
+        creatures = [
+            {"id": cid, "health": info.get("health", 0), "name": info.get("name", "")}
+            for cid, info in gs.creatures.items()
+        ]
+
         self._json_response({
             "connected": st.connected,
             "actions": actions,
             "packets_from_server": pkt_server,
             "packets_from_client": pkt_client,
             "player": player,
+            "creatures": creatures,
         })
 
     # ── POST /api/actions/{name}/toggle ────────────────────────────

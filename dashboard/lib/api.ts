@@ -19,12 +19,18 @@ export interface PlayerInfo {
   soul: number;
 }
 
+export interface CreatureInfo {
+  id: number;
+  health: number;
+}
+
 export interface BotState {
   connected: boolean;
   actions: ActionInfo[];
   packets_from_server: number;
   packets_from_client: number;
   player: PlayerInfo;
+  creatures: CreatureInfo[];
 }
 
 export async function fetchState(): Promise<BotState> {

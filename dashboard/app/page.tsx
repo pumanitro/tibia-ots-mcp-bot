@@ -2,7 +2,7 @@
 
 import { useBot } from "@/lib/useBot";
 import { toggleAction, restartAction } from "@/lib/api";
-import type { ActionInfo, PlayerInfo } from "@/lib/api";
+import type { ActionInfo, PlayerInfo, CreatureInfo } from "@/lib/api";
 
 function StatusBadge({ label, connected }: { label: string; connected: boolean }) {
   return (
@@ -147,6 +147,43 @@ function PlayerStats({ player }: { player: PlayerInfo }) {
   );
 }
 
+function CreatureList({ creatures }: { creatures: CreatureInfo[] }) {
+  return (
+    <div className="mb-8">
+      <div className="flex items-center gap-2 mb-3">
+        <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
+          Creatures
+        </h2>
+        <span className="rounded-full bg-gray-700 px-2 py-0.5 text-xs tabular-nums text-gray-300">
+          {creatures.length}
+        </span>
+      </div>
+      {creatures.length > 0 ? (
+        <div className="rounded-lg border border-gray-700 bg-gray-800 divide-y divide-gray-700">
+          {creatures.map((c) => (
+            <div key={c.id} className="flex items-center gap-3 px-4 py-2">
+              <span className="text-xs text-gray-400 tabular-nums w-24 shrink-0">
+                #{c.id}
+              </span>
+              <div className="flex-1 h-2.5 rounded-full bg-gray-700 overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-300 bg-gradient-to-r from-emerald-600 to-emerald-400"
+                  style={{ width: `${c.health}%` }}
+                />
+              </div>
+              <span className="text-xs tabular-nums text-gray-300 w-10 text-right">
+                {c.health}%
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-gray-500">No creatures nearby</p>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const { state, mcpConnected, refresh } = useBot();
 
@@ -164,6 +201,11 @@ export default function Dashboard() {
       {/* Player Stats */}
       {state?.connected && state.player && (
         <PlayerStats player={state.player} />
+      )}
+
+      {/* Creatures */}
+      {state?.connected && (
+        <CreatureList creatures={state.creatures ?? []} />
       )}
 
       {/* Packet Stats */}
