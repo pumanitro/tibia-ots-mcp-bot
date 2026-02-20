@@ -5,6 +5,7 @@ and updates game_state.creatures with authoritative memory-read data.
 """
 import sys
 import os
+import glob
 import shutil
 import time
 import logging
@@ -23,8 +24,14 @@ CONNECT_RETRY = 2     # seconds between pipe connection attempts
 PROXIMITY_RANGE = 7   # max tile Chebyshev distance (visible screen range)
 STALE_REINJECT = 3    # number of stale cycles before re-injecting DLL
 DEBUG_LOG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dll_bridge_debug.txt")
-DLL_SOURCE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                          "dll", "dbvbot12.dll")
+
+
+def _find_latest_dll():
+    dll_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dll")
+    candidates = glob.glob(os.path.join(dll_dir, "dbvbot*.dll"))
+    if not candidates:
+        return None
+    return max(candidates, key=os.path.getmtime)
 
 
 def _dbg(msg):
@@ -38,10 +45,13 @@ def _inject_fresh_dll():
     LoadLibraryA keys on filename — re-injecting the same filename just bumps
     the refcount without calling DllMain.  A unique copy forces a fresh load.
     """
-    dll_dir = os.path.dirname(DLL_SOURCE)
+    dll_source = _find_latest_dll()
+    if not dll_source:
+        raise FileNotFoundError("No dbvbot*.dll found in dll/ directory")
+    dll_dir = os.path.dirname(dll_source)
     temp_name = f"dbvbot_live_{int(time.time())}.dll"
     temp_path = os.path.join(dll_dir, temp_name)
-    shutil.copy2(DLL_SOURCE, temp_path)
+    shutil.copy2(dll_source, temp_path)
     _dbg(f"injecting fresh DLL copy: {temp_name}")
     dll_inject.inject(dll_path=temp_path)
     return temp_name
@@ -160,7 +170,7 @@ async def run(bot):
                     if cid == 0:
                         continue
                     # Only accept valid OT creature IDs
-                    if not ((0x10000000 <= cid <= 0x1FFFFFFF) or (0x40000000 <= cid <= 0x4FFFFFFF)):
+                    if not (0x10000000 <= cid < 0x80000000):
                         continue
                     raw_count += 1
                     cx, cy, cz = c.get("x", 0), c.get("y", 0), c.get("z", 0)
@@ -170,6 +180,10 @@ async def run(bot):
                             if gs.position != (cx, cy, cz):
                                 old = gs.position
                                 gs.position = (cx, cy, cz)
+                                try:
+                                    gs.dll_position_active = True
+                                except AttributeError:
+                                    pass
                                 px, py, pz = cx, cy, cz
                                 if old[2] != cz:
                                     _dbg(f"player z changed: {old} -> ({cx},{cy},{cz})")

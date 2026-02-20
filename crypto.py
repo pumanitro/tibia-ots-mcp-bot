@@ -4,7 +4,6 @@ OT Protocol Cryptography - XTEA and RSA for Open Tibia protocol.
 
 import struct
 from Crypto.PublicKey import RSA
-from Crypto.Cipher import PKCS1_v1_5
 
 
 # Default OTClient RSA key (used by many OTS servers)
@@ -103,7 +102,7 @@ def xtea_encrypt(data: bytes, key: tuple[int, int, int, int]) -> bytes:
     # Pad to multiple of 8
     pad_len = (8 - (len(data) % 8)) % 8
     if pad_len > 0:
-        data = data + b'\x33' * pad_len
+        data = data + b'\x00' * pad_len
 
     result = bytearray()
     num_rounds = 32

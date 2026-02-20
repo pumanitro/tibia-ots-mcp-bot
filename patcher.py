@@ -17,6 +17,9 @@ import struct
 import sys
 import ctypes
 from ctypes import wintypes
+import logging
+
+log = logging.getLogger("patcher")
 
 
 # Known OTClient RSA key fragments to search for in memory
@@ -53,9 +56,9 @@ def find_rsa_key_in_memory(pm: pymem.Pymem) -> list[tuple[int, bytes]]:
     address = 0
     mbi = MEMORY_BASIC_INFORMATION()
 
-    print("Scanning memory for RSA key...")
+    log.info("Scanning memory for RSA key...")
 
-    while address < 0x7FFFFFFF:
+    while address < 0xFFFFFFFF:
         result = VirtualQueryEx(
             pm.process_handle,
             ctypes.c_size_t(address),
@@ -87,7 +90,7 @@ def find_rsa_key_in_memory(pm: pymem.Pymem) -> list[tuple[int, bytes]]:
                             full_key.append(data[j])
 
                         results.append((addr, bytes(full_key)))
-                        print(f"  Found RSA key at 0x{addr:08X}: {bytes(full_key)[:40]}...")
+                        log.info(f"  Found RSA key at 0x{addr:08X}: {bytes(full_key)[:40]}...")
                         idx += 1
 
             except Exception:
@@ -121,9 +124,9 @@ def find_server_address_in_memory(pm: pymem.Pymem, server_ip: str = "87.98.220.2
     address = 0
     mbi = MEMORY_BASIC_INFORMATION()
 
-    print(f"\nScanning memory for server address '{server_ip}'...")
+    log.info(f"Scanning memory for server address '{server_ip}'...")
 
-    while address < 0x7FFFFFFF:
+    while address < 0xFFFFFFFF:
         result = VirtualQueryEx(
             pm.process_handle,
             ctypes.c_size_t(address),
@@ -146,7 +149,7 @@ def find_server_address_in_memory(pm: pymem.Pymem, server_ip: str = "87.98.220.2
                         break
                     addr = mbi.BaseAddress + idx
                     results.append((addr, pattern))
-                    print(f"  Found server IP at 0x{addr:08X}")
+                    log.info(f"  Found server IP at 0x{addr:08X}")
                     idx += 1
             except Exception:
                 pass
@@ -171,16 +174,16 @@ def patch_memory(pm: pymem.Pymem, address: int, old_data: bytes, new_data: bytes
         PAGE_EXECUTE_READWRITE,
         ctypes.byref(old_protect)
     ):
-        print(f"  WARNING: Could not change memory protection at 0x{address:08X}")
+        log.warning(f"Could not change memory protection at 0x{address:08X}")
         # Try anyway
 
     try:
         # Verify current content
         current = pm.read_bytes(address, len(old_data))
         if current != old_data:
-            print(f"  WARNING: Memory content doesn't match expected value at 0x{address:08X}")
-            print(f"    Expected: {old_data[:30]}...")
-            print(f"    Found:    {current[:30]}...")
+            log.warning(f"Memory content doesn't match expected value at 0x{address:08X}")
+            log.warning(f"  Expected: {old_data[:30]}...")
+            log.warning(f"  Found:    {current[:30]}...")
 
         # Write new data (pad with null if shorter)
         write_data = new_data
@@ -192,14 +195,14 @@ def patch_memory(pm: pymem.Pymem, address: int, old_data: bytes, new_data: bytes
         # Verify
         verify = pm.read_bytes(address, len(new_data))
         if verify == new_data:
-            print(f"  OK: Patched 0x{address:08X}")
+            log.info(f"Patched 0x{address:08X}")
             return True
         else:
-            print(f"  FAILED: Verification failed at 0x{address:08X}")
+            log.error(f"Verification failed at 0x{address:08X}")
             return False
 
     except Exception as e:
-        print(f"  ERROR: {e}")
+        log.error(f"Patch error: {e}")
         return False
 
     finally:
@@ -215,55 +218,55 @@ def patch_memory(pm: pymem.Pymem, address: int, old_data: bytes, new_data: bytes
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python patcher.py <proxy_rsa_key_n>")
-        print("       python patcher.py scan  (just scan, don't patch)")
+        log.error("Usage: python patcher.py <proxy_rsa_key_n>")
+        log.error("       python patcher.py scan  (just scan, don't patch)")
         sys.exit(1)
 
     mode = sys.argv[1]
     process_name = "dbvStart.exe"
 
-    print(f"Attaching to {process_name}...")
+    log.info(f"Attaching to {process_name}...")
     try:
         pm = pymem.Pymem(process_name)
     except pymem.exception.ProcessNotFound:
-        print(f"ERROR: {process_name} not found. Is the game running?")
+        log.error(f"{process_name} not found. Is the game running?")
         sys.exit(1)
     except Exception as e:
-        print(f"ERROR: Could not attach: {e}")
-        print("Try running as Administrator.")
+        log.error(f"Could not attach: {e}")
+        log.error("Try running as Administrator.")
         sys.exit(1)
 
-    print(f"Attached! PID: {pm.process_id}")
+    log.info(f"Attached! PID: {pm.process_id}")
 
     # Find RSA keys
     rsa_locations = find_rsa_key_in_memory(pm)
     if not rsa_locations:
-        print("\nNo RSA key found in memory!")
-        print("The client may use a different RSA key format or it's not loaded yet.")
-        print("Make sure you're at the login screen (key is loaded during init).")
+        log.warning("No RSA key found in memory!")
+        log.warning("The client may use a different RSA key format or it's not loaded yet.")
+        log.warning("Make sure you're at the login screen (key is loaded during init).")
     else:
-        print(f"\nFound {len(rsa_locations)} RSA key location(s)")
+        log.info(f"Found {len(rsa_locations)} RSA key location(s)")
 
     # Find server addresses
     ip_locations = find_server_address_in_memory(pm)
     if not ip_locations:
-        print("\nNo server IP found in memory!")
+        log.warning("No server IP found in memory!")
     else:
-        print(f"\nFound {len(ip_locations)} server IP location(s)")
+        log.info(f"Found {len(ip_locations)} server IP location(s)")
 
     if mode == 'scan':
-        print("\nScan complete. Run with proxy RSA key to patch.")
+        log.info("Scan complete. Run with proxy RSA key to patch.")
         pm.close_process()
         return
 
     # Patch mode
     proxy_rsa_key = mode.encode('ascii')
-    print(f"\nProxy RSA key (first 40 chars): {proxy_rsa_key[:40]}...")
+    log.info(f"Proxy RSA key (first 40 chars): {proxy_rsa_key[:40]}...")
 
     # Patch RSA keys
     patched_rsa = 0
     for addr, old_key in rsa_locations:
-        print(f"\nPatching RSA key at 0x{addr:08X}...")
+        log.info(f"Patching RSA key at 0x{addr:08X}...")
         if patch_memory(pm, addr, old_key, proxy_rsa_key):
             patched_rsa += 1
 
@@ -271,22 +274,22 @@ def main():
     patched_ip = 0
     localhost = b"127.0.0.1"
     for addr, old_ip in ip_locations:
-        print(f"\nPatching server IP at 0x{addr:08X}...")
+        log.info(f"Patching server IP at 0x{addr:08X}...")
         if patch_memory(pm, addr, old_ip, localhost):
             patched_ip += 1
 
-    print(f"\n=== Patching Summary ===")
-    print(f"RSA keys patched: {patched_rsa}/{len(rsa_locations)}")
-    print(f"Server IPs patched: {patched_ip}/{len(ip_locations)}")
+    log.info(f"=== Patching Summary ===")
+    log.info(f"RSA keys patched: {patched_rsa}/{len(rsa_locations)}")
+    log.info(f"Server IPs patched: {patched_ip}/{len(ip_locations)}")
 
     if patched_rsa > 0 and patched_ip > 0:
-        print("\nSUCCESS! The client should now connect through the proxy.")
-        print("Start the bot (python bot.py) and then login in the game client.")
+        log.info("SUCCESS! The client should now connect through the proxy.")
+        log.info("Start the bot (python bot.py) and then login in the game client.")
     elif patched_rsa > 0:
-        print("\nRSA key patched but no server IP found to patch.")
-        print("You may need to manually edit hosts file or DNS to redirect.")
+        log.warning("RSA key patched but no server IP found to patch.")
+        log.warning("You may need to manually edit hosts file or DNS to redirect.")
     else:
-        print("\nWARNING: Patching may have failed. Check the output above.")
+        log.warning("Patching may have failed. Check the output above.")
 
     pm.close_process()
 

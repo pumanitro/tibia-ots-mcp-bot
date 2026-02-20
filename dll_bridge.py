@@ -66,15 +66,9 @@ class DllBridge:
 
     def pipe_exists(self) -> bool:
         """Check if the named pipe exists (DLL is loaded and running)."""
-        handle = kernel32.CreateFileA(
-            PIPE_NAME,
-            GENERIC_READ | GENERIC_WRITE,
-            0, None, OPEN_EXISTING, 0, None,
-        )
-        if handle == INVALID_HANDLE_VALUE:
-            return False
-        kernel32.CloseHandle(handle)
-        return True
+        if self._handle is not None:
+            return True  # already connected
+        return bool(kernel32.WaitNamedPipeA(PIPE_NAME, 0))
 
     def send_command(self, cmd: dict) -> bool:
         """Send a JSON command to the DLL. Returns True on success."""

@@ -3,7 +3,7 @@ import sys, os
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from protocol import ClientOpcode
+from protocol import ClientOpcode, PacketReader
 
 SNIFF_LOG = Path(__file__).parent.parent / "sniff_log.txt"
 
@@ -20,7 +20,8 @@ async def run(bot):
             except ValueError:
                 name = "?"
 
-            # Save reader position to read raw bytes
+            # Save reader position before consuming bytes for analysis
+            saved_pos = reader._pos
             raw = reader.read_bytes(reader.remaining) if reader.remaining > 0 else b""
             hex_dump = raw.hex(" ") if raw else "(empty)"
 
@@ -46,7 +47,8 @@ async def run(bot):
                 f.write(f"ERROR: {e}\n")
 
         if original_cb:
-            original_cb(opcode, reader)
+            fresh_reader = PacketReader(reader._data[saved_pos:])
+            original_cb(opcode, fresh_reader)
 
     proxy.on_client_packet = sniffer
     with open(SNIFF_LOG, "w") as f:

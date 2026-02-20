@@ -9,3 +9,17 @@ dashboard/node_modules/
 dashboard/.next/
 dll/*.dll
 dll/*.o
+
+# Debug artifacts
+*_debug.txt
+*.bin
+stats_dump.txt
+creature_format_dump.txt
+creature_debug.txt
+packet_debug.txt
+
+# Node
+node_modules/
+
+# Electron
+electron_err.log

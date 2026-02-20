@@ -23,6 +23,35 @@
 #include <cstdarg>
 #include <cstdint>
 
+// ── Safe memory copy (replaces deprecated IsBadReadPtr) ─────────────
+// MinGW does not support MSVC __try/__except in C++.  Use
+// VirtualQuery to check readability instead (no TOCTOU with
+// IsBadReadPtr's page-guard side-effects).
+static BOOL safe_readable(const void* ptr, size_t len) {
+    if (!ptr) return FALSE;
+    MEMORY_BASIC_INFORMATION mbi;
+    const uint8_t* p = (const uint8_t*)ptr;
+    const uint8_t* end = p + len;
+    while (p < end) {
+        if (VirtualQuery(p, &mbi, sizeof(mbi)) == 0) return FALSE;
+        if (mbi.State != MEM_COMMIT) return FALSE;
+        DWORD prot = mbi.Protect & ~(PAGE_GUARD | PAGE_NOCACHE | PAGE_WRITECOMBINE);
+        if (!(prot == PAGE_READONLY || prot == PAGE_READWRITE ||
+              prot == PAGE_EXECUTE_READ || prot == PAGE_EXECUTE_READWRITE ||
+              prot == PAGE_WRITECOPY || prot == PAGE_EXECUTE_WRITECOPY))
+            return FALSE;
+        uintptr_t region_end = (uintptr_t)mbi.BaseAddress + mbi.RegionSize;
+        p = (const uint8_t*)region_end;
+    }
+    return TRUE;
+}
+
+static BOOL safe_memcpy(void* dst, const void* src, size_t len) {
+    if (!safe_readable(src, len)) return FALSE;
+    memcpy(dst, src, len);
+    return TRUE;
+}
+
 // ── Constants ───────────────────────────────────────────────────────
 #define MIN_CREATURE_ID 0x10000000u
 #define MAX_CREATURE_ID 0x80000000u
@@ -69,7 +98,8 @@ static FILE* g_dbg = NULL;
 static void dbg_open(void) {
     if (g_dbg) return;
     char path[MAX_PATH];
-    _snprintf(path, sizeof(path), "%s\\dbvbot_debug.txt", g_dll_dir);
+    int n = _snprintf(path, sizeof(path), "%s\\dbvbot_debug.txt", g_dll_dir);
+    if (n < 0 || n >= (int)sizeof(path)) return;
     g_dbg = fopen(path, "w");
     if (g_dbg) {
         fprintf(g_dbg, "=== dbvbot.dll v12 (player pos fix) ===\n");
@@ -128,8 +158,12 @@ static BOOL try_read_name(const uint8_t* base, char* out, size_t out_sz) {
         uintptr_t ptr;
         memcpy(&ptr, base, 4);
         if (ptr < 0x10000 || ptr >= 0x7FFE0000) return FALSE;
-        if (IsBadReadPtr((void*)ptr, str_size)) return FALSE;
-        data = (const char*)ptr;
+        // Use a stack buffer to safely copy the heap string data
+        static thread_local char heap_buf[64];
+        if (str_size >= sizeof(heap_buf)) return FALSE;
+        if (!safe_memcpy(heap_buf, (void*)ptr, str_size)) return FALSE;
+        heap_buf[str_size] = '\0';
+        data = heap_buf;
     }
 
     if (!validate_name(data, str_size)) return FALSE;
@@ -144,11 +178,12 @@ static BOOL try_read_name(const uint8_t* base, char* out, size_t out_sz) {
 
 static BOOL read_position_at(const uint8_t* id_ptr, int offset, uint32_t* x, uint32_t* y, uint32_t* z) {
     const uint8_t* pos_ptr = id_ptr + offset;
-    if (IsBadReadPtr(pos_ptr, 12)) return FALSE;
+    uint8_t pos_buf[12];
+    if (!safe_memcpy(pos_buf, pos_ptr, 12)) return FALSE;
 
-    memcpy(x, pos_ptr, 4);
-    memcpy(y, pos_ptr + 4, 4);
-    memcpy(z, pos_ptr + 8, 4);
+    memcpy(x, pos_buf, 4);
+    memcpy(y, pos_buf + 4, 4);
+    memcpy(z, pos_buf + 8, 4);
 
     if (*x > 65535 || *y > 65535 || *z > 15) return FALSE;
     return TRUE;
@@ -166,16 +201,17 @@ static BOOL read_position(const uint8_t* id_ptr, uint32_t id, uint32_t* x, uint3
 // Returns TRUE if the address still holds a valid creature with the expected ID.
 
 static BOOL reread_creature(CachedCreature* cc) {
-    if (IsBadReadPtr(cc->addr, 32)) return FALSE;
+    uint8_t snap[32];
+    if (!safe_memcpy(snap, cc->addr, 32)) return FALSE;
 
     // Verify the ID is still the same
     uint32_t id;
-    memcpy(&id, cc->addr, 4);
+    memcpy(&id, snap, 4);
     if (id != cc->id) return FALSE;
 
     // Re-read health
     uint32_t hp_word;
-    memcpy(&hp_word, cc->addr + 28, 4);
+    memcpy(&hp_word, snap + 28, 4);
     if (hp_word > 100) return FALSE;
     cc->health = (uint8_t)hp_word;
 
@@ -246,7 +282,8 @@ static void full_scan(void) {
 
             regions_scanned++;
             for (uintptr_t page = rstart; page < rend && found_count < MAX_CREATURES; page += 4096) {
-                if (IsBadReadPtr((void*)page, 4)) { pages_bad++; continue; }
+                uint8_t probe;
+                if (!safe_memcpy(&probe, (void*)page, 1)) { pages_bad++; continue; }
                 pages_scanned++;
 
                 uintptr_t page_end = page + 4096;
@@ -318,18 +355,34 @@ static void full_scan(void) {
 }
 
 // ── JSON builder ────────────────────────────────────────────────────
+// validate_name() guarantees [A-Za-z0-9 '.-] — no JSON escaping needed
 
 static int build_json(char* buf, size_t buf_sz) {
     EnterCriticalSection(&g_cs);
-    int pos = _snprintf(buf, buf_sz, "{\"creatures\":[");
-    for (int i = 0; i < g_output_count && pos + 120 < (int)buf_sz; i++) {
-        if (i > 0) buf[pos++] = ',';
-        pos += _snprintf(buf + pos, buf_sz - pos,
+    int written = _snprintf(buf, buf_sz, "{\"creatures\":[");
+    if (written < 0 || written >= (int)buf_sz) {
+        LeaveCriticalSection(&g_cs);
+        return -1;
+    }
+    int pos = written;
+    for (int i = 0; i < g_output_count; i++) {
+        if (i > 0) {
+            if (pos + 1 >= (int)buf_sz) break;
+            buf[pos++] = ',';
+        }
+        written = _snprintf(buf + pos, buf_sz - pos,
             "{\"id\":%u,\"name\":\"%s\",\"hp\":%d,\"x\":%u,\"y\":%u,\"z\":%u}",
             g_output[i].id, g_output[i].name, g_output[i].health,
             g_output[i].x, g_output[i].y, g_output[i].z);
+        if (written < 0 || written >= (int)(buf_sz - pos)) break;
+        pos += written;
     }
-    pos += _snprintf(buf + pos, buf_sz - pos, "]}\n");
+    written = _snprintf(buf + pos, buf_sz - pos, "]}\n");
+    if (written < 0 || written >= (int)(buf_sz - pos)) {
+        LeaveCriticalSection(&g_cs);
+        return -1;
+    }
+    pos += written;
     LeaveCriticalSection(&g_cs);
     return pos;
 }
@@ -427,6 +480,7 @@ static DWORD WINAPI pipe_thread(LPVOID param) {
                 if (now - last_send > SEND_INTERVAL) {
                     char json[PIPE_BUF_SIZE];
                     int json_len = build_json(json, sizeof(json));
+                    if (json_len <= 0 || json_len >= (int)sizeof(json)) continue;
                     DWORD written = 0;
                     if (!WriteFile(pipe, json, (DWORD)json_len, &written, NULL)) {
                         dbg("Write err=%lu", GetLastError());

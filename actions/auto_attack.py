@@ -1,18 +1,13 @@
 """Auto-attack: targets nearest alive monster every tick."""
-import struct
 import time
 from pathlib import Path
+from protocol import build_attack_packet
 
 INTERVAL = 1  # seconds between re-target attempts
 LOG_FILE = Path(__file__).parent.parent / "auto_attack_debug.txt"
 
 MONSTER_MIN = 0x40000000  # monsters start at 0x40000000
 MAX_AGE = 60  # only target creatures seen in the last N seconds
-
-
-def _attack_packet(creature_id: int) -> bytes:
-    """Build attack packet: opcode 0xA1 + u32 creature_id."""
-    return struct.pack('<BI', 0xA1, creature_id)
 
 
 def _debug(msg):
@@ -52,7 +47,7 @@ async def run(bot):
                 target = min(monsters, key=lambda cid: monsters[cid]["health"])
 
             if target is not None:
-                pkt = _attack_packet(target)
+                pkt = build_attack_packet(target)
                 if target != last_target:
                     _debug(f"NEW TARGET creature={target} hp={monsters[target]['health']}%")
                 await bot.inject_to_server(pkt)

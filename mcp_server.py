@@ -53,7 +53,7 @@ from protocol import (
 )
 
 # ── Constants ───────────────────────────────────────────────────────
-SERVER_HOST = "87.98.220.215"
+SERVER_HOST = os.environ.get("DBV_SERVER_HOST", "87.98.220.215")
 LOGIN_PORT = 7171
 GAME_PORT = 7172
 SETTINGS_FILE = Path(__file__).parent / "bot_settings.json"
@@ -218,6 +218,8 @@ bot_ctx = BotContext()
 
 def _load_action_module(name: str):
     """Dynamically load (or reload) actions/<name>.py and return the module."""
+    if not all(c.isalnum() or c == '_' for c in name):
+        return None
     path = ACTIONS_DIR / f"{name}.py"
     if not path.exists():
         return None
@@ -337,8 +339,8 @@ def _kill_port(port: int) -> None:
             if parts:
                 pids.add(parts[-1])
         for pid in pids:
-            if pid and pid != "0":
-                subprocess.run(f"taskkill /F /PID {pid}", shell=True,
+            if pid and pid != "0" and pid.isdigit():
+                subprocess.run(["taskkill", "/F", "/PID", pid],
                                capture_output=True)
                 log.info(f"Killed PID {pid} on port {port}")
     except Exception as e:
@@ -809,6 +811,8 @@ async def autowalk(direction: str, steps: int = 100, delay: float = 0.5) -> str:
 
     async def _loop():
         for _ in range(steps):
+            if not state.connected:
+                break
             await state.game_proxy.inject_to_server(build_walk_packet(d))
             await asyncio.sleep(delay)
 
@@ -991,6 +995,9 @@ async def remove_action(name: str) -> str:
     Args:
         name: Action name (filename without .py, e.g. "eat_food").
     """
+    if not all(c.isalnum() or c == '_' for c in name):
+        return "Invalid action name. Only alphanumeric characters and underscores are allowed."
+
     _stop_action(name)
 
     path = ACTIONS_DIR / f"{name}.py"

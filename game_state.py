@@ -10,7 +10,11 @@ import struct
 import time
 from collections import deque
 
+from protocol import ServerOpcode
+
 log = logging.getLogger("game_state")
+
+MAX_CREATURE_AGE = 120  # seconds — prune non-DLL creatures older than this
 
 
 class GameState:
@@ -43,6 +47,9 @@ class GameState:
         # Timestamp of last map data packet (for creature pruning)
         self.last_map_time: float = 0
 
+        # When True, MAP_SLICE position updates are skipped (DLL provides position)
+        self.dll_position_active: bool = False
+
 
 def parse_server_packet(opcode: int, reader, gs: GameState) -> None:
     """Parse the first opcode (called by the old single-opcode callback)."""
@@ -66,7 +73,9 @@ def scan_packet(data: bytes, gs: GameState) -> None:
     while pos < len(data):
         opcode = data[pos]
         pos += 1
-        if opcode in (0x0A, 0x64, 0x65, 0x66, 0x67, 0x68):
+        if opcode in (ServerOpcode.LOGIN_OR_PENDING, ServerOpcode.MAP_DESCRIPTION,
+                      ServerOpcode.MAP_SLICE_NORTH, ServerOpcode.MAP_SLICE_EAST,
+                      ServerOpcode.MAP_SLICE_SOUTH, ServerOpcode.MAP_SLICE_WEST):
             has_map_data = True
         try:
             new_pos = _parse_at(opcode, data, pos, gs)
@@ -74,7 +83,7 @@ def scan_packet(data: bytes, gs: GameState) -> None:
             break
         if new_pos < 0:
             break  # Unknown or variable-length message — stop
-        if opcode == 0xA0:
+        if opcode == ServerOpcode.PLAYER_STATS:
             found_stats = True
         pos = new_pos
 
@@ -84,13 +93,20 @@ def scan_packet(data: bytes, gs: GameState) -> None:
 
     # Creature tracking is handled entirely by DLL bridge — no packet scanning.
 
+    # M14: Prune stale non-DLL creatures
+    now = time.time()
+    gs.creatures = {
+        cid: info for cid, info in gs.creatures.items()
+        if info.get("source") == "dll" or now - info.get("t", 0) <= MAX_CREATURE_AGE
+    }
+
 
 
 def _search_for_stats(data: bytes, start: int, gs: GameState) -> None:
     """Brute-force search for 0xA0 PLAYER_STATS after sequential scan stopped."""
     STATS_SIZE = 36  # u32 format
     for i in range(start, len(data) - STATS_SIZE):
-        if data[i] != 0xA0:
+        if data[i] != ServerOpcode.PLAYER_STATS:
             continue
         p = i + 1
         try:
@@ -104,8 +120,19 @@ def _search_for_stats(data: bytes, start: int, gs: GameState) -> None:
             continue
         if level == 0 or level > 5000:
             continue
+        # Additional mana/capacity checks (M6)
+        try:
+            mana = struct.unpack_from('<I', data, p + 23)[0]
+            max_mana = struct.unpack_from('<I', data, p + 27)[0]
+            capacity = struct.unpack_from('<I', data, p + 8)[0]
+        except (struct.error, IndexError):
+            continue
+        if max_mana > 50000 or mana > max_mana:
+            continue
+        if capacity == 0 or capacity > 100000:
+            continue
         # Looks valid — parse fully
-        _parse_at(0xA0, data, p, gs)
+        _parse_at(ServerOpcode.PLAYER_STATS, data, p, gs)
         log.info(f"STATS found via fallback search at offset {i}")
         return
 
@@ -117,10 +144,10 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
     consume (unknown opcode or variable-length map data).
     """
 
-    # PLAYER_STATS 0xA0 — 36 bytes (u32 format confirmed from raw dump)
+    # PLAYER_STATS — 36 bytes (u32 format confirmed from raw dump)
     # u32 hp, u32 max_hp, u32 capacity, u64 exp, u16 level, u8 lvl%,
     # u32 mana, u32 max_mana, u8 mlvl, u8 mlvl%, u8 soul, u16 stamina
-    if opcode == 0xA0:
+    if opcode == ServerOpcode.PLAYER_STATS:
         needed = 36
         if pos + needed > len(data):
             return -1
@@ -142,9 +169,9 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
         )
         return pos + needed
 
-    # CREATURE_HEALTH 0x8C — 5 bytes: u32 + u8
+    # CREATURE_HEALTH — 5 bytes: u32 + u8
     # Only update existing creatures — never create new entries (avoids phantoms)
-    if opcode == 0x8C:
+    if opcode == ServerOpcode.CREATURE_HEALTH:
         if pos + 5 > len(data):
             return -1
         cid = struct.unpack_from('<I', data, pos)[0]
@@ -154,15 +181,15 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
             gs.creatures[cid]["t"] = time.time()
         return pos + 5
 
-    # CREATURE_MOVE 0x6D — 11 bytes: pos(5) + u8 + pos(5)
-    if opcode == 0x6D:
+    # CREATURE_MOVE — 11 bytes: pos(5) + u8 + pos(5)
+    if opcode == ServerOpcode.CREATURE_MOVE:
         if pos + 11 > len(data):
             return -1
         # Skip — we just consume the bytes
         return pos + 11
 
-    # TEXT_MESSAGE 0xB4 — variable: u8 type + string(u16 len + chars)
-    if opcode == 0xB4:
+    # TEXT_MESSAGE — variable: u8 type + string(u16 len + chars)
+    if opcode == ServerOpcode.TEXT_MESSAGE:
         if pos + 3 > len(data):
             return -1
         msg_type = data[pos]
@@ -175,92 +202,94 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
         log.info(f"TEXT_MESSAGE(type={msg_type}): {text}")
         return end
 
-    # LOGIN_OR_PENDING 0x0A — u32 player_id, u16 draw_speed, u8 can_report_bugs
-    # Then 0x64 MAP_DESCRIPTION with position
-    if opcode == 0x0A:
+    # LOGIN_OR_PENDING — u32 player_id, u16 draw_speed, u8 can_report_bugs
+    # Then MAP_DESCRIPTION with position
+    if opcode == ServerOpcode.LOGIN_OR_PENDING:
         if pos + 4 > len(data):
             return -1
         gs.player_id = struct.unpack_from('<I', data, pos)[0]
         log.info(f"LOGIN: player_id={gs.player_id}")
         pos += 4
-        # Search for 0x64 within next 10 bytes (skip draw_speed/flags)
+        # Search for MAP_DESCRIPTION within next 10 bytes (skip draw_speed/flags)
         search_end = min(pos + 10, len(data) - 5)
         for i in range(pos, search_end):
-            if data[i] == 0x64:
+            if data[i] == ServerOpcode.MAP_DESCRIPTION:
                 x = struct.unpack_from('<H', data, i + 1)[0]
                 y = struct.unpack_from('<H', data, i + 3)[0]
                 z = data[i + 5]
                 if 100 < x < 65000 and 100 < y < 65000 and z < 16:
                     gs.position = (x, y, z)
-                    gs.creatures.clear()
+                    gs.creatures = {cid: info for cid, info in gs.creatures.items() if info.get("source") == "dll"}
                     gs.last_map_time = time.time()
                     log.info(f"LOGIN position: ({x}, {y}, {z})")
                     break
         return -1  # Can't skip the rest (tile data follows)
 
-    # MAP_DESCRIPTION 0x64 — read position then stop (can't skip tile data)
-    if opcode == 0x64:
+    # MAP_DESCRIPTION — read position then stop (can't skip tile data)
+    if opcode == ServerOpcode.MAP_DESCRIPTION:
         if pos + 5 > len(data):
             return -1
         x = struct.unpack_from('<H', data, pos)[0]
         y = struct.unpack_from('<H', data, pos + 2)[0]
         z = data[pos + 4]
         gs.position = (x, y, z)
-        gs.creatures.clear()  # Clear stale creatures on map change
+        gs.creatures = {cid: info for cid, info in gs.creatures.items() if info.get("source") == "dll"}
         gs.last_map_time = time.time()
         log.info(f"MAP_DESCRIPTION: pos=({x}, {y}, {z}) — creatures cleared")
         return -1  # Can't skip tile data
 
-    # MAP_SLICE 0x65-0x68 — update position, but can't skip tile data
-    if opcode in (0x65, 0x66, 0x67, 0x68):
-        x, y, z = gs.position
-        if opcode == 0x65:
-            gs.position = (x, y - 1, z)
-        elif opcode == 0x66:
-            gs.position = (x + 1, y, z)
-        elif opcode == 0x67:
-            gs.position = (x, y + 1, z)
-        elif opcode == 0x68:
-            gs.position = (x - 1, y, z)
+    # MAP_SLICE — update position, but can't skip tile data
+    if opcode in (ServerOpcode.MAP_SLICE_NORTH, ServerOpcode.MAP_SLICE_EAST,
+                  ServerOpcode.MAP_SLICE_SOUTH, ServerOpcode.MAP_SLICE_WEST):
+        if not gs.dll_position_active:
+            x, y, z = gs.position
+            if opcode == ServerOpcode.MAP_SLICE_NORTH:
+                gs.position = (x, y - 1, z)
+            elif opcode == ServerOpcode.MAP_SLICE_EAST:
+                gs.position = (x + 1, y, z)
+            elif opcode == ServerOpcode.MAP_SLICE_SOUTH:
+                gs.position = (x, y + 1, z)
+            elif opcode == ServerOpcode.MAP_SLICE_WEST:
+                gs.position = (x - 1, y, z)
         gs.last_map_time = time.time()
         return -1  # Can't skip tile data
 
     # ── Fixed-size opcodes we can safely skip ──────────────────────
 
-    # MAGIC_EFFECT 0x83 — 6 bytes: pos(5) + u8 effect
-    if opcode == 0x83:
+    # MAGIC_EFFECT — 6 bytes: pos(5) + u8 effect
+    if opcode == ServerOpcode.MAGIC_EFFECT:
         return pos + 6 if pos + 6 <= len(data) else -1
 
-    # SHOOT_EFFECT 0x85 — 11 bytes: from_pos(5) + to_pos(5) + u8 effect
-    if opcode == 0x85:
+    # SHOOT_EFFECT — 11 bytes: from_pos(5) + to_pos(5) + u8 effect
+    if opcode == ServerOpcode.SHOOT_EFFECT:
         return pos + 11 if pos + 11 <= len(data) else -1
 
-    # CREATURE_LIGHT 0x8D — 6 bytes: u32 creature_id + u8 level + u8 color
-    if opcode == 0x8D:
+    # CREATURE_LIGHT — 6 bytes: u32 creature_id + u8 level + u8 color
+    if opcode == ServerOpcode.CREATURE_LIGHT:
         return pos + 6 if pos + 6 <= len(data) else -1
 
-    # CREATURE_SPEED 0x8F — 6 bytes: u32 creature_id + u16 speed
-    if opcode == 0x8F:
+    # CREATURE_SPEED — 6 bytes: u32 creature_id + u16 speed
+    if opcode == ServerOpcode.CREATURE_SPEED:
         return pos + 6 if pos + 6 <= len(data) else -1
 
-    # CREATURE_SKULL 0x90 — 5 bytes: u32 creature_id + u8 skull
-    if opcode == 0x90:
+    # CREATURE_SKULL — 5 bytes: u32 creature_id + u8 skull
+    if opcode == ServerOpcode.CREATURE_SKULL:
         return pos + 5 if pos + 5 <= len(data) else -1
 
-    # CREATURE_PARTY 0x91 — 5 bytes: u32 creature_id + u8 shield
-    if opcode == 0x91:
+    # CREATURE_PARTY — 5 bytes: u32 creature_id + u8 shield
+    if opcode == ServerOpcode.CREATURE_PARTY:
         return pos + 5 if pos + 5 <= len(data) else -1
 
-    # PLAYER_ICONS 0xA2 — 2 bytes: u16 icons
-    if opcode == 0xA2:
+    # PLAYER_ICONS — 2 bytes: u16 icons
+    if opcode == ServerOpcode.PLAYER_ICONS:
         return pos + 2 if pos + 2 <= len(data) else -1
 
-    # PLAYER_CANCEL_WALK 0xB5 — 1 byte: u8 direction
-    if opcode == 0xB5:
+    # PLAYER_CANCEL_WALK — 1 byte: u8 direction
+    if opcode == ServerOpcode.PLAYER_CANCEL_WALK:
         return pos + 1 if pos + 1 <= len(data) else -1
 
-    # PING 0x1D — 0 bytes
-    if opcode == 0x1D:
+    # PING — 0 bytes
+    if opcode == ServerOpcode.PING:
         return pos
 
     # Unknown opcode — stop
@@ -269,16 +298,16 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
 
 def _parse(opcode: int, reader, gs: GameState) -> None:
     """Legacy single-opcode parser (used by first-opcode callback)."""
-    if opcode == 0x0A:
+    if opcode == ServerOpcode.LOGIN_OR_PENDING:
         gs.player_id = reader.read_u32()
         log.info(f"LOGIN: player_id={gs.player_id}")
-    elif opcode == 0x8C:
+    elif opcode == ServerOpcode.CREATURE_HEALTH:
         creature_id = reader.read_u32()
         health = reader.read_u8()
         if creature_id in gs.creatures:
             gs.creatures[creature_id]["health"] = health
             gs.creatures[creature_id]["t"] = time.time()
-    elif opcode == 0xA0:
+    elif opcode == ServerOpcode.PLAYER_STATS:
         gs.hp = reader.read_u32()
         gs.max_hp = reader.read_u32()
         gs.capacity = reader.read_u32()
@@ -295,7 +324,7 @@ def _parse(opcode: int, reader, gs: GameState) -> None:
             f"Stats: HP={gs.hp}/{gs.max_hp} MP={gs.mana}/{gs.max_mana} "
             f"Lv={gs.level} XP={gs.experience}"
         )
-    elif opcode == 0xB4:
+    elif opcode == ServerOpcode.TEXT_MESSAGE:
         msg_type = reader.read_u8()
         text = reader.read_string()
         gs.messages.append({"type": msg_type, "text": text})

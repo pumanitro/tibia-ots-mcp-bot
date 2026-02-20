@@ -29,7 +29,8 @@ from crypto import get_default_rsa_key
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s'
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    stream=sys.stderr
 )
 log = logging.getLogger("launcher")
 

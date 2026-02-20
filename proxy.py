@@ -67,6 +67,7 @@ class OTProxy:
         self.on_server_packet = None
         self.on_client_packet = None
         self.on_login_success = None
+        self.on_game_disconnected = None
         self.on_raw_server_data = None  # Called with full decrypted bytes
         self._inject_queue = asyncio.Queue()
 
@@ -94,6 +95,21 @@ class OTProxy:
         mode = "LOGIN" if self.is_login_proxy else "GAME"
         log.info(f"[{mode}] Client connected from {client_addr}")
 
+        # H6: If there's already an active session, close the old one first
+        if self.client_writer is not None:
+            log.warning(f"[{mode}] New connection while session active — closing old connection")
+            try:
+                self.client_writer.close()
+                await self.client_writer.wait_closed()
+            except Exception:
+                pass
+            if self.server_writer is not None:
+                try:
+                    self.server_writer.close()
+                    await self.server_writer.wait_closed()
+                except Exception:
+                    pass
+
         self.client_reader = reader
         self.client_writer = writer
         self.logged_in = False
@@ -107,6 +123,10 @@ class OTProxy:
         except Exception as e:
             log.error(f"[{mode}] Failed to connect to server: {e}")
             writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
             return
 
         try:
@@ -123,9 +143,25 @@ class OTProxy:
         except Exception as e:
             log.error(f"[{mode}] Error: {e}")
         finally:
-            log.info(f"[{mode}] Connection closed")
+            log.info(f"[{mode}] Game connection ended, cleaning up")
             writer.close()
-            self.server_writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+            if self.server_writer:
+                self.server_writer.close()
+                try:
+                    await self.server_writer.wait_closed()
+                except Exception:
+                    pass
+            self.client_writer = None
+            self.server_writer = None
+            if self.on_game_disconnected:
+                try:
+                    self.on_game_disconnected()
+                except Exception as e:
+                    log.error(f"[{mode}] on_game_disconnected callback error: {e}")
 
     async def _handle_login_session(self):
         """
@@ -372,7 +408,16 @@ class OTProxy:
             keys_to_try = [self.default_rsa_key, self.proxy_rsa_key]
 
             for key in keys_to_try:
-                for try_offset in range(offset + 1, len(data) - rsa_block_size + 1):
+                # Try the last 128 bytes first (most common RSA block position
+                # in OT login packets), then fall back to brute-force iteration
+                last_offset = len(data) - rsa_block_size
+                offsets_to_try = [last_offset] if last_offset > offset else []
+                offsets_to_try += [
+                    o for o in range(offset + 1, len(data) - rsa_block_size + 1)
+                    if o != last_offset
+                ]
+
+                for try_offset in offsets_to_try:
                     rsa_block = data[try_offset:try_offset + rsa_block_size]
                     try:
                         decrypted = rsa_decrypt(rsa_block, key)

@@ -113,7 +113,8 @@ class ServerOpcode(IntEnum):
 
     # Creature
     CREATURE_MOVE = 0x6D
-    CREATURE_TURN = 0x6E
+    # CREATURE_TURN removed: 0x6E is OPEN_CONTAINER in TFS 7.x-8.x;
+    # creature turns are communicated via tile updates, not a standalone opcode.
 
     # Container
     OPEN_CONTAINER = 0x6E
@@ -204,6 +205,8 @@ class PacketReader:
         return self._pos
 
     def read_bytes(self, count: int) -> bytes:
+        if self._pos + count > len(self._data):
+            raise IndexError(f"read_bytes({count}) at pos {self._pos} exceeds data length {len(self._data)}")
         result = self._data[self._pos:self._pos + count]
         self._pos += count
         return result

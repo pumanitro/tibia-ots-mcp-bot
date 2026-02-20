@@ -25,7 +25,8 @@ from protocol import (
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s'
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    stream=sys.stderr
 )
 log = logging.getLogger("bot")
 
@@ -97,8 +98,8 @@ class DBVBot:
     def _parse_player_stats(self, reader: PacketReader):
         """Parse player stats packet."""
         try:
-            self.state.player_hp = reader.read_u16()
-            self.state.player_max_hp = reader.read_u16()
+            self.state.player_hp = reader.read_u32()
+            self.state.player_max_hp = reader.read_u32()
             # There are more fields but they vary by protocol version
         except Exception:
             pass

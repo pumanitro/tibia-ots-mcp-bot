@@ -70,6 +70,9 @@ class _Handler(BaseHTTPRequestHandler):
         parts = self.path.strip("/").split("/")
         if len(parts) == 4 and parts[0] == "api" and parts[1] == "actions":
             name = parts[2]
+            if not all(c.isalnum() or c == '_' for c in name):
+                self._json_response({"error": "invalid action name"}, 400)
+                return
             verb = parts[3]
             if verb == "toggle":
                 return self._handle_toggle(name)
@@ -81,7 +84,11 @@ class _Handler(BaseHTTPRequestHandler):
         # DELETE /api/actions/{name}
         parts = self.path.strip("/").split("/")
         if len(parts) == 3 and parts[0] == "api" and parts[1] == "actions":
-            return self._handle_delete(parts[2])
+            name = parts[2]
+            if not all(c.isalnum() or c == '_' for c in name):
+                self._json_response({"error": "invalid action name"}, 400)
+                return
+            return self._handle_delete(name)
         self._json_response({"error": "not found"}, 404)
 
     # ── GET /api/state ─────────────────────────────────────────────
@@ -177,11 +184,12 @@ def _build_state_json() -> str:
         p.stem for p in ACTIONS_DIR.glob("*.py") if p.stem != "__init__"
     ) if ACTIONS_DIR.exists() else []
 
+    action_tasks = dict(st._action_tasks)
     actions = []
     for name in action_names:
         cfg = actions_settings.get(name, {})
         enabled = cfg.get("enabled", False)
-        task = st._action_tasks.get(name)
+        task = action_tasks.get(name)
         running = task is not None and not task.done()
         desc = ""
         try:
@@ -210,12 +218,14 @@ def _build_state_json() -> str:
         "magic_level": gs.magic_level, "soul": gs.soul,
     }
 
+    creatures_snapshot = dict(gs.creatures)
+
     player_z = gs.position[2] if gs.position[2] != 0 else 0
-    if player_z == 0 and gs.player_id in gs.creatures:
-        player_z = gs.creatures[gs.player_id].get("z", 0)
+    if player_z == 0 and gs.player_id in creatures_snapshot:
+        player_z = creatures_snapshot[gs.player_id].get("z", 0)
     if player_z == 0:
         z_counts: dict[int, int] = {}
-        for info in gs.creatures.values():
+        for info in creatures_snapshot.values():
             cz = info.get("z", 0)
             if 1 <= cz <= 15:
                 z_counts[cz] = z_counts.get(cz, 0) + 1
@@ -225,7 +235,7 @@ def _build_state_json() -> str:
     creatures = [
         {"id": cid, "health": info.get("health", 0), "name": info.get("name", ""),
          "x": info.get("x", 0), "y": info.get("y", 0), "z": info.get("z", 0)}
-        for cid, info in gs.creatures.items()
+        for cid, info in creatures_snapshot.items()
         if player_z == 0 or info.get("z") == player_z
     ]
 
@@ -287,6 +297,8 @@ async def _start_ws_server():
         await server.wait_closed()
     except ImportError:
         log.warning("websockets not installed — WS push disabled (pip install websockets)")
+    except OSError as e:
+        log.error(f"WebSocket server failed to bind port {WS_PORT}: {e}")
     except Exception as e:
         log.error(f"WebSocket server failed: {e}")
 
@@ -302,7 +314,12 @@ def start_api(loop: asyncio.AbstractEventLoop, bot_state) -> None:
     _started = True
 
     # HTTP API (daemon thread)
-    server = HTTPServer(("127.0.0.1", API_PORT), _Handler)
+    try:
+        server = HTTPServer(("127.0.0.1", API_PORT), _Handler)
+    except OSError as e:
+        log.error(f"Failed to start HTTP server on port {API_PORT}: {e}")
+        _started = False
+        return
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
     log.info(f"Dashboard API listening on http://127.0.0.1:{API_PORT}")
