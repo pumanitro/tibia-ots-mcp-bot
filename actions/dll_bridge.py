@@ -1,10 +1,11 @@
 """DLL Bridge: reads creatures from injected dbvbot.dll via named pipe.
 
-Auto-injects the DLL if needed, then polls creature data every 300ms
+Auto-injects the DLL if needed, then polls creature data every 100ms
 and updates game_state.creatures with authoritative memory-read data.
 """
 import sys
 import os
+import shutil
 import time
 import logging
 
@@ -20,12 +21,67 @@ POLL_INTERVAL = 0.1   # seconds between creature reads
 INJECT_RETRY = 10     # seconds to wait before retrying injection
 CONNECT_RETRY = 2     # seconds between pipe connection attempts
 PROXIMITY_RANGE = 7   # max tile Chebyshev distance (visible screen range)
+STALE_REINJECT = 3    # number of stale cycles before re-injecting DLL
 DEBUG_LOG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dll_bridge_debug.txt")
+DLL_SOURCE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "dll", "dbvbot12.dll")
 
 
 def _dbg(msg):
     with open(DEBUG_LOG, "a") as f:
         f.write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
+
+
+def _inject_fresh_dll():
+    """Copy the DLL to a unique temp name and inject it.
+
+    LoadLibraryA keys on filename — re-injecting the same filename just bumps
+    the refcount without calling DllMain.  A unique copy forces a fresh load.
+    """
+    dll_dir = os.path.dirname(DLL_SOURCE)
+    temp_name = f"dbvbot_live_{int(time.time())}.dll"
+    temp_path = os.path.join(dll_dir, temp_name)
+    shutil.copy2(DLL_SOURCE, temp_path)
+    _dbg(f"injecting fresh DLL copy: {temp_name}")
+    dll_inject.inject(dll_path=temp_path)
+    return temp_name
+
+
+async def _connect_with_inject(bridge, bot):
+    """Try existing pipe, health-check it, re-inject if needed. Returns True on success."""
+    # Try existing pipe first (DLL may still be loaded with live thread)
+    await bot.sleep(1)
+    if bridge.connect():
+        bridge.send_command({"cmd": "init", "player_id": bot.player_id})
+        _dbg("connected to existing pipe — health checking...")
+        await bot.sleep(2)
+        test = bridge.read_creatures()
+        if test is not None:
+            _dbg(f"pipe healthy — got {len(test)} creatures")
+            return True
+        _dbg("pipe dead — will inject fresh DLL")
+        bridge.disconnect()
+
+    # Inject a fresh copy
+    try:
+        _inject_fresh_dll()
+    except Exception as e:
+        _dbg(f"injection failed: {e}")
+        return False
+
+    await bot.sleep(2)
+
+    for attempt in range(30):
+        if bridge.connect():
+            bridge.send_command({"cmd": "init", "player_id": bot.player_id})
+            _dbg(f"pipe connected on attempt {attempt+1}")
+            return True
+        if attempt % 5 == 0:
+            _dbg(f"pipe connect attempt {attempt+1}...")
+        await bot.sleep(CONNECT_RETRY)
+
+    _dbg("FAILED to connect to pipe after injection")
+    return False
 
 
 async def run(bot):
@@ -39,51 +95,8 @@ async def run(bot):
 
     _dbg(f"player_id={bot.player_id:#010x} ({bot.player_id})")
 
-    dll_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                            "dll", "dbvbot11.dll")
-
-    connected = False
-
-    # Try existing pipe first (DLL may still be loaded with live thread)
-    await bot.sleep(2)  # let DLL recycle pipe from previous client
-    if bridge.connect():
-        bridge.send_command({"cmd": "init", "player_id": bot.player_id})
-        _dbg("connected to existing pipe — health checking...")
-        await bot.sleep(2)
-        test = bridge.read_creatures()
-        if test is not None:
-            _dbg(f"pipe healthy — got {len(test)} creatures")
-            connected = True
-        else:
-            _dbg("pipe dead — will inject fresh DLL")
-            bridge.disconnect()
-
-    if not connected:
-        _dbg(f"injecting DLL: {dll_path}")
-        try:
-            dll_inject.inject(dll_path=dll_path)
-            _dbg("DLL injected successfully")
-        except Exception as e:
-            _dbg(f"injection failed: {e}")
-
-        await bot.sleep(2)
-
-        for attempt in range(30):
-            if bridge.connect():
-                _dbg(f"pipe connected on attempt {attempt+1}")
-                connected = True
-                break
-            if attempt % 5 == 0:
-                _dbg(f"pipe connect attempt {attempt+1}...")
-            await bot.sleep(CONNECT_RETRY)
-
-    if not connected:
-        _dbg("FAILED to connect to pipe")
+    if not await _connect_with_inject(bridge, bot):
         return
-
-    # Send init command with player_id
-    bridge.send_command({"cmd": "init", "player_id": bot.player_id})
-    _dbg(f"sent init command with player_id={bot.player_id}")
 
     # Access game_state directly for authoritative updates
     state = sys.modules["__main__"].state
@@ -92,6 +105,7 @@ async def run(bot):
     poll_count = 0
     null_count = 0
     empty_count = 0
+    stale_cycles = 0  # consecutive 30-poll windows that were all null
 
     try:
         while bot.is_connected:
@@ -103,26 +117,39 @@ async def run(bot):
             elif len(creatures) == 0:
                 empty_count += 1
             else:
-                _dbg(f"poll#{poll_count}: GOT {len(creatures)} creatures: {creatures}")
+                null_count = 0  # reset on any successful read
+                stale_cycles = 0
 
-            # Log summary every 30 polls (~10s)
+            # Log summary every 30 polls (~3s)
             if poll_count % 30 == 0:
-                _dbg(f"poll#{poll_count}: null={null_count} empty={empty_count} gs.creatures={len(gs.creatures)}")
-                # Auto-reconnect if pipe seems stale (all nulls)
+                _dbg(f"poll#{poll_count}: null={null_count} empty={empty_count} "
+                     f"gs.creatures={len(gs.creatures)} stale_cycles={stale_cycles}")
+
                 if null_count >= 30:
-                    _dbg("pipe stale — reconnecting")
-                    bridge.disconnect()
-                    await bot.sleep(2)
-                    if bridge.connect():
-                        bridge.send_command({"cmd": "init", "player_id": bot.player_id})
-                        _dbg("reconnected successfully")
+                    stale_cycles += 1
+                    if stale_cycles >= STALE_REINJECT:
+                        # Pipe is persistently dead — re-inject DLL
+                        _dbg(f"pipe dead for {stale_cycles} cycles — re-injecting DLL")
+                        bridge.disconnect()
+                        if await _connect_with_inject(bridge, bot):
+                            stale_cycles = 0
+                        else:
+                            _dbg("re-injection failed — will keep trying")
                     else:
-                        _dbg("reconnect failed — will retry next cycle")
+                        # Simple reconnect attempt
+                        _dbg("pipe stale — reconnecting")
+                        bridge.disconnect()
+                        await bot.sleep(2)
+                        if bridge.connect():
+                            bridge.send_command({"cmd": "init", "player_id": bot.player_id})
+                            _dbg("reconnected successfully")
+                        else:
+                            _dbg("reconnect failed — will retry next cycle")
                 null_count = 0
                 empty_count = 0
 
             now = time.time()
-            if creatures is not None:
+            if creatures is not None and len(creatures) > 0:
                 # Get player position from packet-based game state (reliable)
                 px, py, pz = gs.position if gs.position else (0, 0, 0)
 
@@ -178,16 +205,14 @@ async def run(bot):
                 ]
                 for cid in stale:
                     del gs.creatures[cid]
-            else:
-                # Null response — refresh timestamps on existing DLL creatures
-                # so the packet scanner doesn't prune them as stale
-                for cid, info in gs.creatures.items():
-                    if info.get("source") == "dll":
-                        info["t"] = now
+            elif creatures is not None:
+                # Empty list — no creatures nearby, clear DLL entries
+                stale = [cid for cid, info in gs.creatures.items()
+                         if info.get("source") == "dll"]
+                for cid in stale:
+                    del gs.creatures[cid]
 
             await bot.sleep(POLL_INTERVAL)
     finally:
-        # Just disconnect — don't send "stop" so the DLL pipe thread stays
-        # alive and can accept a new client on next restart
         bridge.disconnect()
         _dbg("stopped (pipe thread kept alive)")

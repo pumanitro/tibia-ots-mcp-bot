@@ -33,7 +33,8 @@
 #define FULL_SCAN_INTERVAL 5000  // ms between full VirtualQuery scans
 #define FAST_SCAN_INTERVAL 200   // ms between fast re-reads of cached addrs
 #define SEND_INTERVAL      200   // ms between JSON sends
-#define POS_OFFSET         576   // offset from creature ID to position
+#define POS_OFFSET         576   // offset from creature ID to position (NPCs)
+#define PLAYER_POS_OFFSET  -40   // offset from creature ID to position (player)
 
 
 // ── Creature data ───────────────────────────────────────────────────
@@ -71,7 +72,7 @@ static void dbg_open(void) {
     _snprintf(path, sizeof(path), "%s\\dbvbot_debug.txt", g_dll_dir);
     g_dbg = fopen(path, "w");
     if (g_dbg) {
-        fprintf(g_dbg, "=== dbvbot.dll v10 (no DLL filter) ===\n");
+        fprintf(g_dbg, "=== dbvbot.dll v12 (player pos fix) ===\n");
         fflush(g_dbg);
     }
 }
@@ -141,8 +142,8 @@ static BOOL try_read_name(const uint8_t* base, char* out, size_t out_sz) {
 
 // ── Read creature position ──────────────────────────────────────────
 
-static BOOL read_position(const uint8_t* id_ptr, uint32_t* x, uint32_t* y, uint32_t* z) {
-    const uint8_t* pos_ptr = id_ptr + POS_OFFSET;
+static BOOL read_position_at(const uint8_t* id_ptr, int offset, uint32_t* x, uint32_t* y, uint32_t* z) {
+    const uint8_t* pos_ptr = id_ptr + offset;
     if (IsBadReadPtr(pos_ptr, 12)) return FALSE;
 
     memcpy(x, pos_ptr, 4);
@@ -151,6 +152,14 @@ static BOOL read_position(const uint8_t* id_ptr, uint32_t* x, uint32_t* y, uint3
 
     if (*x > 65535 || *y > 65535 || *z > 15) return FALSE;
     return TRUE;
+}
+
+static BOOL read_position(const uint8_t* id_ptr, uint32_t id, uint32_t* x, uint32_t* y, uint32_t* z) {
+    // Player creature stores position at a different offset
+    if (g_player_id != 0 && id == g_player_id) {
+        return read_position_at(id_ptr, PLAYER_POS_OFFSET, x, y, z);
+    }
+    return read_position_at(id_ptr, POS_OFFSET, x, y, z);
 }
 
 // ── Try to read a creature at a known address ───────────────────────
@@ -172,7 +181,7 @@ static BOOL reread_creature(CachedCreature* cc) {
 
     // Re-read position
     uint32_t x = 0, y = 0, z = 0;
-    if (read_position(cc->addr, &x, &y, &z)) {
+    if (read_position(cc->addr, cc->id, &x, &y, &z)) {
         cc->x = x;
         cc->y = y;
         cc->z = z;
@@ -212,24 +221,33 @@ static void full_scan(void) {
 
     CachedCreature found[MAX_CREATURES];
     int found_count = 0;
+    int regions_scanned = 0;
+    int pages_scanned = 0;
+    int pages_bad = 0;
+    uintptr_t max_addr_reached = 0;
 
     MEMORY_BASIC_INFORMATION mbi;
     uintptr_t addr = 0x10000;
 
     while (addr < 0x7FFE0000u && found_count < MAX_CREATURES) {
-        if (VirtualQuery((void*)addr, &mbi, sizeof(mbi)) == 0)
+        if (VirtualQuery((void*)addr, &mbi, sizeof(mbi)) == 0) {
+            dbg("VirtualQuery failed at 0x%08X err=%lu", (unsigned)addr, GetLastError());
             break;
+        }
 
         uintptr_t rstart = (uintptr_t)mbi.BaseAddress;
         uintptr_t rend = rstart + mbi.RegionSize;
+        max_addr_reached = rend;
 
         if (mbi.State == MEM_COMMIT &&
             (mbi.Protect == PAGE_READWRITE ||
              mbi.Protect == PAGE_EXECUTE_READWRITE) &&
             mbi.RegionSize >= 32) {
 
+            regions_scanned++;
             for (uintptr_t page = rstart; page < rend && found_count < MAX_CREATURES; page += 4096) {
-                if (IsBadReadPtr((void*)page, 4)) continue;
+                if (IsBadReadPtr((void*)page, 4)) { pages_bad++; continue; }
+                pages_scanned++;
 
                 uintptr_t page_end = page + 4096;
                 if (page_end > rend) page_end = rend;
@@ -265,7 +283,7 @@ static void full_scan(void) {
 
                     // Read position
                     uint32_t cx = 0, cy = 0, cz = 0;
-                    read_position(id_ptr, &cx, &cy, &cz);
+                    read_position(id_ptr, id, &cx, &cy, &cz);
 
                     CachedCreature* c = &found[found_count++];
                     c->addr = id_ptr;  // cache the memory address!
@@ -294,8 +312,9 @@ static void full_scan(void) {
     // Apply proximity filter to update output
     copy_to_output();
 
-    dbg("full_scan#%d: raw=%d nearby=%d",
-        g_scan_count, found_count, g_output_count);
+    dbg("full_scan#%d: raw=%d nearby=%d regions=%d pages=%d bad_pages=%d maxaddr=0x%08X",
+        g_scan_count, found_count, g_output_count,
+        regions_scanned, pages_scanned, pages_bad, (unsigned)max_addr_reached);
 }
 
 // ── JSON builder ────────────────────────────────────────────────────

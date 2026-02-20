@@ -1,8 +1,8 @@
 """
-Lightweight HTTP API for the dashboard (stdlib only, zero new deps).
+Dashboard API — HTTP for actions + WebSocket for real-time state push.
 
-Runs in a daemon thread.  Read-only endpoints access global state directly;
-mutating endpoints dispatch to the main asyncio loop.
+HTTP runs in a daemon thread.  WebSocket runs in the main asyncio loop
+and pushes game state to all connected dashboards every 100ms.
 """
 
 import asyncio
@@ -10,6 +10,7 @@ import json
 import logging
 import sys
 import threading
+import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -21,6 +22,8 @@ _state = None  # will be set to the BotState instance
 ACTIONS_DIR = Path(__file__).parent / "actions"
 
 API_PORT = 8089
+WS_PORT = 8090
+WS_PUSH_INTERVAL = 0.1  # seconds between WebSocket pushes
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -83,88 +86,12 @@ class _Handler(BaseHTTPRequestHandler):
 
     # ── GET /api/state ─────────────────────────────────────────────
     def _handle_get_state(self):
-        st = _state
-        if st is None:
-            self._json_response({"connected": False, "actions": []})
-            return
-
-        actions_settings = st.settings.get("actions", {})
-        action_names = sorted(
-            p.stem for p in ACTIONS_DIR.glob("*.py") if p.stem != "__init__"
-        ) if ACTIONS_DIR.exists() else []
-
-        actions = []
-        for name in action_names:
-            cfg = actions_settings.get(name, {})
-            enabled = cfg.get("enabled", False)
-            task = st._action_tasks.get(name)
-            running = task is not None and not task.done()
-
-            # Read first line of docstring as description
-            desc = ""
-            try:
-                src = (ACTIONS_DIR / f"{name}.py").read_text(encoding="utf-8")
-                for line in src.splitlines():
-                    s = line.strip().strip('"').strip("'")
-                    if s:
-                        desc = s
-                        break
-            except OSError:
-                pass
-
-            actions.append({
-                "name": name,
-                "enabled": enabled,
-                "running": running,
-                "description": desc,
-            })
-
-        pkt_server = st.game_proxy.packets_from_server if st.game_proxy else 0
-        pkt_client = st.game_proxy.packets_from_client if st.game_proxy else 0
-
-        gs = st.game_state
-        player = {
-            "hp": gs.hp,
-            "max_hp": gs.max_hp,
-            "mana": gs.mana,
-            "max_mana": gs.max_mana,
-            "level": gs.level,
-            "experience": gs.experience,
-            "position": list(gs.position),
-            "magic_level": gs.magic_level,
-            "soul": gs.soul,
-        }
-
-        # Use the best available z: gs.position if valid, else infer from
-        # the player's own creature entry in DLL data
-        player_z = gs.position[2] if gs.position[2] != 0 else 0
-        if player_z == 0 and gs.player_id in gs.creatures:
-            player_z = gs.creatures[gs.player_id].get("z", 0)
-        if player_z == 0:
-            # Last resort: use most common z among DLL creatures
-            z_counts: dict[int, int] = {}
-            for info in gs.creatures.values():
-                cz = info.get("z", 0)
-                if 1 <= cz <= 15:
-                    z_counts[cz] = z_counts.get(cz, 0) + 1
-            if z_counts:
-                player_z = max(z_counts, key=z_counts.get)
-
-        creatures = [
-            {"id": cid, "health": info.get("health", 0), "name": info.get("name", ""),
-             "x": info.get("x", 0), "y": info.get("y", 0), "z": info.get("z", 0)}
-            for cid, info in gs.creatures.items()
-            if player_z == 0 or info.get("z") == player_z
-        ]
-
-        self._json_response({
-            "connected": st.connected,
-            "actions": actions,
-            "packets_from_server": pkt_server,
-            "packets_from_client": pkt_client,
-            "player": player,
-            "creatures": creatures,
-        })
+        body = _build_state_json().encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self._cors_headers()
+        self.end_headers()
+        self.wfile.write(body)
 
     # ── POST /api/actions/{name}/toggle ────────────────────────────
     def _handle_toggle(self, name: str):
@@ -237,8 +164,135 @@ class _Handler(BaseHTTPRequestHandler):
 _started = False
 
 
+# ── Shared state builder (used by HTTP and WebSocket) ──────────────
+
+def _build_state_json() -> str:
+    """Build the full state JSON string. Thread-safe read of global state."""
+    st = _state
+    if st is None:
+        return json.dumps({"connected": False, "actions": []})
+
+    actions_settings = st.settings.get("actions", {})
+    action_names = sorted(
+        p.stem for p in ACTIONS_DIR.glob("*.py") if p.stem != "__init__"
+    ) if ACTIONS_DIR.exists() else []
+
+    actions = []
+    for name in action_names:
+        cfg = actions_settings.get(name, {})
+        enabled = cfg.get("enabled", False)
+        task = st._action_tasks.get(name)
+        running = task is not None and not task.done()
+        desc = ""
+        try:
+            src = (ACTIONS_DIR / f"{name}.py").read_text(encoding="utf-8")
+            for line in src.splitlines():
+                s = line.strip().strip('"').strip("'")
+                if s:
+                    desc = s
+                    break
+        except OSError:
+            pass
+        actions.append({
+            "name": name, "enabled": enabled,
+            "running": running, "description": desc,
+        })
+
+    pkt_server = st.game_proxy.packets_from_server if st.game_proxy else 0
+    pkt_client = st.game_proxy.packets_from_client if st.game_proxy else 0
+
+    gs = st.game_state
+    player = {
+        "hp": gs.hp, "max_hp": gs.max_hp,
+        "mana": gs.mana, "max_mana": gs.max_mana,
+        "level": gs.level, "experience": gs.experience,
+        "position": list(gs.position),
+        "magic_level": gs.magic_level, "soul": gs.soul,
+    }
+
+    player_z = gs.position[2] if gs.position[2] != 0 else 0
+    if player_z == 0 and gs.player_id in gs.creatures:
+        player_z = gs.creatures[gs.player_id].get("z", 0)
+    if player_z == 0:
+        z_counts: dict[int, int] = {}
+        for info in gs.creatures.values():
+            cz = info.get("z", 0)
+            if 1 <= cz <= 15:
+                z_counts[cz] = z_counts.get(cz, 0) + 1
+        if z_counts:
+            player_z = max(z_counts, key=z_counts.get)
+
+    creatures = [
+        {"id": cid, "health": info.get("health", 0), "name": info.get("name", ""),
+         "x": info.get("x", 0), "y": info.get("y", 0), "z": info.get("z", 0)}
+        for cid, info in gs.creatures.items()
+        if player_z == 0 or info.get("z") == player_z
+    ]
+
+    return json.dumps({
+        "connected": st.connected,
+        "actions": actions,
+        "packets_from_server": pkt_server,
+        "packets_from_client": pkt_client,
+        "player": player,
+        "creatures": creatures,
+    })
+
+
+# ── WebSocket push server ──────────────────────────────────────────
+
+_ws_clients: set = set()
+
+
+async def _ws_handler(websocket):
+    """Handle a single WebSocket client connection."""
+    _ws_clients.add(websocket)
+    log.info(f"WS client connected ({len(_ws_clients)} total)")
+    try:
+        # Send initial state immediately
+        await websocket.send(_build_state_json())
+        # Keep connection alive — just wait for disconnect
+        async for _ in websocket:
+            pass  # ignore any messages from client
+    except Exception:
+        pass
+    finally:
+        _ws_clients.discard(websocket)
+        log.info(f"WS client disconnected ({len(_ws_clients)} total)")
+
+
+async def _ws_push_loop():
+    """Push state to all connected WebSocket clients every WS_PUSH_INTERVAL."""
+    while True:
+        if _ws_clients:
+            msg = _build_state_json()
+            dead = []
+            for ws in list(_ws_clients):
+                try:
+                    await ws.send(msg)
+                except Exception:
+                    dead.append(ws)
+            for ws in dead:
+                _ws_clients.discard(ws)
+        await asyncio.sleep(WS_PUSH_INTERVAL)
+
+
+async def _start_ws_server():
+    """Start the WebSocket server on the asyncio event loop."""
+    try:
+        import websockets
+        server = await websockets.serve(_ws_handler, "127.0.0.1", WS_PORT)
+        log.info(f"WebSocket server listening on ws://127.0.0.1:{WS_PORT}")
+        asyncio.create_task(_ws_push_loop())
+        await server.wait_closed()
+    except ImportError:
+        log.warning("websockets not installed — WS push disabled (pip install websockets)")
+    except Exception as e:
+        log.error(f"WebSocket server failed: {e}")
+
+
 def start_api(loop: asyncio.AbstractEventLoop, bot_state) -> None:
-    """Start the HTTP API in a daemon thread. Safe to call multiple times."""
+    """Start the HTTP API in a daemon thread + WebSocket in asyncio loop."""
     global _main_loop, _state, _started
     _main_loop = loop
     _state = bot_state
@@ -247,8 +301,11 @@ def start_api(loop: asyncio.AbstractEventLoop, bot_state) -> None:
         return
     _started = True
 
+    # HTTP API (daemon thread)
     server = HTTPServer(("127.0.0.1", API_PORT), _Handler)
-
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
     log.info(f"Dashboard API listening on http://127.0.0.1:{API_PORT}")
+
+    # WebSocket push server (asyncio)
+    asyncio.run_coroutine_threadsafe(_start_ws_server(), loop)

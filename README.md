@@ -34,7 +34,7 @@ A man-in-the-middle proxy bot for the DBVictory game, controlled through Claude 
 ### Install Dependencies
 
 ```bash
-pip install pymem mcp
+pip install pymem mcp websockets
 ```
 
 ## Usage
@@ -204,10 +204,37 @@ This produces `dll/dbvbot.dll` (~20-50KB).
 3. The action will automatically:
    - Inject `dll/dbvbot.dll` into dbvStart.exe
    - Connect to the named pipe
-   - Poll creature data every 300ms
+   - Poll creature data every 100ms
    - Update `game_state.creatures` with authoritative data
 
 Check with `list_actions` — should show "dll_bridge >>> RUNNING".
+
+## Real-Time Dashboard (WebSocket)
+
+The Electron dashboard receives game state updates via WebSocket for low-latency display.
+
+### Architecture
+
+```
+DLL (100ms poll) → Python game_state → WebSocket push (100ms) → Electron Dashboard
+```
+
+- **WebSocket server** runs on `ws://127.0.0.1:8090` and pushes state to all connected clients every 100ms
+- **HTTP API** on `http://127.0.0.1:8089` handles action mutations (toggle, restart, delete)
+- The dashboard auto-connects to WebSocket and falls back to HTTP polling if unavailable
+
+### Component Status
+
+`start_bot` and `get_status` report health of all components:
+
+```
+[OK] MCP Server: running
+[OK] Game Client: dbvStart.exe detected
+[OK] Proxy: connected (server=1234 client=567 packets)
+[OK] DLL Pipe: dbvbot pipe available
+[OK] Dashboard: Electron running on port 4747
+[OK] Player: id=0x10000001 pos=(123,456,7) HP=100/100 creatures=3
+```
 
 ## Roadmap
 
