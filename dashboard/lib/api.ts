@@ -22,6 +22,10 @@ export interface PlayerInfo {
 export interface CreatureInfo {
   id: number;
   health: number;
+  name: string;
+  x: number;
+  y: number;
+  z: number;
 }
 
 export interface BotState {
@@ -58,4 +62,14 @@ export async function restartAction(name: string): Promise<void> {
   await fetch(`${API_BASE}/api/actions/${name}/restart`, {
     method: "POST",
   });
+}
+
+export async function deleteAction(name: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/actions/${name}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    console.error("Delete failed:", res.status, err);
+  }
 }

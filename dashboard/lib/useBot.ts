@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { fetchState, type BotState } from "./api";
 
-const POLL_INTERVAL = 1500;
+const POLL_INTERVAL = 500;
 
 export function useBot() {
   const [state, setState] = useState<BotState | null>(null);

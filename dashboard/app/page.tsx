@@ -1,7 +1,8 @@
 "use client";
 
 import { useBot } from "@/lib/useBot";
-import { toggleAction, restartAction } from "@/lib/api";
+import { useState } from "react";
+import { toggleAction, restartAction, deleteAction } from "@/lib/api";
 import type { ActionInfo, PlayerInfo, CreatureInfo } from "@/lib/api";
 
 function StatusBadge({ label, connected }: { label: string; connected: boolean }) {
@@ -53,6 +54,8 @@ function ActionCard({
   action: ActionInfo;
   onRefresh: () => void;
 }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
   const handleToggle = async (enabled: boolean) => {
     await toggleAction(action.name, enabled);
     onRefresh();
@@ -60,6 +63,12 @@ function ActionCard({
 
   const handleRestart = async () => {
     await restartAction(action.name);
+    onRefresh();
+  };
+
+  const handleDelete = async () => {
+    await deleteAction(action.name);
+    setConfirmDelete(false);
     onRefresh();
   };
 
@@ -85,6 +94,13 @@ function ActionCard({
 
         <div className="flex items-center gap-3">
           <button
+            onClick={() => setConfirmDelete(true)}
+            className="rounded px-2 py-1 text-xs text-red-400 hover:bg-red-900/30 transition-colors"
+            title="Remove action"
+          >
+            Remove
+          </button>
+          <button
             onClick={handleRestart}
             disabled={!action.enabled}
             className="rounded px-2 py-1 text-xs text-gray-300 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
@@ -95,6 +111,29 @@ function ActionCard({
           <Toggle enabled={action.enabled} onChange={handleToggle} />
         </div>
       </div>
+
+      {/* Delete confirmation */}
+      {confirmDelete && (
+        <div className="mt-3 flex items-center justify-between rounded-md border border-red-800 bg-red-950/40 px-3 py-2">
+          <span className="text-xs text-red-300">
+            Delete <strong>{action.name}</strong>? This cannot be undone.
+          </span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setConfirmDelete(false)}
+              className="rounded px-2 py-1 text-xs text-gray-300 hover:bg-gray-700 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleDelete}
+              className="rounded px-2 py-1 text-xs text-white bg-red-600 hover:bg-red-500 transition-colors"
+            >
+              Confirm
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -162,8 +201,11 @@ function CreatureList({ creatures }: { creatures: CreatureInfo[] }) {
         <div className="rounded-lg border border-gray-700 bg-gray-800 divide-y divide-gray-700">
           {creatures.map((c) => (
             <div key={c.id} className="flex items-center gap-3 px-4 py-2">
-              <span className="text-xs text-gray-400 tabular-nums w-24 shrink-0">
-                #{c.id}
+              <span className="text-sm text-gray-200 w-28 shrink-0 truncate" title={`#${c.id}`}>
+                {c.name || `#${c.id}`}
+              </span>
+              <span className="text-xs tabular-nums text-gray-500 w-24 shrink-0">
+                ({c.x}, {c.y}, {c.z})
               </span>
               <div className="flex-1 h-2.5 rounded-full bg-gray-700 overflow-hidden">
                 <div
@@ -216,7 +258,7 @@ export default function Dashboard() {
               Server Packets
             </p>
             <p className="text-2xl font-bold mt-1 tabular-nums">
-              {state.packets_from_server.toLocaleString()}
+              {(state.packets_from_server ?? 0).toLocaleString()}
             </p>
           </div>
           <div className="rounded-lg border border-gray-700 bg-gray-800 p-4">
@@ -224,7 +266,7 @@ export default function Dashboard() {
               Client Packets
             </p>
             <p className="text-2xl font-bold mt-1 tabular-nums">
-              {state.packets_from_client.toLocaleString()}
+              {(state.packets_from_client ?? 0).toLocaleString()}
             </p>
           </div>
         </div>

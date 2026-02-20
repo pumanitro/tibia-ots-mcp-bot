@@ -87,80 +87,115 @@ def scan_packet(data: bytes, gs: GameState) -> None:
     if has_map_data:
         _scan_for_creatures(data, gs)
 
-    # Prune creatures that are dead or weren't refreshed by recent map data.
-    # When the player moves, map packets arrive and the scanner refreshes
-    # visible creatures.  Any creature not refreshed within 15s of the last
-    # map packet is off-screen.  When standing still, no pruning happens
-    # (no new map data = no stale threshold to compare against).
+    # Prune dead creatures always; prune stale only when we have fresh map data.
+    now = time.time()
     stale = [cid for cid, info in gs.creatures.items()
-             if info.get("health", 0) == 0
-             or (gs.last_map_time > 0
-                 and info.get("t", 0) < gs.last_map_time - 15)]
+             if info.get("source") != "dll"
+             and (info.get("health", 0) == 0
+                  or (has_map_data and now - info.get("t", 0) > 3))]
     for cid in stale:
         del gs.creatures[cid]
 
+    # DEBUG: log creature state on map packets
+    if has_map_data and gs.creatures:
+        ages = {info.get("name", "?"): f"{now - info.get('t', 0):.1f}s"
+                for info in gs.creatures.values()}
+        log.info(f"CREATURES after prune: kept={len(gs.creatures)} pruned={len(stale)} ages={ages}")
+
 
 def _scan_for_creatures(data: bytes, gs: GameState) -> None:
-    """Scan raw packet data for 0x0061 (unknown creature) markers in map data.
+    """Scan raw packet data for creature markers in map data.
 
-    Only scans for 0x0061 which has strong validation (name + health).
-    0x0062 (known creature) is skipped — too few bytes to validate reliably.
+    DEBUG MODE: dumps raw bytes after valid name matches to determine format.
     """
     found = 0
+    debug_lines = []
     i = 0
     end = len(data) - 2
     while i < end:
-        if data[i] != 0x61 or data[i + 1] != 0x00:
-            i += 1
+        # ── 0x0061 unknown creature ────────────────────────────────
+        if data[i] == 0x61 and data[i + 1] == 0x00:
+            if i + 2 + 4 + 4 + 2 > len(data):
+                break
+            p = i + 2
+            remove_id = struct.unpack_from('<I', data, p)[0]
+            p += 4
+            creature_id = struct.unpack_from('<I', data, p)[0]
+            p += 4
+            if remove_id != 0 and remove_id < 0x10000000:
+                i += 1
+                continue
+            if creature_id < 0x10000000:
+                i += 1
+                continue
+            if p + 2 > len(data):
+                i += 1
+                continue
+            name_len = struct.unpack_from('<H', data, p)[0]
+            p += 2
+            if name_len < 1 or name_len > 30 or p + name_len > len(data):
+                i += 1
+                continue
+            name_bytes = data[p:p + name_len]
+            if name_bytes[0] < 65 or name_bytes[0] > 90:
+                i += 1
+                continue
+            if not all(b == 32 or b == 39 or (65 <= b <= 90) or (97 <= b <= 122) for b in name_bytes):
+                i += 1
+                continue
+            name = name_bytes.decode('latin-1')
+            p += name_len
+
+            # DEBUG: dump 30 bytes after name for format analysis
+            trail = min(30, len(data) - p)
+            raw = data[p:p + trail]
+            hex_dump = ' '.join(f'{b:02x}' for b in raw)
+            debug_lines.append(
+                f"0x0061 @{i}: id={creature_id:#010x} rm={remove_id:#010x} "
+                f"name='{name}' trail=[{hex_dump}]"
+            )
+
+            # Minimal validation: just health + direction
+            if p + 2 > len(data):
+                i += 1
+                continue
+            health = data[p]; p += 1
+            direction = data[p]; p += 1
+            if health > 100 or direction > 3:
+                i += 1
+                continue
+
+            # Don't overwrite DLL-sourced entries (they have accurate position data)
+            if creature_id in gs.creatures and gs.creatures[creature_id].get("source") == "dll":
+                gs.creatures[creature_id]["health"] = health
+                gs.creatures[creature_id]["t"] = time.time()
+            else:
+                gs.creatures[creature_id] = {
+                    "health": health, "t": time.time(), "name": name,
+                    "z": gs.position[2],
+                }
+            found += 1
+            # Skip past the outfit+trailing bytes (we'll figure out exact size from dump)
+            i = p + 10  # rough skip to avoid re-scanning same region
             continue
 
-        # 0x0061 unknown creature: u32 remove_id, u32 creature_id,
-        # u16 name_len, name, u8 health%
-        if i + 2 + 4 + 4 + 2 > len(data):
-            break
-        p = i + 2
-        remove_id = struct.unpack_from('<I', data, p)[0]
-        p += 4
-        creature_id = struct.unpack_from('<I', data, p)[0]
-        p += 4
-        # remove_id must be 0 (new) or a valid creature ID
-        if remove_id != 0 and remove_id < 0x10000000:
-            i += 1
-            continue
-        if creature_id < 0x10000000:
-            i += 1
-            continue
-        if p + 2 > len(data):
-            i += 1
-            continue
-        name_len = struct.unpack_from('<H', data, p)[0]
-        p += 2
-        if name_len < 1 or name_len > 30 or p + name_len + 1 > len(data):
-            i += 1
-            continue
-        name_bytes = data[p:p + name_len]
-        # Name must start with A-Z and contain only letters/spaces/apostrophes
-        if name_bytes[0] < 65 or name_bytes[0] > 90:  # not A-Z
-            i += 1
-            continue
-        if not all(b == 32 or b == 39 or (65 <= b <= 90) or (97 <= b <= 122) for b in name_bytes):
-            i += 1
-            continue
-        name = name_bytes.decode('latin-1')
-        p += name_len
-        health = data[p]
-        if health > 100:
-            i += 1
-            continue
-        gs.creatures[creature_id] = {
-            "health": health, "t": time.time(), "name": name,
-            "px": gs.position[0], "py": gs.position[1],
-        }
-        found += 1
-        i = p + 1
+        i += 1
+
+    if debug_lines:
+        with open("creature_format_dump.txt", "a") as f:
+            f.write(f"=== {time.strftime('%H:%M:%S')} pktlen={len(data)} ===\n")
+            for line in debug_lines:
+                f.write(line + "\n")
+            f.write("\n")
 
     if found:
         log.info(f"SCAN: {found} creature(s) in {len(data)}B, total={len(gs.creatures)}")
+
+    # DEBUG: also save first large map packet for offline analysis
+    if len(data) > 2000 and not hasattr(gs, '_dumped_map'):
+        gs._dumped_map = True
+        with open("map_packet_dump.bin", "wb") as f:
+            f.write(data)
 
 
 def _search_for_stats(data: bytes, start: int, gs: GameState) -> None:
@@ -220,16 +255,15 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
         return pos + needed
 
     # CREATURE_HEALTH 0x8C — 5 bytes: u32 + u8
+    # Only update existing creatures — never create new entries (avoids phantoms)
     if opcode == 0x8C:
         if pos + 5 > len(data):
             return -1
         cid = struct.unpack_from('<I', data, pos)[0]
         health = data[pos + 4]
-        entry = gs.creatures.setdefault(cid, {})
-        entry["health"] = health
-        entry["t"] = time.time()
-        entry["px"] = gs.position[0]
-        entry["py"] = gs.position[1]
+        if cid in gs.creatures:
+            gs.creatures[cid]["health"] = health
+            gs.creatures[cid]["t"] = time.time()
         return pos + 5
 
     # CREATURE_MOVE 0x6D — 11 bytes: pos(5) + u8 + pos(5)
@@ -253,13 +287,28 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
         log.info(f"TEXT_MESSAGE(type={msg_type}): {text}")
         return end
 
-    # LOGIN_OR_PENDING 0x0A — first u32 is the player's creature ID
+    # LOGIN_OR_PENDING 0x0A — u32 player_id, u16 draw_speed, u8 can_report_bugs
+    # Then 0x64 MAP_DESCRIPTION with position
     if opcode == 0x0A:
         if pos + 4 > len(data):
             return -1
         gs.player_id = struct.unpack_from('<I', data, pos)[0]
         log.info(f"LOGIN: player_id={gs.player_id}")
-        return -1  # Can't skip the rest (map data follows)
+        pos += 4
+        # Search for 0x64 within next 10 bytes (skip draw_speed/flags)
+        search_end = min(pos + 10, len(data) - 5)
+        for i in range(pos, search_end):
+            if data[i] == 0x64:
+                x = struct.unpack_from('<H', data, i + 1)[0]
+                y = struct.unpack_from('<H', data, i + 3)[0]
+                z = data[i + 5]
+                if 100 < x < 65000 and 100 < y < 65000 and z < 16:
+                    gs.position = (x, y, z)
+                    gs.creatures.clear()
+                    gs.last_map_time = time.time()
+                    log.info(f"LOGIN position: ({x}, {y}, {z})")
+                    break
+        return -1  # Can't skip the rest (tile data follows)
 
     # MAP_DESCRIPTION 0x64 — read position then stop (can't skip tile data)
     if opcode == 0x64:
@@ -338,11 +387,9 @@ def _parse(opcode: int, reader, gs: GameState) -> None:
     elif opcode == 0x8C:
         creature_id = reader.read_u32()
         health = reader.read_u8()
-        entry = gs.creatures.setdefault(creature_id, {})
-        entry["health"] = health
-        entry["t"] = time.time()
-        entry["px"] = gs.position[0]
-        entry["py"] = gs.position[1]
+        if creature_id in gs.creatures:
+            gs.creatures[creature_id]["health"] = health
+            gs.creatures[creature_id]["t"] = time.time()
     elif opcode == 0xA0:
         gs.hp = reader.read_u32()
         gs.max_hp = reader.read_u32()

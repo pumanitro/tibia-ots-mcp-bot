@@ -32,7 +32,7 @@ class _Handler(BaseHTTPRequestHandler):
     # ── CORS ───────────────────────────────────────────────────────
     def _cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
     def do_OPTIONS(self):
@@ -72,6 +72,13 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._handle_toggle(name)
             if verb == "restart":
                 return self._handle_restart(name)
+        self._json_response({"error": "not found"}, 404)
+
+    def do_DELETE(self):
+        # DELETE /api/actions/{name}
+        parts = self.path.strip("/").split("/")
+        if len(parts) == 3 and parts[0] == "api" and parts[1] == "actions":
+            return self._handle_delete(parts[2])
         self._json_response({"error": "not found"}, 404)
 
     # ── GET /api/state ─────────────────────────────────────────────
@@ -128,9 +135,26 @@ class _Handler(BaseHTTPRequestHandler):
             "soul": gs.soul,
         }
 
+        # Use the best available z: gs.position if valid, else infer from
+        # the player's own creature entry in DLL data
+        player_z = gs.position[2] if gs.position[2] != 0 else 0
+        if player_z == 0 and gs.player_id in gs.creatures:
+            player_z = gs.creatures[gs.player_id].get("z", 0)
+        if player_z == 0:
+            # Last resort: use most common z among DLL creatures
+            z_counts: dict[int, int] = {}
+            for info in gs.creatures.values():
+                cz = info.get("z", 0)
+                if 1 <= cz <= 15:
+                    z_counts[cz] = z_counts.get(cz, 0) + 1
+            if z_counts:
+                player_z = max(z_counts, key=z_counts.get)
+
         creatures = [
-            {"id": cid, "health": info.get("health", 0), "name": info.get("name", "")}
+            {"id": cid, "health": info.get("health", 0), "name": info.get("name", ""),
+             "x": info.get("x", 0), "y": info.get("y", 0), "z": info.get("z", 0)}
             for cid, info in gs.creatures.items()
+            if player_z == 0 or info.get("z") == player_z
         ]
 
         self._json_response({
@@ -179,6 +203,33 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             result = future.result(timeout=5)
             self._json_response({"ok": True, "message": result})
+        except Exception as e:
+            self._json_response({"error": str(e)}, 500)
+
+
+    # ── DELETE /api/actions/{name} ───────────────────────────────
+    def _handle_delete(self, name: str):
+        action_file = ACTIONS_DIR / f"{name}.py"
+        if not action_file.exists():
+            self._json_response({"error": f"action '{name}' not found"}, 404)
+            return
+
+        # Disable first if running
+        if _main_loop is not None:
+            main_mod = sys.modules["__main__"]
+            try:
+                future = asyncio.run_coroutine_threadsafe(
+                    main_mod._async_toggle_action(name, False), _main_loop
+                )
+                future.result(timeout=5)
+            except Exception:
+                pass
+
+        # Delete the file
+        try:
+            action_file.unlink()
+            log.info(f"Deleted action: {name}")
+            self._json_response({"ok": True, "message": f"Deleted {name}"})
         except Exception as e:
             self._json_response({"error": str(e)}, 500)
 

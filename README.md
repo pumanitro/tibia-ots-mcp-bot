@@ -156,6 +156,59 @@ Use the built-in `packet_sniffer` action to capture packets from the game client
 | `remove_action(name)` | Delete an action script and its settings |
 | `restart_action(name)` | Stop, reload `.py` from disk, and restart |
 
+## DLL Injection — Live Battle List
+
+The bot can inject a DLL into the game client to read the battle list (creature data) directly from process memory. This gives accurate, real-time creature tracking that matches the in-game battle list exactly.
+
+### Architecture
+
+```
+dbvStart.exe (with injected DLL)  <-->  Real Game Server
+         |
+    DLL scans process memory
+    for creature structs
+         |
+    Named Pipe (\\.\pipe\dbvbot)
+         |
+    Python dll_bridge.py
+         |
+    game_state.creatures  -->  Dashboard UI
+```
+
+The proxy remains for sending commands (walk, attack, say). The DLL supplements it with authoritative creature reading.
+
+### Build Prerequisites
+
+**MinGW-w64 (32-bit)** is required to compile the DLL:
+
+```bash
+winget install -e --id MingW-w64.MinGW-w64
+```
+
+Or download the `i686-*-posix-dwarf` build from [mingw-builds-binaries](https://github.com/niXman/mingw-builds-binaries/releases), extract to `C:\mingw32\`, and add `C:\mingw32\bin` to PATH.
+
+Verify with `g++ --version` — must be i686 (32-bit) since dbvStart.exe is 32-bit.
+
+### Build
+
+```bash
+cd dll && make
+```
+
+This produces `dll/dbvbot.dll` (~20-50KB).
+
+### Usage
+
+1. Start the game client and connect via `start_bot` as usual
+2. Enable the DLL bridge action: `toggle_action("dll_bridge")`
+3. The action will automatically:
+   - Inject `dll/dbvbot.dll` into dbvStart.exe
+   - Connect to the named pipe
+   - Poll creature data every 300ms
+   - Update `game_state.creatures` with authoritative data
+
+Check with `list_actions` — should show "dll_bridge >>> RUNNING".
+
 ## Roadmap
 
 Planned features, roughly in order of priority:

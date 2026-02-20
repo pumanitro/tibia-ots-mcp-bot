@@ -345,6 +345,94 @@ def _kill_port(port: int) -> None:
         log.debug(f"_kill_port({port}): {e}")
 
 
+def _check_process_running(name: str) -> bool:
+    """Check if a process with the given name is running (Windows)."""
+    try:
+        result = subprocess.run(
+            f'tasklist /FI "IMAGENAME eq {name}" /NH',
+            capture_output=True, text=True, shell=True, timeout=5,
+        )
+        return name.lower() in result.stdout.lower()
+    except Exception:
+        return False
+
+
+def _check_port_listening(port: int) -> bool:
+    """Check if something is listening on the given TCP port."""
+    try:
+        result = subprocess.run(
+            f'netstat -ano | findstr "LISTENING" | findstr ":{port} "',
+            capture_output=True, text=True, shell=True, timeout=5,
+        )
+        return bool(result.stdout.strip())
+    except Exception:
+        return False
+
+
+def _check_pipe_exists() -> bool:
+    """Check if the dbvbot named pipe exists (DLL loaded and running)."""
+    try:
+        from dll_bridge import DllBridge
+        bridge = DllBridge()
+        exists = bridge.pipe_exists()
+        return exists
+    except Exception:
+        return False
+
+
+def _build_status_report() -> str:
+    """Build a multi-line status report of all components."""
+    lines = []
+
+    # MCP Server — always OK if we're here
+    lines.append("[OK] MCP Server: running")
+
+    # Game client
+    client_running = _check_process_running("dbvStart.exe")
+    if client_running:
+        lines.append("[OK] Game Client: dbvStart.exe detected")
+    else:
+        lines.append("[!!] Game Client: dbvStart.exe NOT found")
+
+    # Proxy
+    if state.ready and state.game_proxy:
+        svr = state.game_proxy.packets_from_server
+        cli = state.game_proxy.packets_from_client
+        lines.append(f"[OK] Proxy: connected (server={svr} client={cli} packets)")
+    elif state.game_proxy:
+        lines.append("[..] Proxy: started, waiting for login")
+    else:
+        lines.append("[--] Proxy: not started")
+
+    # DLL pipe
+    pipe_ok = _check_pipe_exists()
+    if pipe_ok:
+        lines.append("[OK] DLL Pipe: dbvbot pipe available")
+    else:
+        lines.append("[--] DLL Pipe: not detected (dll_bridge action will inject)")
+
+    # Dashboard / Electron
+    dashboard_listening = _check_port_listening(DASHBOARD_PORT)
+    electron_running = _check_process_running("electron.exe")
+    if electron_running and dashboard_listening:
+        lines.append(f"[OK] Dashboard: Electron running on port {DASHBOARD_PORT}")
+    elif dashboard_listening:
+        lines.append(f"[OK] Dashboard: dev server on port {DASHBOARD_PORT} (Electron starting...)")
+    elif _dashboard_launched:
+        lines.append("[..] Dashboard: launch requested, waiting for startup...")
+    else:
+        lines.append("[--] Dashboard: not launched")
+
+    # Player info
+    gs = state.game_state
+    if gs.player_id:
+        pos = gs.position
+        lines.append(f"[OK] Player: id={gs.player_id:#010x} pos=({pos[0]},{pos[1]},{pos[2]}) "
+                      f"HP={gs.hp}/{gs.max_hp} creatures={len(gs.creatures)}")
+
+    return "\n".join(lines)
+
+
 def _launch_dashboard() -> None:
     """Fire-and-forget launch of the Electron dashboard. Only launches once."""
     global _dashboard_launched
@@ -579,26 +667,30 @@ async def start_bot() -> str:
 
     log.info("Proxies started — waiting for player to log in via the game client...")
 
+    # Launch dashboard API and Electron immediately (don't wait for login)
+    import dashboard_api
+    dashboard_api.start_api(asyncio.get_running_loop(), state)
+    _launch_dashboard()
+
     # Wait up to 120 s for the player to log in
     for _ in range(240):
         if state.ready:
             actions_started = _start_all_enabled_actions()
             actions_msg = f" {actions_started} automated action(s) started." if actions_started else ""
 
-            # Start dashboard API and Electron window
-            import dashboard_api
-            dashboard_api.start_api(asyncio.get_running_loop(), state)
-            _launch_dashboard()
-
+            status = _build_status_report()
             return (
                 f"Bot started successfully. Patched {patched} IP(s). "
-                f"Game session is active — you can now send commands.{actions_msg}"
+                f"Game session is active.{actions_msg}\n\n"
+                f"=== Component Status ===\n{status}"
             )
         await asyncio.sleep(0.5)
 
+    status = _build_status_report()
     return (
         f"Proxies are running (patched {patched} IP(s)) but no login detected yet. "
-        "Log in through the game client.  Use get_status to check later."
+        f"Log in through the game client.\n\n"
+        f"=== Component Status ===\n{status}"
     )
 
 
@@ -964,16 +1056,17 @@ async def send_ping() -> str:
 @mcp.tool()
 async def get_status() -> str:
     """Get the current connection state and packet statistics."""
-    if state.game_proxy is None:
-        return "Bot has not been started yet. Call start_bot first."
+    status = _build_status_report()
+
+    # Running actions
+    running = [n for n, t in state._action_tasks.items() if t and not t.done()]
+    if running:
+        status += f"\n\nRunning actions: {', '.join(running)}"
 
     auto = "running" if (state._auto_task and not state._auto_task.done()) else "idle"
-    return (
-        f"Connected: {state.ready}\n"
-        f"Packets from server: {state.game_proxy.packets_from_server}\n"
-        f"Packets from client: {state.game_proxy.packets_from_client}\n"
-        f"Auto-walk: {auto}"
-    )
+    status += f"\nAuto-walk: {auto}"
+
+    return f"=== Component Status ===\n{status}"
 
 
 @mcp.tool()
