@@ -11,17 +11,133 @@ A man-in-the-middle proxy bot for the DBVictory game, controlled through Claude 
 
 ## Project Structure
 
-| File | Description |
-|---|---|
-| `mcp_server.py` | MCP server exposing bot actions as tools for Claude Code |
-| `proxy.py` | TCP proxy handling login and game protocol traffic |
-| `protocol.py` | OT protocol packet builders and opcodes |
-| `crypto.py` | RSA and XTEA encryption/decryption |
-| `patcher.py` | Memory patcher for redirecting client connections |
-| `bot.py` | Bot logic and helpers |
-| `start.py` | Standalone startup script |
-| `xtea_finder.py` | Utility for locating XTEA keys in memory |
-| `actions/` | Automated action scripts (Python) |
+```
+dbv_exp/
+│
+├── ===== CORE BOT (the engine) =====
+│
+├── mcp_server.py          ★ THE MAIN ENTRY POINT
+│                          MCP server that Claude Code talks to.
+│                          Registers all tools (walk, attack, say, use_item...).
+│                          Starts the proxy, manages actions, runs everything.
+│
+├── proxy.py               Network MITM proxy. Sits between client and server.
+│                          Forwards packets, decrypts/encrypts with XTEA,
+│                          parses opcodes, allows packet injection.
+│
+├── protocol.py            Packet parser. Knows the OT protocol format —
+│                          reads opcodes, decodes creature data, chat messages,
+│                          movement packets, etc.
+│
+├── crypto.py              XTEA encrypt/decrypt implementation in Python.
+│                          Used by the proxy to handle encrypted traffic.
+│
+├── bot.py                 BotContext class — the `bot` object that actions use.
+│                          Provides bot.walk(), bot.say(), bot.attack(),
+│                          bot.use_item(), bot.sleep(), etc.
+│
+├── game_state.py          Tracks the full game state: player position, health,
+│                          creature list, containers, etc. Updated by proxy
+│                          as packets flow through.
+│
+├── patcher.py             Patches the running game client's memory to redirect
+│                          the server IP to 127.0.0.1 (our proxy).
+│
+├── start.py               Alternative standalone launcher (starts everything
+│                          without MCP).
+│
+├── ===== DLL INJECTION SYSTEM =====
+│
+├── inject.py              DLL injector. Uses OpenProcess + VirtualAllocEx +
+│                          CreateRemoteThread + LoadLibrary to inject our DLL
+│                          into the game process.
+│
+├── dll_bridge.py          Python ↔ DLL communication via named pipe.
+│                          Reads creature data and XTEA keys from the DLL,
+│                          feeds them into game_state.
+│
+├── dll/
+│   ├── dbvbot.cpp         ★ THE DLL SOURCE CODE (C++)
+│   │                      Hooks XTEA encrypt function to steal keys.
+│   │                      Scans memory for creature battle list.
+│   │                      Sends data to Python via \\.\pipe\dbvbot.
+│   │
+│   ├── dbvbot.dll         Current compiled DLL (the one we inject)
+│   └── Makefile           Build script for g++ compilation
+│
+├── ===== ACTIONS (automation scripts) =====
+│
+├── actions/
+│   ├── dll_bridge.py      Action wrapper — starts the DLL bridge as a
+│   │                      background action so it runs continuously.
+│   ├── auto_attack.py     Auto-targets and attacks nearest creature.
+│   ├── eat_food.py        Periodically eats food (red ham, item 3583).
+│   ├── packet_sniffer.py  Logs all packets flowing through proxy.
+│   ├── power_up.py        Uses power-up healing ability.
+│   └── power_down.py      Cancels power-up.
+│
+├── ===== DASHBOARD (web UI) =====
+│
+├── dashboard/
+│   ├── app/               Next.js pages (React UI)
+│   ├── lib/               Shared utilities
+│   └── electron/          Electron wrapper (desktop app)
+│
+├── dashboard_api.py       REST API that serves game state to the dashboard.
+│                          WebSocket for real-time creature/player updates.
+│
+├── ===== RESEARCH & REVERSE ENGINEERING TOOLS =====
+│
+├── xtea_finder.py         Scans game binary to find the XTEA function address.
+├── memory_reader.py       Reads game process memory via ReadProcessMemory.
+├── memory_explorer.py     Interactive tool to explore memory regions.
+├── find_game_singleton.py Searches for g_game / g_map globals in memory.
+├── find_creature_ptrs.py  Finds creature pointer chains.
+├── find_attack_func.py    Locates the attack function in the binary.
+│
+├── ===== DOCS =====
+│
+├── docs/
+│   ├── otclient_source_analysis.md   OTCv8 source code analysis
+│   └── creature_tracking_research.md Research on creature memory layout
+│
+├── README.md              This file
+├── .mcp.json              MCP server config (tells Claude Code how to launch)
+├── bot_settings.json      Persisted settings (enabled actions, fight modes)
+└── venv/                  Python virtual environment
+```
+
+### How Everything Connects
+
+```
+You (Claude Code)
+    │
+    │ MCP protocol (tools: walk, attack, say...)
+    ▼
+mcp_server.py ──────────────────────────────┐
+    │                                       │
+    ├── proxy.py ◄──► Game Client ◄──► Game Server
+    │     │                │
+    │     │ decrypts       │
+    │     │ via crypto.py  │
+    │     │                │
+    │     ▼                │
+    │  protocol.py         │
+    │     │                │
+    │     ▼                │
+    │  game_state.py       │
+    │     ▲                │
+    │     │                │
+    ├── dll_bridge.py ◄────┤ named pipe ◄── dbvbot.dll (injected)
+    │                      │                    │
+    ├── actions/*.py       │                    ├── hooks XTEA encrypt
+    │   (eat, attack,      │                    ├── reads creature list
+    │    sniff, heal)      │                    └── sends to Python
+    │                      │
+    └── dashboard_api.py ──┤──► dashboard/ (web UI)
+                           │
+                        bot.py (BotContext — what actions use)
+```
 
 ## Setup
 
