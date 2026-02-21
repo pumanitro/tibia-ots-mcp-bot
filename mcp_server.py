@@ -58,6 +58,7 @@ LOGIN_PORT = 7171
 GAME_PORT = 7172
 SETTINGS_FILE = Path(__file__).parent / "bot_settings.json"
 ACTIONS_DIR = Path(__file__).parent / "actions"
+INTERNAL_ACTIONS = {"dll_bridge"}
 
 
 def load_settings() -> dict:
@@ -267,7 +268,17 @@ def _stop_action(name: str) -> bool:
 def _start_all_enabled_actions() -> int:
     """Start background tasks for all enabled actions. Returns count started."""
     count = 0
+    # Always start internal actions
+    for name in INTERNAL_ACTIONS:
+        err = _start_action(name)
+        if err:
+            log.warning(f"[action:{name}] Could not auto-start internal: {err}")
+        else:
+            count += 1
+    # Start user-enabled actions
     for name, cfg in state.settings.get("actions", {}).items():
+        if name in INTERNAL_ACTIONS:
+            continue  # already started above
         if cfg.get("enabled", False):
             err = _start_action(name)
             if err:
@@ -288,6 +299,8 @@ def _discover_actions() -> list[str]:
 
 async def _async_toggle_action(name: str, enabled: bool) -> str:
     """Enable or disable an action. Returns a status message."""
+    if name in INTERNAL_ACTIONS:
+        return f"Action '{name}' is an internal service and cannot be toggled."
     path = ACTIONS_DIR / f"{name}.py"
     if not path.exists():
         return f"actions/{name}.py not found."
@@ -455,14 +468,23 @@ def _launch_dashboard() -> None:
     _kill_port(DASHBOARD_PORT)
 
     try:
+        # Start Next.js dev server
         subprocess.Popen(
-            f'"{npm}" run electron:dev',
+            f'"{npm}" run dev',
+            cwd=str(dashboard_dir),
+            shell=True,
+            creationflags=subprocess.CREATE_NEW_CONSOLE,
+        )
+        log.info(f"Next.js dev server launching on port {DASHBOARD_PORT}")
+        # Start Electron (waits for Next.js via wait-on)
+        subprocess.Popen(
+            f'"{npm}" run electron:only',
             cwd=str(dashboard_dir),
             shell=True,
             creationflags=subprocess.CREATE_NEW_CONSOLE,
         )
         _dashboard_launched = True
-        log.info(f"Dashboard launched on port {DASHBOARD_PORT} (npm={npm}).")
+        log.info(f"Electron launching (waiting for port {DASHBOARD_PORT}).")
     except Exception as e:
         log.warning(f"Failed to launch dashboard: {e}")
 
@@ -916,7 +938,7 @@ async def list_actions() -> str:
       bot.is_connected
       bot.log(msg)
     """
-    names = _discover_actions()
+    names = [n for n in _discover_actions() if n not in INTERNAL_ACTIONS]
     if not names:
         return "No actions found. Create a .py file in the actions/ folder with async def run(bot)."
 
@@ -995,6 +1017,8 @@ async def remove_action(name: str) -> str:
     Args:
         name: Action name (filename without .py, e.g. "eat_food").
     """
+    if name in INTERNAL_ACTIONS:
+        return f"Action '{name}' is an internal service and cannot be removed."
     if not all(c.isalnum() or c == '_' for c in name):
         return "Invalid action name. Only alphanumeric characters and underscores are allowed."
 

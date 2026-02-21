@@ -179,9 +179,11 @@ def _build_state_json() -> str:
     if st is None:
         return json.dumps({"connected": False, "actions": []})
 
+    INTERNAL_ACTIONS = {"dll_bridge"}
     actions_settings = st.settings.get("actions", {})
     action_names = sorted(
-        p.stem for p in ACTIONS_DIR.glob("*.py") if p.stem != "__init__"
+        p.stem for p in ACTIONS_DIR.glob("*.py")
+        if p.stem != "__init__" and p.stem not in INTERNAL_ACTIONS
     ) if ACTIONS_DIR.exists() else []
 
     action_tasks = dict(st._action_tasks)
@@ -239,6 +241,17 @@ def _build_state_json() -> str:
         if player_z == 0 or info.get("z") == player_z
     ]
 
+    # DLL status
+    dll_bridge_task = action_tasks.get("dll_bridge")
+    dll_bridge_running = dll_bridge_task is not None and not dll_bridge_task.done()
+    dll_injected = False
+    try:
+        bridge = getattr(st.game_state, "dll_bridge", None)
+        if bridge is not None:
+            dll_injected = bridge.connected
+    except Exception:
+        pass
+
     return json.dumps({
         "connected": st.connected,
         "actions": actions,
@@ -246,6 +259,8 @@ def _build_state_json() -> str:
         "packets_from_client": pkt_client,
         "player": player,
         "creatures": creatures,
+        "dll_injected": dll_injected,
+        "dll_bridge_connected": dll_bridge_running and dll_injected,
     })
 
 

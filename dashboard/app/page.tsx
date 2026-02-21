@@ -236,7 +236,9 @@ export default function Dashboard() {
         <h1 className="text-xl font-bold tracking-tight">DBVictory Bot</h1>
         <div className="flex items-center gap-2">
           <StatusBadge label="MCP" connected={mcpConnected} />
-          <StatusBadge label="Game" connected={state?.connected ?? false} />
+          <StatusBadge label="Game Login" connected={state?.connected ?? false} />
+          <StatusBadge label="DLL Injected" connected={state?.dll_injected ?? false} />
+          <StatusBadge label="DLL Bridge" connected={state?.dll_bridge_connected ?? false} />
         </div>
       </div>
 

@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev --port 4747",
     "build": "next build",
-    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:4747 && electron .\""
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:4747 && electron .\"",
+    "electron:only": "wait-on http://localhost:4747 && electron ."
   },
   "main": "electron/main.js",
   "dependencies": {

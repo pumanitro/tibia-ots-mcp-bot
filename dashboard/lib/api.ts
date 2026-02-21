@@ -35,6 +35,8 @@ export interface BotState {
   packets_from_client: number;
   player: PlayerInfo;
   creatures: CreatureInfo[];
+  dll_injected: boolean;
+  dll_bridge_connected: boolean;
 }
 
 export async function fetchState(): Promise<BotState> {
