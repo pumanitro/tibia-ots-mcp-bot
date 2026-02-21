@@ -187,6 +187,14 @@ class BotContext:
         return state.game_state.capacity
 
     @property
+    def speed(self) -> int:
+        return state.game_state.speed
+
+    @property
+    def player_icons(self) -> int:
+        return state.game_state.player_icons
+
+    @property
     def position(self) -> tuple[int, int, int]:
         return state.game_state.position
 
@@ -542,11 +550,20 @@ async def _reset_bot() -> str:
         _stop_action(name)
     await asyncio.sleep(0.1)
 
-    # 2. Cancel proxy tasks
+    # 2. Cancel proxy tasks (serve_forever + connection handlers)
     for task in state._proxy_tasks:
         if not task.done():
             task.cancel()
     state._proxy_tasks.clear()
+
+    # 2b. Cancel active connection handler tasks
+    for proxy in (state.game_proxy, state.login_proxy):
+        if proxy:
+            ct = getattr(proxy, '_connection_task', None)
+            if ct and not ct.done():
+                ct.cancel()
+
+    await asyncio.sleep(0.2)  # Give tasks time to handle cancellation
 
     # 3. Close proxy connections
     for proxy in (state.game_proxy, state.login_proxy):

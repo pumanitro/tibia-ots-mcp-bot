@@ -41,6 +41,10 @@ class GameState:
         self.capacity: int = 0
         self.magic_level: int = 0
         self.soul: int = 0
+        self.speed: int = 0
+
+        # Player condition icons bitmask (from 0xA2 PLAYER_ICONS)
+        self.player_icons: int = 0
 
         # Position (x, y, z)
         self.position: tuple[int, int, int] = (0, 0, 0)
@@ -77,6 +81,7 @@ def scan_packet(data: bytes, gs: GameState) -> None:
     """
     pos = 0
     found_stats = False
+    found_icons = False
     has_map_data = False
     while pos < len(data):
         opcode = data[pos]
@@ -93,11 +98,17 @@ def scan_packet(data: bytes, gs: GameState) -> None:
             break  # Unknown or variable-length message — stop
         if opcode == ServerOpcode.PLAYER_STATS:
             found_stats = True
+        if opcode == ServerOpcode.PLAYER_ICONS:
+            found_icons = True
         pos = new_pos
 
     # Fallback: search remaining data for PLAYER_STATS if not found yet
     if not found_stats and pos < len(data):
         _search_for_stats(data, pos, gs)
+
+    # Fallback: search remaining data for PLAYER_ICONS if not found yet
+    if not found_icons and pos < len(data):
+        _search_for_icons(data, pos, gs)
 
     # Creature tracking is handled entirely by DLL bridge — no packet scanning.
 
@@ -145,6 +156,25 @@ def _search_for_stats(data: bytes, start: int, gs: GameState) -> None:
         _parse_at(ServerOpcode.PLAYER_STATS, data, p, gs)
         log.info(f"STATS found via fallback search at offset {i}")
         return
+
+
+def _search_for_icons(data: bytes, start: int, gs: GameState) -> None:
+    """Brute-force search for 0xA2 PLAYER_ICONS after sequential scan stopped.
+
+    PLAYER_ICONS is 3 bytes total: opcode(1) + u16 icons bitmask(2).
+    We validate that the icons value is a reasonable bitmask (< 0x8000).
+    """
+    for i in range(start, len(data) - 2):
+        if data[i] != ServerOpcode.PLAYER_ICONS:
+            continue
+        icons = struct.unpack_from('<H', data, i + 1)[0]
+        # Reasonable icons bitmask: typically small value
+        if icons < 0x8000:
+            old = gs.player_icons
+            gs.player_icons = icons
+            if icons != old:
+                log.info(f"ICONS found via fallback at offset {i}: 0x{icons:04X} (was 0x{old:04X})")
+            return
 
 
 def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
@@ -280,7 +310,13 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
 
     # CREATURE_SPEED — 6 bytes: u32 creature_id + u16 speed
     if opcode == ServerOpcode.CREATURE_SPEED:
-        return pos + 6 if pos + 6 <= len(data) else -1
+        if pos + 6 > len(data):
+            return -1
+        cid = struct.unpack_from('<I', data, pos)[0]
+        spd = struct.unpack_from('<H', data, pos + 4)[0]
+        if cid == gs.player_id:
+            gs.speed = spd
+        return pos + 6
 
     # CREATURE_SKULL — 5 bytes: u32 creature_id + u8 skull
     if opcode == ServerOpcode.CREATURE_SKULL:
@@ -290,9 +326,25 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
     if opcode == ServerOpcode.CREATURE_PARTY:
         return pos + 5 if pos + 5 <= len(data) else -1
 
-    # PLAYER_ICONS — 2 bytes: u16 icons
+    # PLAYER_SKILLS — variable: 7 skills × (u8 level + u8 percent) = 14 bytes
+    # (standard TFS 7.x/8.x format; may differ on modified servers)
+    if opcode == ServerOpcode.PLAYER_SKILLS:
+        needed = 14  # 7 skills × 2 bytes
+        if pos + needed > len(data):
+            return -1
+        # Just consume the bytes — we don't track skills yet
+        return pos + needed
+
+    # PLAYER_ICONS — 2 bytes: u16 icons bitmask
     if opcode == ServerOpcode.PLAYER_ICONS:
-        return pos + 2 if pos + 2 <= len(data) else -1
+        if pos + 2 > len(data):
+            return -1
+        old = gs.player_icons
+        gs.player_icons = struct.unpack_from('<H', data, pos)[0]
+        if gs.player_icons != old:
+            log.info(f"PLAYER_ICONS changed: 0x{old:04X} -> 0x{gs.player_icons:04X} "
+                     f"(diff bits: 0x{old ^ gs.player_icons:04X})")
+        return pos + 2
 
     # PLAYER_CANCEL_WALK — 1 byte: u8 direction
     if opcode == ServerOpcode.PLAYER_CANCEL_WALK:

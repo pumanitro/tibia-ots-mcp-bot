@@ -66,6 +66,9 @@ class OTProxy:
         self.packets_from_server = 0
         self.packets_from_client = 0
 
+        # Track the active connection handler task for clean shutdown
+        self._connection_task: asyncio.Task | None = None
+
     @property
     def proxy_rsa_key(self):
         if self._proxy_rsa_key is None:
@@ -88,6 +91,8 @@ class OTProxy:
 
     async def _handle_client_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         """Handle a new client connection."""
+        # Track this handler task so it can be cancelled on reset
+        self._connection_task = asyncio.current_task()
         client_addr = writer.get_extra_info('peername')
         mode = "LOGIN" if self.is_login_proxy else "GAME"
         log.info(f"[{mode}] Client connected from {client_addr}")
