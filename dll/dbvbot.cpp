@@ -17,6 +17,7 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <winsock2.h>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -100,9 +101,9 @@ static void dbg_open(void) {
     char path[MAX_PATH];
     int n = _snprintf(path, sizeof(path), "%s\\dbvbot_debug.txt", g_dll_dir);
     if (n < 0 || n >= (int)sizeof(path)) return;
-    g_dbg = fopen(path, "w");
+    g_dbg = fopen(path, "a");
     if (g_dbg) {
-        fprintf(g_dbg, "=== dbvbot.dll v12 (player pos fix) ===\n");
+        fprintf(g_dbg, "=== dbvbot.dll v31 (Game::attack + crash debug) ===\n");
         fflush(g_dbg);
     }
 }
@@ -387,6 +388,921 @@ static int build_json(char* buf, size_t buf_sz) {
     return pos;
 }
 
+// ── IAT Hook: intercept Winsock WSASend() to capture call stacks ────
+
+typedef int (WSAAPI *WSASend_fn)(SOCKET, LPWSABUF, DWORD, LPDWORD, DWORD, LPWSAOVERLAPPED, LPWSAOVERLAPPED_COMPLETION_ROUTINE);
+static WSASend_fn    g_original_WSASend = NULL;
+static volatile BOOL g_hook_active  = FALSE;
+static FILE*         g_hook_log     = NULL;
+static SOCKET        g_game_socket  = INVALID_SOCKET;  // captured from WSASend calls
+
+static int WSAAPI hooked_WSASend(SOCKET s, LPWSABUF lpBuffers, DWORD dwBufferCount,
+                                  LPDWORD lpNumberOfBytesSent, DWORD dwFlags,
+                                  LPWSAOVERLAPPED lpOverlapped,
+                                  LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine) {
+    // Capture the game socket for later use
+    if (g_game_socket == INVALID_SOCKET && dwBufferCount > 0 && lpBuffers[0].len == 14) {
+        g_game_socket = s;
+        dbg("Captured game socket: %u", (unsigned)s);
+    }
+
+    if (g_hook_active && g_hook_log && dwBufferCount > 0 && lpBuffers[0].len > 0) {
+        // Use __builtin_return_address for reliable caller capture
+        void* ret_addr = __builtin_return_address(0);
+        HMODULE game_base = GetModuleHandle(NULL);
+        DWORD caller_rva = (DWORD)((uintptr_t)ret_addr - (uintptr_t)game_base);
+
+        int total_len = 0;
+        for (DWORD b = 0; b < dwBufferCount; b++) total_len += lpBuffers[b].len;
+
+        fprintf(g_hook_log, "WSASend(%d bytes, %lu bufs) caller:+0x%X", total_len, dwBufferCount, caller_rva);
+
+        // Dump first 64 bytes of first buffer
+        const char* buf = lpBuffers[0].buf;
+        int buf_len = lpBuffers[0].len;
+        int dump_len = buf_len < 64 ? buf_len : 64;
+        fprintf(g_hook_log, " data[%d]:", buf_len);
+        for (int i = 0; i < dump_len; i++) {
+            fprintf(g_hook_log, " %02X", (unsigned char)buf[i]);
+        }
+        if (buf_len > dump_len) fprintf(g_hook_log, " ...");
+        fprintf(g_hook_log, "\n");
+        fflush(g_hook_log);
+    }
+    return g_original_WSASend(s, lpBuffers, dwBufferCount, lpNumberOfBytesSent,
+                               dwFlags, lpOverlapped, lpCompletionRoutine);
+}
+
+// ── XTEA constant scanner: find encryption function in game code ────
+#define XTEA_DELTA 0x9E3779B9u
+#define XTEA_ENCRYPT_RVA 0x003AF220u  // known XTEA encrypt entry (confirmed v19/v22)
+
+// Storage for found XTEA locations
+static uintptr_t g_xtea_addrs[16];
+static int        g_xtea_count = 0;
+static uintptr_t  g_xtea_func_entry = 0;  // detected function entry point
+
+// Find function entry by scanning backwards for prologue patterns
+static uintptr_t find_func_entry(uintptr_t addr_in_func) {
+    const uint8_t* p = (const uint8_t*)addr_in_func;
+    // Scan backwards up to 2048 bytes looking for common MSVC function prologues
+    for (int i = 1; i < 2048; i++) {
+        const uint8_t* check = p - i;
+        // push ebp / mov ebp, esp  (55 8B EC)
+        if (check[0] == 0x55 && check[1] == 0x8B && check[2] == 0xEC) {
+            // Must be preceded by alignment padding (CC), NOP (90), ret (C3), or null
+            uint8_t prev = *(check - 1);
+            if (prev == 0xCC || prev == 0x90 || prev == 0xC3 || prev == 0x00)
+                return (uintptr_t)check;
+            // Otherwise keep scanning — this is a false positive in the function body
+        }
+    }
+    return 0;
+}
+
+static void scan_xtea_constant(void) {
+    HMODULE game = GetModuleHandle(NULL);
+    if (!game) { dbg("scan_xtea: no game module"); return; }
+
+    PIMAGE_DOS_HEADER dos = (PIMAGE_DOS_HEADER)game;
+    PIMAGE_NT_HEADERS nt = (PIMAGE_NT_HEADERS)((BYTE*)game + dos->e_lfanew);
+
+    // Get .text section bounds (first code section)
+    PIMAGE_SECTION_HEADER sec = IMAGE_FIRST_SECTION(nt);
+    uintptr_t code_start = 0, code_end = 0;
+    for (int i = 0; i < nt->FileHeader.NumberOfSections; i++) {
+        if (sec[i].Characteristics & IMAGE_SCN_CNT_CODE) {
+            code_start = (uintptr_t)game + sec[i].VirtualAddress;
+            code_end = code_start + sec[i].Misc.VirtualSize;
+            dbg("scan_xtea: code section '%s' at 0x%08X - 0x%08X (%u bytes)",
+                sec[i].Name, (unsigned)code_start, (unsigned)code_end,
+                sec[i].Misc.VirtualSize);
+            break;
+        }
+    }
+
+    if (!code_start) {
+        code_start = (uintptr_t)game + 0x1000;
+        code_end = (uintptr_t)game + nt->OptionalHeader.SizeOfImage;
+        dbg("scan_xtea: no .text found, scanning full image");
+    }
+
+    g_xtea_count = 0;
+
+    // Search for BOTH XTEA delta forms:
+    //   0x9E3779B9 (standard delta, LE: B9 79 37 9E)
+    //   0x61C88647 (negated delta used in some OT implementations, LE: 47 86 C8 61)
+    // The OT client uses 0x61C88647 with SUB for encrypt (sum += delta)
+    const uint8_t needle1[4] = { 0xB9, 0x79, 0x37, 0x9E };
+    const uint8_t needle2[4] = { 0x47, 0x86, 0xC8, 0x61 };
+
+    for (uintptr_t addr = code_start; addr + 4 <= code_end; addr++) {
+        const uint8_t* p = (const uint8_t*)addr;
+        BOOL match1 = (p[0] == needle1[0] && p[1] == needle1[1] && p[2] == needle1[2] && p[3] == needle1[3]);
+        BOOL match2 = (p[0] == needle2[0] && p[1] == needle2[1] && p[2] == needle2[2] && p[3] == needle2[3]);
+
+        if (!match1 && !match2) continue;
+
+        DWORD rva = (DWORD)(addr - (uintptr_t)game);
+        const char* delta_name = match1 ? "0x9E3779B9" : "0x61C88647";
+
+        // Check the instruction that uses this constant
+        // SUB reg, 0x61C88647 = encrypt (sum += delta) → opcode 81 EA/E9/...
+        // ADD reg, 0x61C88647 = decrypt (sum -= delta) → opcode 81 C2/C1/...
+        BOOL is_encrypt = FALSE;
+        if (match2 && addr >= 2) {
+            uint8_t op1 = *(uint8_t*)(addr - 2);
+            uint8_t op2 = *(uint8_t*)(addr - 1);
+            if (op1 == 0x81 && (op2 >= 0xE8 && op2 <= 0xEF)) {
+                is_encrypt = TRUE;  // SUB reg, imm32 → encrypt
+            }
+        }
+
+        dbg("XTEA delta %s at RVA +0x%08X (VA 0x%08X)%s",
+            delta_name, rva, (unsigned)addr,
+            is_encrypt ? " [ENCRYPT - SUB]" : "");
+
+        uintptr_t entry = find_func_entry(addr);
+        if (entry) {
+            DWORD entry_rva = (DWORD)(entry - (uintptr_t)game);
+            dbg("  function entry at RVA +0x%08X (VA 0x%08X)", entry_rva, (unsigned)entry);
+        }
+
+        if (g_xtea_count < 16) {
+            g_xtea_addrs[g_xtea_count++] = addr;
+        }
+
+        // Prefer the encrypt function (SUB with 0x61C88647)
+        if (is_encrypt && entry && !g_xtea_func_entry) {
+            g_xtea_func_entry = entry;
+            dbg(">>> Selected XTEA ENCRYPT function at VA 0x%08X (RVA +0x%08X)",
+                (unsigned)entry, (unsigned)(entry - (uintptr_t)game));
+        }
+    }
+
+    dbg("scan_xtea: total %d matches, encrypt func=%s",
+        g_xtea_count, g_xtea_func_entry ? "FOUND" : "not found");
+}
+
+// ── Inline hook on XTEA encrypt to capture pre-encryption data ──────
+
+// Trampoline: executable memory with saved original bytes + JMP back
+static uint8_t* g_xtea_trampoline = NULL;
+static uint8_t  g_xtea_saved[16];  // saved original bytes
+static int      g_xtea_patch_len = 0;
+static volatile BOOL g_xtea_hook_active = FALSE;
+static FILE*    g_xtea_log = NULL;
+
+// The XTEA encrypt function at VA 0x00675A60 takes 4 cdecl params:
+//   [ebp+8]=p1, [ebp+C]=p2, [ebp+10]=p3, [ebp+14]=p4
+// We log all params and any data they point to, then call the original.
+
+// Lightweight XTEA hook — raw machine code, zero calling convention risk.
+// Saves all regs, checks caller RVA, stores non-keepalive callers in a buffer.
+// No fprintf in hot path. Pipe thread flushes buffer to log file.
+
+#define KEEPALIVE_CALLER_RVA  0x19A4B5u
+#define KEEPALIVE_CALLER_RVA2 0x8E938u
+#define MAX_XTEA_CAPTURES 4096
+
+struct XteaCapture {
+    DWORD caller_rva;
+    DWORD grandcaller_rva;
+};
+static volatile LONG g_xtea_write_idx = 0;
+static XteaCapture g_xtea_captures[MAX_XTEA_CAPTURES];
+static LONG g_xtea_read_idx = 0;  // read by pipe thread
+
+// Flush captured callers to log (called from pipe thread, not from hook)
+static void flush_xtea_captures(void) {
+    if (!g_xtea_log) return;
+    LONG write_idx = g_xtea_write_idx;
+    while (g_xtea_read_idx < write_idx && g_xtea_read_idx < MAX_XTEA_CAPTURES) {
+        XteaCapture* c = &g_xtea_captures[g_xtea_read_idx];
+        fprintf(g_xtea_log, "XTEA caller:+0x%X grandcaller:+0x%X\n",
+                c->caller_rva, c->grandcaller_rva);
+        g_xtea_read_idx++;
+    }
+    if (g_xtea_read_idx > 0) fflush(g_xtea_log);
+}
+
+// Forward declarations for attack replay (defined later, used by XTEA cave)
+static volatile uintptr_t g_protocol_this;    // captured ProtocolGame 'this'
+static volatile uint32_t  g_attack_request;   // creature_id to attack (0 = no request)
+static volatile LONG      g_attack_done;      // set to 1 when attack completes
+static uint8_t* g_attack_trampoline;          // original attack bytes + JMP back
+static volatile uintptr_t g_attack_caller_ret; // return addr of whoever calls sendAttackCreature
+static volatile uintptr_t g_game_this = 0;        // captured Game object 'this' (EBX in targeting func)
+static volatile uint32_t  g_last_attack_cid = 0;  // last creature_id passed to sendAttackCreature
+
+// Forward declaration: game target updater called from XTEA hook cave (game thread)
+static void __cdecl do_game_target_update(void);
+static volatile LONG g_target_update_calls = 0;  // debug counter: how many times cave called us
+
+// Build the hook code cave as raw x86 machine code.
+// No filtering — captures ALL XTEA encrypt calls with caller + grandcaller RVA.
+// pushad order: EAX ECX EDX EBX ESP EBP ESI EDI (pushed in that order, so on stack:
+//   [ESP+0]=EDI [ESP+4]=ESI [ESP+8]=EBP [ESP+12]=ESP [ESP+16]=EBX
+//   [ESP+20]=EDX [ESP+24]=ECX [ESP+28]=EAX [ESP+32]=EFLAGS [ESP+36]=retaddr)
+static uint8_t* build_xtea_hook_cave(uintptr_t game_base, uint8_t* orig_bytes,
+                                       int patch_len, uintptr_t jump_back_addr) {
+    uint8_t* cave = (uint8_t*)VirtualAlloc(NULL, 512,
+        MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!cave) return NULL;
+
+    int p = 0;
+
+    // pushfd
+    cave[p++] = 0x9C;
+    // pushad
+    cave[p++] = 0x60;
+
+    // --- Get caller RVA ---
+    // mov eax, [esp+36]  — return address
+    cave[p++] = 0x8B; cave[p++] = 0x44; cave[p++] = 0x24; cave[p++] = 36;
+    // sub eax, game_base
+    cave[p++] = 0x2D;
+    memcpy(&cave[p], &game_base, 4); p += 4;
+
+    // --- Get grandcaller RVA via EBP chain ---
+    // mov ebx, [esp+8]   — saved EBP (caller's frame pointer)
+    cave[p++] = 0x8B; cave[p++] = 0x5C; cave[p++] = 0x24; cave[p++] = 8;
+    // mov ebx, [ebx+4]   — grandcaller return address ([EBP+4])
+    cave[p++] = 0x8B; cave[p++] = 0x5B; cave[p++] = 0x04;
+    // sub ebx, game_base
+    cave[p++] = 0x81; cave[p++] = 0xEB;
+    memcpy(&cave[p], &game_base, 4); p += 4;
+
+    // --- Atomic alloc slot in ring buffer ---
+    // push eax (save caller_rva)
+    cave[p++] = 0x50;
+    // push ebx (save grandcaller_rva)
+    cave[p++] = 0x53;
+    // mov ecx, 1
+    cave[p++] = 0xB9; uint32_t one = 1; memcpy(&cave[p], &one, 4); p += 4;
+    // lock xadd [g_xtea_write_idx], ecx
+    cave[p++] = 0xF0; cave[p++] = 0x0F; cave[p++] = 0xC1;
+    cave[p++] = 0x0D;
+    uintptr_t write_idx_addr = (uintptr_t)&g_xtea_write_idx;
+    memcpy(&cave[p], &write_idx_addr, 4); p += 4;
+    // ecx = old index. Check < MAX_XTEA_CAPTURES
+    cave[p++] = 0x81; cave[p++] = 0xF9;
+    uint32_t max_cap = MAX_XTEA_CAPTURES;
+    memcpy(&cave[p], &max_cap, 4); p += 4;
+    // jge skip_full (buffer full)
+    cave[p++] = 0x7D;
+    int jge_offset_pos = p;
+    cave[p++] = 0x00;  // placeholder
+
+    // --- Store capture ---
+    // pop ebx (grandcaller_rva)
+    cave[p++] = 0x5B;
+    // pop eax (caller_rva)
+    cave[p++] = 0x58;
+    // imul edx, ecx, 8  (each XteaCapture = 8 bytes)
+    cave[p++] = 0x6B; cave[p++] = 0xD1; cave[p++] = 0x08;
+    // add edx, &g_xtea_captures
+    cave[p++] = 0x81; cave[p++] = 0xC2;
+    uintptr_t captures_addr = (uintptr_t)&g_xtea_captures;
+    memcpy(&cave[p], &captures_addr, 4); p += 4;
+    // mov [edx], eax     (store caller_rva)
+    cave[p++] = 0x89; cave[p++] = 0x02;
+    // mov [edx+4], ebx   (store grandcaller_rva)
+    cave[p++] = 0x89; cave[p++] = 0x5A; cave[p++] = 0x04;
+    // jmp done
+    cave[p++] = 0xEB;
+    int jmp_done_pos = p;
+    cave[p++] = 0x00;  // placeholder
+
+    // skip_full: (buffer full, just pop saved regs)
+    cave[jge_offset_pos] = (uint8_t)(p - jge_offset_pos - 1);
+    cave[p++] = 0x5B;  // pop ebx
+    cave[p++] = 0x58;  // pop eax
+
+    // done:
+    int done_target = p;
+    cave[jmp_done_pos] = (uint8_t)(done_target - jmp_done_pos - 1);
+
+    // --- Attack replay: triggered by g_attack_request ---
+    // We're still inside pushad/pushfd, so all registers are saved.
+    // The XTEA hook fires constantly (keepalive ~every 1-2s), making this
+    // a reliable trigger for bot-initiated attacks.
+
+    // mov eax, [g_attack_request]
+    cave[p++] = 0xA1;
+    uintptr_t atk_req_addr = (uintptr_t)&g_attack_request;
+    memcpy(&cave[p], &atk_req_addr, 4); p += 4;
+    // test eax, eax
+    cave[p++] = 0x85; cave[p++] = 0xC0;
+    // jz no_attack
+    cave[p++] = 0x74;
+    int jz_no_atk_pos = p;
+    cave[p++] = 0x00;  // placeholder
+
+    // Clear request BEFORE calling to prevent recursion via nested XTEA call
+    // mov dword [g_attack_request], 0
+    cave[p++] = 0xC7; cave[p++] = 0x05;
+    memcpy(&cave[p], &atk_req_addr, 4); p += 4;
+    uint32_t zero_v = 0;
+    memcpy(&cave[p], &zero_v, 4); p += 4;
+
+    // Check trampoline exists: mov edx, [g_attack_trampoline]
+    cave[p++] = 0x8B; cave[p++] = 0x15;
+    uintptr_t tramp_ptr_addr = (uintptr_t)&g_attack_trampoline;
+    memcpy(&cave[p], &tramp_ptr_addr, 4); p += 4;
+    // test edx, edx
+    cave[p++] = 0x85; cave[p++] = 0xD2;
+    // jz no_attack
+    cave[p++] = 0x74;
+    int jz_no_tramp_pos = p;
+    cave[p++] = 0x00;  // placeholder
+
+    // Check this ptr captured: mov ecx, [g_protocol_this]
+    cave[p++] = 0x8B; cave[p++] = 0x0D;
+    uintptr_t pthis_addr = (uintptr_t)&g_protocol_this;
+    memcpy(&cave[p], &pthis_addr, 4); p += 4;
+    // test ecx, ecx
+    cave[p++] = 0x85; cave[p++] = 0xC9;
+    // jz no_attack
+    cave[p++] = 0x74;
+    int jz_no_this_pos = p;
+    cave[p++] = 0x00;  // placeholder
+
+    // Call attack: __thiscall(ECX=this, creature_id, seq=0)
+    // push 0 (sequence number)
+    cave[p++] = 0x6A; cave[p++] = 0x00;
+    // push eax (creature_id)
+    cave[p++] = 0x50;
+    // call edx (attack trampoline — original prologue + JMP back)
+    cave[p++] = 0xFF; cave[p++] = 0xD2;
+    // ret 8 in attack function cleaned our 2 pushes
+
+    // Set done flag: mov dword [g_attack_done], 1
+    cave[p++] = 0xC7; cave[p++] = 0x05;
+    uintptr_t atk_done_addr = (uintptr_t)&g_attack_done;
+    memcpy(&cave[p], &atk_done_addr, 4); p += 4;
+    uint32_t one_v2 = 1;
+    memcpy(&cave[p], &one_v2, 4); p += 4;
+
+    // no_attack: (all jz targets converge here)
+    int no_attack_target = p;
+    cave[jz_no_atk_pos]   = (uint8_t)(no_attack_target - jz_no_atk_pos - 1);
+    cave[jz_no_tramp_pos] = (uint8_t)(no_attack_target - jz_no_tramp_pos - 1);
+    cave[jz_no_this_pos]  = (uint8_t)(no_attack_target - jz_no_this_pos - 1);
+
+    // --- Call game target updater (visual targeting on game thread) ---
+    // mov eax, <do_game_target_update>
+    cave[p++] = 0xB8;
+    uintptr_t update_fn_addr = (uintptr_t)&do_game_target_update;
+    memcpy(&cave[p], &update_fn_addr, 4); p += 4;
+    // call eax
+    cave[p++] = 0xFF; cave[p++] = 0xD0;
+
+    // popad
+    cave[p++] = 0x61;
+    // popfd
+    cave[p++] = 0x9D;
+
+    // Original prologue bytes
+    memcpy(&cave[p], orig_bytes, patch_len);
+    p += patch_len;
+
+    // jmp back to original+patch_len
+    cave[p++] = 0xE9;
+    int32_t jmp_back = (int32_t)(jump_back_addr - (uintptr_t)&cave[p + 4]);
+    memcpy(&cave[p], &jmp_back, 4); p += 4;
+
+    dbg("  hook cave at %p, %d bytes, jumps back to %p", cave, p, (void*)jump_back_addr);
+    return cave;
+}
+
+static BOOL install_xtea_hook(void) {
+    if (!g_xtea_func_entry) {
+        dbg("install_xtea_hook: no XTEA function found (run scan_xtea first)");
+        return FALSE;
+    }
+    if (g_xtea_trampoline) {
+        dbg("install_xtea_hook: already installed");
+        return TRUE;
+    }
+
+    uint8_t* target = (uint8_t*)g_xtea_func_entry;
+    HMODULE game_base = GetModuleHandle(NULL);
+
+    g_xtea_patch_len = 5;  // minimum for JMP rel32
+
+    if (target[0] != 0x55) {
+        dbg("install_xtea_hook: unexpected prologue byte 0x%02X (expected 0x55=push ebp)", target[0]);
+    }
+
+    // Determine safe patch length: must overwrite complete instructions (>= 5 bytes)
+    if (target[0] == 0x55 && target[1] == 0x8B && target[2] == 0xEC) {
+        if (target[3] == 0x83 && target[4] == 0xEC) {
+            g_xtea_patch_len = 6;  // push ebp + mov ebp,esp + sub esp,imm8
+        } else if (target[3] == 0x81 && target[4] == 0xEC) {
+            g_xtea_patch_len = 9;  // push ebp + mov ebp,esp + sub esp,imm32
+        } else if (target[3] == 0x6A) {
+            g_xtea_patch_len = 5;  // push ebp + mov ebp,esp + push imm8
+        } else {
+            g_xtea_patch_len = 5;
+        }
+    }
+
+    dbg("install_xtea_hook: target=%p patch_len=%d game_base=%p",
+        target, g_xtea_patch_len, game_base);
+    dbg("  original bytes: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+        target[0], target[1], target[2], target[3], target[4],
+        target[5], target[6], target[7], target[8], target[9]);
+
+    // Save original bytes
+    memcpy(g_xtea_saved, target, g_xtea_patch_len);
+
+    // Build hook cave: pushad/popad + ring buffer capture + original bytes + JMP back
+    uintptr_t jump_back = (uintptr_t)(target + g_xtea_patch_len);
+    g_xtea_trampoline = build_xtea_hook_cave((uintptr_t)game_base, g_xtea_saved,
+                                               g_xtea_patch_len, jump_back);
+    if (!g_xtea_trampoline) {
+        dbg("install_xtea_hook: build_xtea_hook_cave FAILED");
+        return FALSE;
+    }
+
+    // Patch the target: overwrite with JMP to our hook cave
+    DWORD old_prot;
+    VirtualProtect(target, g_xtea_patch_len, PAGE_EXECUTE_READWRITE, &old_prot);
+
+    target[0] = 0xE9;  // JMP rel32
+    int32_t jmp_to_cave = (int32_t)((uintptr_t)g_xtea_trampoline -
+                                     (uintptr_t)(target + 5));
+    memcpy(target + 1, &jmp_to_cave, 4);
+
+    // NOP any remaining bytes
+    for (int i = 5; i < g_xtea_patch_len; i++) {
+        target[i] = 0x90;
+    }
+
+    VirtualProtect(target, g_xtea_patch_len, old_prot, &old_prot);
+    FlushInstructionCache(GetCurrentProcess(), target, g_xtea_patch_len);
+
+    dbg("install_xtea_hook: SUCCESS — raw x86 cave hook, zero calling convention risk");
+    return TRUE;
+}
+
+static void open_xtea_log(void) {
+    if (g_xtea_log) return;
+    char path[MAX_PATH];
+    int n = _snprintf(path, sizeof(path), "%s\\xtea_hook_log.txt", g_dll_dir);
+    if (n < 0 || n >= (int)sizeof(path)) return;
+    g_xtea_log = fopen(path, "a");
+    if (g_xtea_log) {
+        fprintf(g_xtea_log, "=== XTEA pre-encryption hook log ===\n");
+        fflush(g_xtea_log);
+    }
+}
+
+static BOOL install_send_hook(void) {
+    HMODULE game = GetModuleHandle(NULL);
+    if (!game) return FALSE;
+
+    PIMAGE_DOS_HEADER dos = (PIMAGE_DOS_HEADER)game;
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE) return FALSE;
+
+    PIMAGE_NT_HEADERS nt = (PIMAGE_NT_HEADERS)((BYTE*)game + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE) return FALSE;
+
+    DWORD import_rva = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
+    if (import_rva == 0) return FALSE;
+
+    PIMAGE_IMPORT_DESCRIPTOR imports = (PIMAGE_IMPORT_DESCRIPTOR)((BYTE*)game + import_rva);
+
+    for (; imports->Name; imports++) {
+        const char* dll_name = (const char*)((BYTE*)game + imports->Name);
+        if (_stricmp(dll_name, "ws2_32.dll") != 0 && _stricmp(dll_name, "wsock32.dll") != 0)
+            continue;
+
+        // Method 1: scan OriginalFirstThunk for WSASend by name
+        PIMAGE_THUNK_DATA thunk = (PIMAGE_THUNK_DATA)((BYTE*)game + imports->FirstThunk);
+        PIMAGE_THUNK_DATA orig  = imports->OriginalFirstThunk
+            ? (PIMAGE_THUNK_DATA)((BYTE*)game + imports->OriginalFirstThunk)
+            : thunk;
+
+        for (; thunk->u1.Function; thunk++, orig++) {
+            if (orig->u1.Ordinal & IMAGE_ORDINAL_FLAG) continue;
+
+            PIMAGE_IMPORT_BY_NAME name_entry =
+                (PIMAGE_IMPORT_BY_NAME)((BYTE*)game + orig->u1.AddressOfData);
+
+            if (strcmp(name_entry->Name, "WSASend") == 0) {
+                DWORD old_prot;
+                VirtualProtect(&thunk->u1.Function, sizeof(void*), PAGE_READWRITE, &old_prot);
+                g_original_WSASend = (WSASend_fn)thunk->u1.Function;
+                thunk->u1.Function = (DWORD_PTR)hooked_WSASend;
+                VirtualProtect(&thunk->u1.Function, sizeof(void*), old_prot, &old_prot);
+
+                dbg("IAT hook installed (by name): WSASend() at %p", g_original_WSASend);
+                return TRUE;
+            }
+        }
+
+        // Method 2: find WSASend by matching its resolved address in the IAT
+        HMODULE ws2 = GetModuleHandleA("ws2_32.dll");
+        if (ws2) {
+            FARPROC real_addr = GetProcAddress(ws2, "WSASend");
+            if (real_addr) {
+                dbg("  method2: real WSASend=%p, scanning FirstThunk...", real_addr);
+                thunk = (PIMAGE_THUNK_DATA)((BYTE*)game + imports->FirstThunk);
+                for (int idx = 0; thunk->u1.Function; thunk++, idx++) {
+                    if ((FARPROC)thunk->u1.Function == real_addr) {
+                        DWORD old_prot;
+                        VirtualProtect(&thunk->u1.Function, sizeof(void*), PAGE_READWRITE, &old_prot);
+                        g_original_WSASend = (WSASend_fn)thunk->u1.Function;
+                        thunk->u1.Function = (DWORD_PTR)hooked_WSASend;
+                        VirtualProtect(&thunk->u1.Function, sizeof(void*), old_prot, &old_prot);
+
+                        dbg("IAT hook installed (by addr): WSASend() idx=%d", idx);
+                        return TRUE;
+                    }
+                }
+            }
+        }
+    }
+
+    dbg("IAT hook FAILED: could not find WSASend() in any import table");
+    return FALSE;
+}
+
+static void open_hook_log(void) {
+    if (g_hook_log) return;
+    char path[MAX_PATH];
+    int n = _snprintf(path, sizeof(path), "%s\\send_hook_log.txt", g_dll_dir);
+    if (n < 0 || n >= (int)sizeof(path)) return;
+    g_hook_log = fopen(path, "a");
+    if (g_hook_log) {
+        fprintf(g_hook_log, "=== send() IAT hook log ===\n");
+        fflush(g_hook_log);
+    }
+}
+
+// ── Attack function hook: capture 'this', replay attacks on game thread ──
+
+#define ATTACK_FUNC_RVA 0x19D100u  // send_attack at VA 0x003FD100
+
+// g_protocol_this, g_attack_request, g_attack_done, g_attack_trampoline
+// are forward-declared above (before XTEA cave builder)
+static uint8_t* g_attack_cave = NULL;
+static uint8_t  g_attack_saved[8];
+static int      g_attack_patch_len = 0;
+
+// The hook cave runs on the GAME THREAD (inside the attack function).
+// It captures ECX (this ptr) every time, and if g_attack_request is set,
+// it replays an extra attack call using the captured this pointer.
+//
+// Flow: game calls attack(this, creature_id, seq)
+//   → JMP to cave
+//   → cave stores ECX to g_protocol_this
+//   → cave checks g_attack_request
+//   → if set: pushes request args, calls trampoline (original func), clears request
+//   → runs original prologue bytes
+//   → JMP back to original+5
+//
+// This ensures the attack call happens on the correct thread.
+
+static uint8_t* build_attack_hook(uint8_t* orig_bytes, int patch_len,
+                                   uintptr_t jump_back_addr) {
+    // Build trampoline: original bytes + JMP back (used by XTEA cave for replays)
+    g_attack_trampoline = (uint8_t*)VirtualAlloc(NULL, 32,
+        MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!g_attack_trampoline) return NULL;
+
+    int tp = 0;
+    memcpy(&g_attack_trampoline[tp], orig_bytes, patch_len); tp += patch_len;
+    g_attack_trampoline[tp++] = 0xE9;
+    int32_t tramp_jmp = (int32_t)(jump_back_addr - (uintptr_t)&g_attack_trampoline[tp + 4]);
+    memcpy(&g_attack_trampoline[tp], &tramp_jmp, 4); tp += 4;
+
+    // Minimal hook cave: capture ECX (ProtocolGame this), EBX (Game this),
+    // EAX (creature_id), and caller return address.
+    // Attack replay is triggered from the XTEA hook cave instead (fires constantly).
+    uint8_t* cave = (uint8_t*)VirtualAlloc(NULL, 64,
+        MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!cave) return NULL;
+
+    int p = 0;
+    // mov [g_protocol_this], ecx  (6 bytes, no flags modified)
+    cave[p++] = 0x89; cave[p++] = 0x0D;
+    uintptr_t this_addr = (uintptr_t)&g_protocol_this;
+    memcpy(&cave[p], &this_addr, 4); p += 4;
+
+    // mov [g_game_this], ebx  (6 bytes — EBX = Game 'this' in targeting func)
+    cave[p++] = 0x89; cave[p++] = 0x1D;
+    uintptr_t game_this_addr = (uintptr_t)&g_game_this;
+    memcpy(&cave[p], &game_this_addr, 4); p += 4;
+
+    // mov [g_last_attack_cid], eax  (5 bytes — EAX = creature_id at call site)
+    cave[p++] = 0xA3;
+    uintptr_t last_cid_addr = (uintptr_t)&g_last_attack_cid;
+    memcpy(&cave[p], &last_cid_addr, 4); p += 4;
+
+    // Capture caller return address: push eax; mov eax,[esp+4]; mov [g_attack_caller_ret],eax; pop eax
+    cave[p++] = 0x50;  // push eax
+    cave[p++] = 0x8B; cave[p++] = 0x44; cave[p++] = 0x24; cave[p++] = 0x04;  // mov eax,[esp+4]
+    cave[p++] = 0xA3;  // mov [g_attack_caller_ret], eax
+    uintptr_t caller_addr = (uintptr_t)&g_attack_caller_ret;
+    memcpy(&cave[p], &caller_addr, 4); p += 4;
+    cave[p++] = 0x58;  // pop eax
+
+    // Original prologue bytes
+    memcpy(&cave[p], orig_bytes, patch_len);
+    p += patch_len;
+
+    // JMP back to original+patch_len
+    cave[p++] = 0xE9;
+    int32_t jmp_back = (int32_t)(jump_back_addr - (uintptr_t)&cave[p + 4]);
+    memcpy(&cave[p], &jmp_back, 4); p += 4;
+
+    dbg("  attack cave at %p, %d bytes (ECX+EBX+EAX capture), trampoline at %p",
+        cave, p, g_attack_trampoline);
+    return cave;
+}
+
+static BOOL install_attack_hook(void) {
+    if (g_attack_cave) {
+        dbg("install_attack_hook: already installed");
+        return TRUE;
+    }
+
+    HMODULE game = GetModuleHandle(NULL);
+    uint8_t* target = (uint8_t*)((uintptr_t)game + ATTACK_FUNC_RVA);
+
+    dbg("install_attack_hook: target=%p", target);
+    dbg("  bytes: %02X %02X %02X %02X %02X %02X %02X %02X",
+        target[0], target[1], target[2], target[3],
+        target[4], target[5], target[6], target[7]);
+
+    // Handle case where old DLL already patched the prologue with a JMP
+    if (target[0] == 0xE9) {
+        dbg("install_attack_hook: target already patched by old DLL (E9 JMP), restoring original prologue");
+        static const uint8_t orig_prologue[] = {0x55, 0x8B, 0xEC, 0x6A, 0xFF};
+        DWORD old_prot;
+        VirtualProtect(target, 5, PAGE_EXECUTE_READWRITE, &old_prot);
+        memcpy(target, orig_prologue, 5);
+        VirtualProtect(target, 5, old_prot, &old_prot);
+        FlushInstructionCache(GetCurrentProcess(), target, 5);
+        dbg("  restored: %02X %02X %02X %02X %02X",
+            target[0], target[1], target[2], target[3], target[4]);
+    }
+
+    if (target[0] != 0x55 || target[1] != 0x8B || target[2] != 0xEC) {
+        dbg("install_attack_hook: unexpected prologue!");
+        return FALSE;
+    }
+    g_attack_patch_len = 5;  // push ebp + mov ebp,esp + push -1
+
+    memcpy(g_attack_saved, target, g_attack_patch_len);
+
+    uintptr_t jump_back = (uintptr_t)(target + g_attack_patch_len);
+    g_attack_cave = build_attack_hook(g_attack_saved, g_attack_patch_len, jump_back);
+    if (!g_attack_cave) {
+        dbg("install_attack_hook: cave alloc failed");
+        return FALSE;
+    }
+
+    DWORD old_prot;
+    VirtualProtect(target, g_attack_patch_len, PAGE_EXECUTE_READWRITE, &old_prot);
+    target[0] = 0xE9;
+    int32_t jmp_to_cave = (int32_t)((uintptr_t)g_attack_cave - (uintptr_t)(target + 5));
+    memcpy(target + 1, &jmp_to_cave, 4);
+    VirtualProtect(target, g_attack_patch_len, old_prot, &old_prot);
+    FlushInstructionCache(GetCurrentProcess(), target, g_attack_patch_len);
+
+    dbg("install_attack_hook: SUCCESS — ECX+EBX+EAX capture (replay via XTEA hook)");
+    return TRUE;
+}
+
+// ── Game object targeting: write to Game singleton to trigger in-game attack ──
+
+#define GAME_SINGLETON_RVA  0xB2E970u  // VA 0x00D8E970 - base 0x00260000
+#define GAME_TARGET_OFFSET  0x0C   // Creature* (attack target)
+#define GAME_ATKFLAG_OFFSET 0x34   // byte: 1 = attacking
+// Vtable range as RVAs (base-independent, ASLR safe)
+// Old absolute values 0x00AD0000..0x00B00000 were at base 0x00260000
+// RVAs: 0x00870000..0x008A0000
+#define CREATURE_VTABLE_MIN_RVA 0x00870000u
+#define CREATURE_VTABLE_MAX_RVA 0x008A0000u
+
+static inline bool is_valid_creature_vtable(uint32_t vtable) {
+    uintptr_t base = (uintptr_t)GetModuleHandle(NULL);
+    uintptr_t rva = (uintptr_t)vtable - base;
+    return rva >= CREATURE_VTABLE_MIN_RVA && rva < CREATURE_VTABLE_MAX_RVA;
+}
+#define CREATURE_CID_OFFSET 0x34   // creature_id in Creature object
+#define CREATURE_HP_OFFSET  0x50   // health in Creature object
+#define CREATURE_REFS_OFFSET 0x04  // shared_object::refs (atomic refcount)
+#define GAME_DOATTACK_RVA   0x89680u  // Game::attack(const CreaturePtr&) — __thiscall
+
+// Function pointer type for calling Game::attack via __thiscall convention.
+// ECX = Game* (this), stack param = const CreaturePtr& (pointer to 4-byte Creature*).
+// The callee cleans the stack (ret 4).
+typedef void (__attribute__((thiscall)) *Game_attack_fn)(void* game_this, const void* creature_ref);
+
+// Pending target: set by pipe thread, consumed by XTEA hook on game thread
+static volatile uintptr_t g_pending_creature_ptr = 0;
+static volatile LONG g_pending_game_attack = 0;
+
+// Cache: last successfully found Creature*
+static uint32_t  g_cached_target_cid = 0;
+static uintptr_t g_cached_target_ptr = 0;
+
+static uintptr_t find_creature_ptr(uint32_t creature_id) {
+    // Check cache first
+    if (g_cached_target_cid == creature_id && g_cached_target_ptr) {
+        uint32_t check_vtable = 0, check_id = 0;
+        if (safe_memcpy(&check_vtable, (void*)g_cached_target_ptr, 4) &&
+            safe_memcpy(&check_id, (void*)(g_cached_target_ptr + CREATURE_CID_OFFSET), 4) &&
+            is_valid_creature_vtable(check_vtable) &&
+            check_id == creature_id) {
+            return g_cached_target_ptr;
+        }
+        g_cached_target_cid = 0;
+        g_cached_target_ptr = 0;
+    }
+
+    // Check creature scan cache (g_addrs) — avoids expensive heap scan
+    for (int i = 0; i < g_addr_count; i++) {
+        if (g_addrs[i].id == creature_id) {
+            uintptr_t obj_addr = (uintptr_t)g_addrs[i].addr - CREATURE_CID_OFFSET;
+            uint32_t vtable = 0;
+            if (safe_memcpy(&vtable, (void*)obj_addr, 4) &&
+                is_valid_creature_vtable(vtable)) {
+                g_cached_target_cid = creature_id;
+                g_cached_target_ptr = obj_addr;
+                dbg("find_creature_ptr: 0x%08X -> scan cache, Creature* %p vtable=0x%08X",
+                    creature_id, (void*)obj_addr, vtable);
+                return obj_addr;
+            }
+        }
+    }
+
+    // Scan heap page-by-page using safe_memcpy (never dereference directly)
+    MEMORY_BASIC_INFORMATION mbi;
+    uintptr_t addr = 0x10000;
+
+    while (addr < 0x7FFE0000u) {
+        if (VirtualQuery((void*)addr, &mbi, sizeof(mbi)) == 0) break;
+        uintptr_t rstart = (uintptr_t)mbi.BaseAddress;
+        uintptr_t rend = rstart + mbi.RegionSize;
+
+        if (mbi.State == MEM_COMMIT &&
+            (mbi.Protect == PAGE_READWRITE || mbi.Protect == PAGE_EXECUTE_READWRITE) &&
+            mbi.RegionSize >= 0x60) {
+
+            // Read page-by-page with safe_memcpy
+            for (uintptr_t page = rstart; page < rend; page += 4096) {
+                uint8_t buf[4096];
+                uintptr_t page_end = page + 4096;
+                if (page_end > rend) page_end = rend;
+                size_t page_sz = page_end - page;
+                if (page_sz < 0x60) continue;
+                if (!safe_memcpy(buf, (void*)page, page_sz)) continue;
+
+                // Search this page buffer for creature_id
+                int max_off = (int)(page_sz - 4);
+                for (int off = 0; off <= max_off; off += 4) {
+                    uint32_t val;
+                    memcpy(&val, &buf[off], 4);
+                    if (val != creature_id) continue;
+
+                    uintptr_t cid_addr = page + off;
+                    uintptr_t obj_addr = cid_addr - CREATURE_CID_OFFSET;
+                    if (obj_addr < 0x10000) continue;
+
+                    uint32_t vtable;
+                    if (!safe_memcpy(&vtable, (void*)obj_addr, 4)) continue;
+                    if (is_valid_creature_vtable(vtable)) {
+                        g_cached_target_cid = creature_id;
+                        g_cached_target_ptr = obj_addr;
+                        dbg("find_creature_ptr: 0x%08X -> Creature* %p vtable=0x%08X",
+                            creature_id, (void*)obj_addr, vtable);
+                        return obj_addr;
+                    }
+                }
+            }
+        }
+        addr = rend;
+    }
+    return 0;
+}
+
+// Called from XTEA hook cave on the GAME THREAD.
+// Calls Game::attack(const CreaturePtr&) at RVA +0x8F220 to trigger
+// in-game targeting (red square, battle list, follow, attack packet).
+#define GAME_ATTACK_RVA 0x8F220u
+
+static volatile uint32_t g_last_attack_target_cid = 0; // track what we last attacked
+
+static void __cdecl do_game_target_update(void) {
+    // Fast path: nothing pending — just return immediately
+    if (!g_pending_game_attack)
+        return;
+
+    if (!InterlockedExchange(&g_pending_game_attack, 0))
+        return;
+
+    uintptr_t creature_ptr = g_pending_creature_ptr;
+    g_pending_creature_ptr = 0;
+    if (!creature_ptr) return;
+
+    // Quick validate creature
+    uint32_t vtable = 0, cid = 0, hp = 0;
+    if (!safe_memcpy(&vtable, (void*)creature_ptr, 4) ||
+        !safe_memcpy(&cid, (void*)(creature_ptr + CREATURE_CID_OFFSET), 4) ||
+        !safe_memcpy(&hp, (void*)(creature_ptr + CREATURE_HP_OFFSET), 4))
+        return;
+    if (!is_valid_creature_vtable(vtable) || hp == 0 || hp > 100)
+        return;
+
+    HMODULE game_mod = GetModuleHandle(NULL);
+    uintptr_t base = (uintptr_t)game_mod;
+    uintptr_t game_obj = base + GAME_SINGLETON_RVA;
+    uintptr_t func_addr = base + GAME_ATTACK_RVA;
+
+    // Check if game still has our target — if game cleared it (Z change, etc.), re-target
+    if (cid == g_last_attack_target_cid) {
+        uintptr_t cur = 0;
+        safe_memcpy(&cur, (void*)(game_obj + GAME_TARGET_OFFSET), 4);
+        if (cur != 0) return;  // game still targeting something, skip
+        // Game cleared the target — re-send
+        dbg("[GTUPD] re-target 0x%08X (game cleared target)", cid);
+    }
+
+    dbg("[GTUPD] Game::attack(&%p) id=0x%08X hp=%u", (void*)creature_ptr, cid, hp);
+
+    // 1. Call Game::attack for UI (red square, battle list, Lua callback)
+    uintptr_t creature_ref = creature_ptr;
+    typedef void (__attribute__((thiscall)) *Game_attack_fn)(void* game_this, uintptr_t* creature_ref);
+    Game_attack_fn attack_fn = (Game_attack_fn)func_addr;
+    attack_fn((void*)game_obj, &creature_ref);
+
+    // 2. Call sendAttackCreature for network (actual combat + follow)
+    //    Signature: __thiscall ProtocolGame::sendAttackCreature(uint32_t cid, uint32_t seq)
+    //    ECX = protocol (Game+0x18), stack = (creature_id, seq)
+    //    Seq comes from Game+0x70 (increment first, like the tick function does)
+    uintptr_t proto = 0;
+    safe_memcpy(&proto, (void*)(game_obj + 0x18), 4);
+    if (proto > 0x10000) {
+        // Increment seq counter (game+0x70) then read it
+        volatile uint32_t* seq_ptr = (volatile uint32_t*)(game_obj + 0x70);
+        uint32_t seq = InterlockedIncrement((volatile LONG*)seq_ptr);
+
+        typedef void (__attribute__((thiscall)) *SendAttack_fn)(void* proto_this, uint32_t creature_id, uint32_t seq);
+        SendAttack_fn send_fn = (SendAttack_fn)(base + ATTACK_FUNC_RVA);
+        send_fn((void*)proto, cid, seq);
+        dbg("[GTUPD] sendAttackCreature(0x%08X, seq=%u) via protocol=%p", cid, seq, (void*)proto);
+    } else {
+        dbg("[GTUPD] no protocol — skipped sendAttackCreature");
+    }
+
+    g_last_attack_target_cid = cid;
+    dbg("[GTUPD] target locked 0x%08X", cid);
+}
+
+// Request an attack (called from pipe thread).
+// Finds the Creature* via scan cache / heap scan and queues for game thread.
+static void request_game_attack(uint32_t creature_id) {
+    // Skip if already attacking this creature (unless game cleared it)
+    if (creature_id == g_last_attack_target_cid) {
+        HMODULE gm = GetModuleHandle(NULL);
+        uintptr_t go = (uintptr_t)gm + GAME_SINGLETON_RVA;
+        uintptr_t cur = 0;
+        safe_memcpy(&cur, (void*)(go + GAME_TARGET_OFFSET), 4);
+        if (cur != 0) return;  // still targeting, skip
+        // Game cleared target — allow re-queue
+    }
+
+    // Find the Creature* object in game memory
+    uintptr_t creature_ptr = find_creature_ptr(creature_id);
+    if (!creature_ptr) {
+        dbg("[GATK] Creature* not found for 0x%08X", creature_id);
+        return;
+    }
+
+    // Quick validation before queuing
+    uint32_t vtable = 0, hp = 0;
+    if (!safe_memcpy(&vtable, (void*)creature_ptr, 4) ||
+        !safe_memcpy(&hp, (void*)(creature_ptr + CREATURE_HP_OFFSET), 4))
+        return;
+    if (!is_valid_creature_vtable(vtable) || hp == 0 || hp > 100) {
+        g_cached_target_cid = 0;
+        g_cached_target_ptr = 0;
+        return;
+    }
+
+    dbg("[GATK] new target 0x%08X -> Creature* %p hp=%u", creature_id, (void*)creature_ptr, hp);
+
+    // Queue for game thread
+    g_pending_creature_ptr = creature_ptr;
+    InterlockedExchange(&g_pending_game_attack, 1);
+}
+
 // ── Command parser ──────────────────────────────────────────────────
 
 static void parse_command(const char* line) {
@@ -401,6 +1317,308 @@ static void parse_command(const char* line) {
                 dbg("CMD init: player_id=0x%08X (%u)", g_player_id, g_player_id);
             }
         }
+    } else if (strstr(line, "\"hook_send\"")) {
+        dbg("CMD hook_send");
+        open_hook_log();
+        if (!g_original_WSASend) {
+            install_send_hook();
+        }
+        g_hook_active = TRUE;
+        dbg("send() hook ACTIVE — logging to send_hook_log.txt");
+    } else if (strstr(line, "\"unhook_send\"")) {
+        dbg("CMD unhook_send");
+        g_hook_active = FALSE;
+        dbg("send() hook PAUSED");
+    } else if (strstr(line, "\"scan_xtea\"")) {
+        dbg("CMD scan_xtea");
+        scan_xtea_constant();
+    } else if (strstr(line, "\"hook_xtea\"")) {
+        dbg("CMD hook_xtea");
+        // Use hardcoded known address (prologue scan fails if old hook patched it)
+        HMODULE game = GetModuleHandle(NULL);
+        uintptr_t known_entry = (uintptr_t)game + XTEA_ENCRYPT_RVA;
+        if (g_xtea_func_entry == 0) {
+            g_xtea_func_entry = known_entry;
+            dbg("Using hardcoded XTEA encrypt at VA 0x%08X (RVA +0x%08X)",
+                (unsigned)known_entry, XTEA_ENCRYPT_RVA);
+        }
+        if (g_xtea_func_entry != 0) {
+            open_xtea_log();
+            g_xtea_hook_active = TRUE;
+            if (!g_xtea_trampoline) {
+                install_xtea_hook();
+            }
+            dbg("XTEA hook ACTIVE — logging pre-encryption data to xtea_hook_log.txt");
+        }
+    } else if (strstr(line, "\"reset_xtea\"")) {
+        dbg("CMD reset_xtea — clearing capture buffer");
+        g_xtea_read_idx = 0;
+        g_xtea_write_idx = 0;
+        dbg("XTEA capture buffer reset (ready for %d new captures)", MAX_XTEA_CAPTURES);
+    } else if (strstr(line, "\"unhook_xtea\"")) {
+        dbg("CMD unhook_xtea");
+        g_xtea_hook_active = FALSE;
+        dbg("XTEA hook PAUSED");
+    } else if (strstr(line, "\"hook_attack\"")) {
+        dbg("CMD hook_attack");
+        install_attack_hook();
+        if (g_protocol_this) {
+            dbg("  'this' pointer already captured: %p", (void*)g_protocol_this);
+        } else {
+            dbg("  Waiting for user to attack a creature to capture 'this' pointer...");
+        }
+    } else if (strstr(line, "\"query_attack\"")) {
+        HMODULE game = GetModuleHandle(NULL);
+        uintptr_t base = (uintptr_t)game;
+        dbg("CMD query_attack:");
+        dbg("  protocol_this = %p", (void*)g_protocol_this);
+        dbg("  attack_caller_ret = %p (RVA +0x%X)",
+            (void*)g_attack_caller_ret,
+            g_attack_caller_ret ? (unsigned)(g_attack_caller_ret - base) : 0);
+        dbg("  attack_trampoline = %p", (void*)g_attack_trampoline);
+        dbg("  attack_cave = %p", (void*)g_attack_cave);
+    } else if (strstr(line, "\"query_game\"")) {
+        HMODULE game = GetModuleHandle(NULL);
+        uintptr_t base = (uintptr_t)game;
+        dbg("CMD query_game:");
+        dbg("  target_update_calls = %d (times XTEA cave called do_game_target_update)",
+            (int)g_target_update_calls);
+        dbg("  pending_game_attack = %d, pending_creature_ptr = %p",
+            (int)g_pending_game_attack, (void*)g_pending_creature_ptr);
+        dbg("  game_this = %p", (void*)g_game_this);
+        dbg("  protocol_this = %p", (void*)g_protocol_this);
+        dbg("  last_attack_cid = 0x%08X (%u)", g_last_attack_cid, g_last_attack_cid);
+        dbg("  attack_caller_ret = %p (RVA +0x%X)",
+            (void*)g_attack_caller_ret,
+            g_attack_caller_ret ? (unsigned)(g_attack_caller_ret - base) : 0);
+        if (g_game_this) {
+            // Dump 128 bytes around offset 0x20-0x9F of the Game object
+            uint8_t buf[128];
+            if (safe_memcpy(buf, (void*)(g_game_this + 0x20), 128)) {
+                dbg("  Game object dump (+0x20 to +0x9F):");
+                for (int i = 0; i < 128; i += 16) {
+                    char hex[80] = {0};
+                    int hp = 0;
+                    for (int j = 0; j < 16 && i+j < 128; j++) {
+                        hp += _snprintf(hex+hp, sizeof(hex)-hp, "%02X ", buf[i+j]);
+                    }
+                    dbg("    +0x%02X: %s", 0x20 + i, hex);
+                }
+                // Also show as uint32s for easier creature_id spotting
+                dbg("  As uint32s:");
+                for (int i = 0; i < 128; i += 4) {
+                    uint32_t val;
+                    memcpy(&val, &buf[i], 4);
+                    if (val >= MIN_CREATURE_ID && val < MAX_CREATURE_ID) {
+                        dbg("    +0x%02X: 0x%08X  <-- CREATURE ID!", 0x20 + i, val);
+                    }
+                }
+            }
+        }
+    } else if (strstr(line, "\"dump_mem\"")) {
+        // {"cmd":"dump_mem","address":12345,"length":64}
+        const char* addr_s = strstr(line, "\"address\"");
+        const char* len_s = strstr(line, "\"length\"");
+        if (addr_s && len_s) {
+            addr_s = strchr(addr_s + 9, ':');
+            len_s = strchr(len_s + 8, ':');
+            if (addr_s && len_s) {
+                uintptr_t addr = (uintptr_t)strtoul(addr_s + 1, NULL, 10);
+                int length = atoi(len_s + 1);
+                if (length > 512) length = 512;
+                if (length > 0 && safe_readable((void*)addr, length)) {
+                    dbg("CMD dump_mem: addr=0x%08X len=%d", (unsigned)addr, length);
+                    uint8_t dumpbuf[512];
+                    memcpy(dumpbuf, (void*)addr, length);
+                    for (int i = 0; i < length; i += 16) {
+                        char hex[80] = {0};
+                        int hp = 0;
+                        for (int j = 0; j < 16 && i+j < length; j++) {
+                            hp += _snprintf(hex+hp, sizeof(hex)-hp, "%02X ", dumpbuf[i+j]);
+                        }
+                        dbg("  0x%08X: %s", (unsigned)(addr + i), hex);
+                    }
+                }
+            }
+        }
+    } else if (strstr(line, "\"game_attack\"")) {
+        // Parse creature_id from: {"cmd":"game_attack","creature_id":12345}
+        const char* cid = strstr(line, "\"creature_id\"");
+        if (cid) {
+            cid = strchr(cid + 13, ':');
+            if (cid) {
+                uint32_t creature_id = (uint32_t)strtoul(cid + 1, NULL, 10);
+                request_game_attack(creature_id);
+            }
+        }
+    } else if (strstr(line, "\"scan_game_attack\"")) {
+        // Runs on PIPE THREAD (not game thread) — safe to do slow scans
+        dbg("[SCAN] v35 scanning for Game::attack function (pipe thread)...");
+        HMODULE game_mod = GetModuleHandle(NULL);
+        uintptr_t base = (uintptr_t)game_mod;
+        uintptr_t scan_end = base + 0x01000000; // 16MB from base
+        MEMORY_BASIC_INFORMATION mbi;
+
+        // 1. Search for string "onAttackingCreatureChange"
+        uintptr_t str_addr = 0;
+        const char* needles[] = {"onAttackingCreatureChange", "onFollowingCreatureChange"};
+        for (int n = 0; n < 2; n++) {
+            const char* needle = needles[n];
+            size_t needle_len = strlen(needle);
+            uintptr_t scan_addr = base;
+            while (scan_addr < scan_end) {
+                if (VirtualQuery((void*)scan_addr, &mbi, sizeof(mbi)) == 0) break;
+                uintptr_t rstart = (uintptr_t)mbi.BaseAddress;
+                uintptr_t rend = rstart + mbi.RegionSize;
+                if (mbi.State == MEM_COMMIT) {
+                    // Read in 4K pages for efficiency
+                    for (uintptr_t page = rstart; page < rend; page += 4096) {
+                        uint8_t buf[4096];
+                        size_t chunk = 4096;
+                        if (page + chunk > rend) chunk = rend - page;
+                        if (chunk < needle_len) continue;
+                        if (!safe_memcpy(buf, (void*)page, chunk)) continue;
+                        for (size_t i = 0; i + needle_len <= chunk; i++) {
+                            if (memcmp(&buf[i], needle, needle_len) == 0) {
+                                uintptr_t found_addr = page + i;
+                                dbg("[SCAN] FOUND '%s' at VA=0x%08X (RVA +0x%X)",
+                                    needle, (uint32_t)found_addr, (uint32_t)(found_addr - base));
+                                if (n == 0) str_addr = found_addr;
+                                goto next_needle;
+                            }
+                        }
+                    }
+                }
+                scan_addr = rend;
+            }
+            dbg("[SCAN] '%s' NOT FOUND", needle);
+            next_needle:;
+        }
+
+        // 2. Scan for CALL instructions to sendAttackCreature (RVA +0x19D100)
+        uintptr_t target_func = base + ATTACK_FUNC_RVA;
+        dbg("[SCAN] Scanning for CALL to sendAttackCreature VA=0x%08X...", (uint32_t)target_func);
+        int call_count = 0;
+        uintptr_t scan_addr = base;
+        while (scan_addr < scan_end && call_count < 20) {
+            if (VirtualQuery((void*)scan_addr, &mbi, sizeof(mbi)) == 0) break;
+            uintptr_t rstart = (uintptr_t)mbi.BaseAddress;
+            uintptr_t rend = rstart + mbi.RegionSize;
+            DWORD prot = mbi.Protect & ~(PAGE_GUARD | PAGE_NOCACHE | PAGE_WRITECOMBINE);
+            if (mbi.State == MEM_COMMIT &&
+                (prot == PAGE_EXECUTE_READ || prot == PAGE_EXECUTE_READWRITE ||
+                 prot == PAGE_EXECUTE || prot == PAGE_EXECUTE_WRITECOPY)) {
+                uint8_t buf[4096];
+                for (uintptr_t page = rstart; page + 5 <= rend; page += 4096) {
+                    size_t chunk = 4096;
+                    if (page + chunk > rend) chunk = rend - page;
+                    if (chunk < 5) continue;
+                    if (!safe_memcpy(buf, (void*)page, chunk)) continue;
+                    for (size_t i = 0; i + 5 <= chunk; i++) {
+                        if (buf[i] == 0xE8) {
+                            int32_t rel;
+                            memcpy(&rel, &buf[i+1], 4);
+                            uintptr_t call_src = page + i;
+                            uintptr_t call_target = call_src + 5 + (int32_t)rel;
+                            if (call_target == target_func) {
+                                uintptr_t rva = call_src - base;
+                                dbg("[SCAN] CALL sendAttackCreature at RVA +0x%05X", (uint32_t)rva);
+                                // Dump 64 bytes context around the CALL
+                                uintptr_t ctx_start = call_src - 48;
+                                uint8_t ctx[80];
+                                if (safe_memcpy(ctx, (void*)ctx_start, 80)) {
+                                    dbg("[SCAN]   context (-48 to +32):");
+                                    for (int r = 0; r < 80; r += 16) {
+                                        char hex[80] = {0};
+                                        int hp2 = 0;
+                                        for (int c = 0; c < 16; c++)
+                                            hp2 += _snprintf(hex+hp2, sizeof(hex)-hp2, "%02X ", ctx[r+c]);
+                                        dbg("[SCAN]     +%02X: %s", r, hex);
+                                    }
+                                }
+                                // Find function start (scan back for 55 8B EC)
+                                uint8_t backbuf[512];
+                                uintptr_t bk_start = (call_src > base + 512) ? call_src - 512 : base;
+                                size_t bk_len = call_src - bk_start;
+                                if (bk_len > 2 && safe_memcpy(backbuf, (void*)bk_start, bk_len)) {
+                                    for (int j = (int)bk_len - 1; j >= 2; j--) {
+                                        if (backbuf[j] == 0x55 && backbuf[j+1] == 0x8B && backbuf[j+2] == 0xEC) {
+                                            uintptr_t fs = bk_start + j;
+                                            dbg("[SCAN]   func start: RVA +0x%05X (%d bytes before CALL)",
+                                                (uint32_t)(fs - base), (int)(call_src - fs));
+                                            break;
+                                        }
+                                    }
+                                }
+                                call_count++;
+                            }
+                        }
+                    }
+                }
+            }
+            scan_addr = rend;
+        }
+        dbg("[SCAN] Found %d CALL(s) to sendAttackCreature", call_count);
+
+        // 3. If string found, search for PUSH <string_addr> in code
+        if (str_addr) {
+            dbg("[SCAN] Searching for PUSH 0x%08X (onAttackingCreatureChange ref)...", (uint32_t)str_addr);
+            uint8_t push_pat[5];
+            push_pat[0] = 0x68;
+            memcpy(&push_pat[1], &str_addr, 4);
+            int push_count = 0;
+            scan_addr = base;
+            while (scan_addr < scan_end && push_count < 10) {
+                if (VirtualQuery((void*)scan_addr, &mbi, sizeof(mbi)) == 0) break;
+                uintptr_t rstart = (uintptr_t)mbi.BaseAddress;
+                uintptr_t rend = rstart + mbi.RegionSize;
+                if (mbi.State == MEM_COMMIT) {
+                    uint8_t buf[4096];
+                    for (uintptr_t page = rstart; page + 5 <= rend; page += 4096) {
+                        size_t chunk = 4096;
+                        if (page + chunk > rend) chunk = rend - page;
+                        if (chunk < 5) continue;
+                        if (!safe_memcpy(buf, (void*)page, chunk)) continue;
+                        for (size_t i = 0; i + 5 <= chunk; i++) {
+                            if (memcmp(&buf[i], push_pat, 5) == 0) {
+                                uintptr_t ref = page + i;
+                                dbg("[SCAN] PUSH ref at RVA +0x%05X", (uint32_t)(ref - base));
+                                // Find function start
+                                uint8_t bb[512];
+                                uintptr_t bs = (ref > base + 512) ? ref - 512 : base;
+                                size_t bl = ref - bs;
+                                if (bl > 2 && safe_memcpy(bb, (void*)bs, bl)) {
+                                    for (int j = (int)bl - 1; j >= 2; j--) {
+                                        if (bb[j] == 0x55 && bb[j+1] == 0x8B && bb[j+2] == 0xEC) {
+                                            uintptr_t fs = bs + j;
+                                            dbg("[SCAN]   func start: RVA +0x%05X",
+                                                (uint32_t)(fs - base));
+                                            // Dump 128 bytes of this function
+                                            uint8_t fd[128];
+                                            if (safe_memcpy(fd, (void*)fs, 128)) {
+                                                dbg("[SCAN]   func dump (128B):");
+                                                for (int r = 0; r < 128; r += 16) {
+                                                    char hex[80] = {0};
+                                                    int hp2 = 0;
+                                                    for (int c = 0; c < 16; c++)
+                                                        hp2 += _snprintf(hex+hp2, sizeof(hex)-hp2, "%02X ", fd[r+c]);
+                                                    dbg("[SCAN]     +%02X: %s", r, hex);
+                                                }
+                                            }
+                                            break;
+                                        }
+                                    }
+                                }
+                                push_count++;
+                            }
+                        }
+                    }
+                }
+                scan_addr = rend;
+            }
+            dbg("[SCAN] Found %d PUSH references", push_count);
+        }
+        dbg("[SCAN] === scan complete ===");
     } else if (strstr(line, "\"stop\"")) {
         dbg("CMD stop");
         g_running = FALSE;
@@ -468,8 +1686,8 @@ static DWORD WINAPI pipe_thread(LPVOID param) {
                 // Full scan: expensive, finds new creatures
                 if (now - last_full_scan > FULL_SCAN_INTERVAL) {
                     full_scan();
-                    last_full_scan = now;
-                    last_fast_scan = now;  // no need for fast scan right after full
+                    last_full_scan = GetTickCount();  // use time AFTER scan completes
+                    last_fast_scan = last_full_scan;
                 }
                 // Fast scan: re-read cached addresses for updated hp/position
                 else if (now - last_fast_scan > FAST_SCAN_INTERVAL) {
@@ -477,7 +1695,11 @@ static DWORD WINAPI pipe_thread(LPVOID param) {
                     last_fast_scan = now;
                 }
 
-                if (now - last_send > SEND_INTERVAL) {
+                // Flush XTEA captures from ring buffer to log file
+                if (g_xtea_hook_active) flush_xtea_captures();
+
+                DWORD after = GetTickCount();
+                if (after - last_send > SEND_INTERVAL) {
                     char json[PIPE_BUF_SIZE];
                     int json_len = build_json(json, sizeof(json));
                     if (json_len <= 0 || json_len >= (int)sizeof(json)) continue;
@@ -486,7 +1708,7 @@ static DWORD WINAPI pipe_thread(LPVOID param) {
                         dbg("Write err=%lu", GetLastError());
                         break;
                     }
-                    last_send = now;
+                    last_send = after;
                 }
             }
 
@@ -509,6 +1731,67 @@ static DWORD WINAPI pipe_thread(LPVOID param) {
     return 0;
 }
 
+// ── Vectored Exception Handler — catches crashes and logs them ───────
+
+static FILE* g_crash_log = NULL;
+
+static void crash_log_open(const char* dir) {
+    if (g_crash_log) return;
+    char path[MAX_PATH];
+    _snprintf(path, sizeof(path), "%s\\dbvbot_crash.txt", dir);
+    g_crash_log = fopen(path, "a");
+}
+
+static LONG WINAPI crash_handler(EXCEPTION_POINTERS* ep) {
+    if (!ep || !ep->ExceptionRecord || !ep->ContextRecord)
+        return EXCEPTION_CONTINUE_SEARCH;
+    // Skip benign game-internal exceptions (Delphi/C++ runtime)
+    DWORD code = ep->ExceptionRecord->ExceptionCode;
+    if (code == 0xE24C4A02 || code == 0xE0434352 || code == 0x406D1388)
+        return EXCEPTION_CONTINUE_SEARCH;
+    if (g_crash_log) {
+        HMODULE game = GetModuleHandle(NULL);
+        uintptr_t base = (uintptr_t)game;
+        uintptr_t eip = ep->ContextRecord->Eip;
+        fprintf(g_crash_log, "!!! CRASH code=0x%08X addr=0x%08X (RVA +0x%X)\n",
+            (unsigned)ep->ExceptionRecord->ExceptionCode,
+            (unsigned)eip, (unsigned)(eip - base));
+        fprintf(g_crash_log, "  EAX=%08X EBX=%08X ECX=%08X EDX=%08X\n",
+            ep->ContextRecord->Eax, ep->ContextRecord->Ebx,
+            ep->ContextRecord->Ecx, ep->ContextRecord->Edx);
+        fprintf(g_crash_log, "  ESI=%08X EDI=%08X EBP=%08X ESP=%08X\n",
+            ep->ContextRecord->Esi, ep->ContextRecord->Edi,
+            ep->ContextRecord->Ebp, ep->ContextRecord->Esp);
+        fprintf(g_crash_log, "  base=%08X target_updates=%d pending=%d\n",
+            (unsigned)base, (int)g_target_update_calls, (int)g_pending_game_attack);
+        fflush(g_crash_log);
+    }
+    // Also write to main debug log
+    if (ep && ep->ExceptionRecord && ep->ContextRecord) {
+        HMODULE game = GetModuleHandle(NULL);
+        uintptr_t base = (uintptr_t)game;
+        dbg("!!! VEH CRASH code=0x%08X EIP=0x%08X (RVA +0x%X) ESP=0x%08X",
+            (unsigned)ep->ExceptionRecord->ExceptionCode,
+            (unsigned)ep->ContextRecord->Eip,
+            (unsigned)(ep->ContextRecord->Eip - base),
+            (unsigned)ep->ContextRecord->Esp);
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+// ── Early debug (called from DllMain before pipe thread) ────────────
+
+static void early_debug(const char* dir) {
+    char path[MAX_PATH];
+    _snprintf(path, sizeof(path), "%s\\dbvbot_debug.txt", dir);
+    FILE* f = fopen(path, "a");
+    if (f) {
+        fprintf(f, "=== DllMain ATTACH v40 === base=%p\n", (void*)GetModuleHandle(NULL));
+        fflush(f);
+        fclose(f);
+    }
+}
+
 // ── DLL entry ───────────────────────────────────────────────────────
 
 extern "C" BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
@@ -518,6 +1801,13 @@ extern "C" BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved)
         GetModuleFileNameA(hModule, g_dll_dir, MAX_PATH);
         char* slash = strrchr(g_dll_dir, '\\');
         if (slash) *slash = '\0';
+
+        // Immediate debug write (before anything else)
+        early_debug(g_dll_dir);
+
+        // Install crash handler
+        crash_log_open(g_dll_dir);
+        AddVectoredExceptionHandler(1, crash_handler);
 
         InitializeCriticalSection(&g_cs);
         g_running = TRUE;
