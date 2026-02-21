@@ -179,7 +179,8 @@ def _build_state_json() -> str:
     if st is None:
         return json.dumps({"connected": False, "actions": []})
 
-    INTERNAL_ACTIONS = {"dll_bridge"}
+    main_mod = sys.modules.get("__main__")
+    INTERNAL_ACTIONS = getattr(main_mod, "INTERNAL_ACTIONS", {"dll_bridge"})
     actions_settings = st.settings.get("actions", {})
     action_names = sorted(
         p.stem for p in ACTIONS_DIR.glob("*.py")

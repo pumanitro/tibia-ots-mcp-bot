@@ -1171,6 +1171,10 @@ static uintptr_t find_creature_ptr(uint32_t creature_id) {
         }
     }
 
+    // LEGACY FALLBACK: Full heap scan — rarely triggers now that map tree walk
+    // (find_creature_in_map) is the primary lookup.  Only reached if the creature
+    // is absent from both the map tree and the scan cache (g_addrs).
+    // Consider removing if map scan proves fully reliable.
     // Scan heap page-by-page using safe_memcpy (never dereference directly)
     MEMORY_BASIC_INFORMATION mbi;
     uintptr_t addr = 0x10000;

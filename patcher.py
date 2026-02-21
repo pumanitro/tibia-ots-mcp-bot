@@ -21,6 +21,24 @@ import logging
 
 log = logging.getLogger("patcher")
 
+# Win32 memory constants
+MEM_COMMIT = 0x1000
+PAGE_READWRITE = 0x04
+PAGE_EXECUTE_READWRITE = 0x40
+MAX_REGION_SIZE = 100 * 1024 * 1024  # 100 MB
+
+
+class MEMORY_BASIC_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ("BaseAddress", ctypes.c_size_t),
+        ("AllocationBase", ctypes.c_size_t),
+        ("AllocationProtect", wintypes.DWORD),
+        ("RegionSize", ctypes.c_size_t),
+        ("State", wintypes.DWORD),
+        ("Protect", wintypes.DWORD),
+        ("Type", wintypes.DWORD),
+    ]
+
 
 # Known OTClient RSA key fragments to search for in memory
 # These are decimal string representations that OTClient stores
@@ -35,22 +53,6 @@ KNOWN_RSA_KEYS = [
 def find_rsa_key_in_memory(pm: pymem.Pymem) -> list[tuple[int, bytes]]:
     """Search process memory for RSA key strings."""
     results = []
-
-    MEM_COMMIT = 0x1000
-    PAGE_READWRITE = 0x04
-    PAGE_EXECUTE_READWRITE = 0x40
-
-    class MEMORY_BASIC_INFORMATION(ctypes.Structure):
-        _fields_ = [
-            ("BaseAddress", ctypes.c_size_t),
-            ("AllocationBase", ctypes.c_size_t),
-            ("AllocationProtect", wintypes.DWORD),
-            ("RegionSize", ctypes.c_size_t),
-            ("State", wintypes.DWORD),
-            ("Protect", wintypes.DWORD),
-            ("Type", wintypes.DWORD),
-        ]
-
     VirtualQueryEx = ctypes.windll.kernel32.VirtualQueryEx
 
     address = 0
@@ -70,7 +72,7 @@ def find_rsa_key_in_memory(pm: pymem.Pymem) -> list[tuple[int, bytes]]:
 
         if (mbi.State == MEM_COMMIT and
             mbi.RegionSize > 0 and
-            mbi.RegionSize < 100 * 1024 * 1024):
+            mbi.RegionSize < MAX_REGION_SIZE):
 
             try:
                 data = pm.read_bytes(mbi.BaseAddress, mbi.RegionSize)
@@ -105,20 +107,6 @@ def find_server_address_in_memory(pm: pymem.Pymem, server_ip: str = "87.98.220.2
     """Search process memory for server IP address strings."""
     results = []
     pattern = server_ip.encode('ascii')
-
-    MEM_COMMIT = 0x1000
-
-    class MEMORY_BASIC_INFORMATION(ctypes.Structure):
-        _fields_ = [
-            ("BaseAddress", ctypes.c_size_t),
-            ("AllocationBase", ctypes.c_size_t),
-            ("AllocationProtect", wintypes.DWORD),
-            ("RegionSize", ctypes.c_size_t),
-            ("State", wintypes.DWORD),
-            ("Protect", wintypes.DWORD),
-            ("Type", wintypes.DWORD),
-        ]
-
     VirtualQueryEx = ctypes.windll.kernel32.VirtualQueryEx
 
     address = 0
@@ -138,7 +126,7 @@ def find_server_address_in_memory(pm: pymem.Pymem, server_ip: str = "87.98.220.2
 
         if (mbi.State == MEM_COMMIT and
             mbi.RegionSize > 0 and
-            mbi.RegionSize < 100 * 1024 * 1024):
+            mbi.RegionSize < MAX_REGION_SIZE):
 
             try:
                 data = pm.read_bytes(mbi.BaseAddress, mbi.RegionSize)
@@ -161,8 +149,6 @@ def find_server_address_in_memory(pm: pymem.Pymem, server_ip: str = "87.98.220.2
 
 def patch_memory(pm: pymem.Pymem, address: int, old_data: bytes, new_data: bytes) -> bool:
     """Patch a memory location, handling page protections."""
-    PAGE_EXECUTE_READWRITE = 0x40
-
     VirtualProtectEx = ctypes.windll.kernel32.VirtualProtectEx
     old_protect = wintypes.DWORD()
 

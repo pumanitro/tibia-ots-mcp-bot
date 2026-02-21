@@ -364,8 +364,8 @@ def _check_process_running(name: str) -> bool:
     """Check if a process with the given name is running (Windows)."""
     try:
         result = subprocess.run(
-            f'tasklist /FI "IMAGENAME eq {name}" /NH',
-            capture_output=True, text=True, shell=True, timeout=5,
+            ["tasklist", "/FI", f"IMAGENAME eq {name}", "/NH"],
+            capture_output=True, text=True, timeout=5,
         )
         return name.lower() in result.stdout.lower()
     except Exception:
@@ -582,10 +582,10 @@ async def _reset_bot() -> str:
     except Exception as e:
         log.warning(f"Failed to reload dashboard_api: {e}")
 
-    # Re-import after reload
-    from game_state import GameState, scan_packet as _sp
-    globals()['scan_packet'] = _sp
-    globals()['parse_server_packet'] = __import__('game_state').parse_server_packet
+    # Re-import after reload (use the already-reloaded module refs)
+    globals()['scan_packet'] = _gs_mod.scan_packet
+    globals()['parse_server_packet'] = _gs_mod.parse_server_packet
+    from game_state import GameState
 
     # 6. Reset global state
     state.login_proxy = None
@@ -647,13 +647,8 @@ async def start_bot() -> str:
     state.game_proxy = OTProxy(SERVER_HOST, GAME_PORT, GAME_PORT, is_login_proxy=False)
 
     # Callbacks
-    def on_server_packet(opcode, reader):
-        try:
-            name = ServerOpcode(opcode).name
-        except ValueError:
-            name = "?"
-        log.debug(f"[S->C] 0x{opcode:02X} ({name})")
-        parse_server_packet(opcode, reader, state.game_state)
+    # NOTE: on_server_packet removed — scan_packet handles all opcodes via
+    # on_raw_server_data, avoiding redundant double-parsing of every packet.
 
     def on_client_packet(opcode, reader):
         try:
@@ -678,7 +673,6 @@ async def start_bot() -> str:
     def on_raw_server_data(data):
         scan_packet(data, state.game_state)
 
-    state.game_proxy.on_server_packet = on_server_packet
     state.game_proxy.on_client_packet = on_client_packet
     state.game_proxy.on_login_success = on_login_success
     state.game_proxy.on_raw_server_data = on_raw_server_data

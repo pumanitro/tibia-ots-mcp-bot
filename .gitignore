@@ -11,12 +11,22 @@ dll/*.dll
 dll/*.o
 
 # Debug artifacts
-*_debug.txt
+*_debug*.txt
+*_dump.txt
+*_dump.bin
 *.bin
 stats_dump.txt
 creature_format_dump.txt
 creature_debug.txt
 packet_debug.txt
+dll_bridge_debug.txt
+auto_attack_debug.txt
+dll/*_debug*.txt
+dll/*_hook_log*.txt
+dll/*_crash*.txt
+dll/send_hook_log*.txt
+dll/xtea_hook_log*.txt
+dll/test_dll*.txt
 
 # Node
 node_modules/

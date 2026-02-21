@@ -124,9 +124,5 @@ def xtea_encrypt(data: bytes, key: tuple[int, int, int, int]) -> bytes:
 
 def adler32_checksum(data: bytes) -> int:
     """Calculate Adler-32 checksum as used in OT protocol."""
-    a = 1
-    b = 0
-    for byte in data:
-        a = (a + byte) % 65521
-        b = (b + a) % 65521
-    return (b << 16) | a
+    import zlib
+    return zlib.adler32(data) & 0xFFFFFFFF

@@ -15,6 +15,13 @@ from protocol import ServerOpcode
 log = logging.getLogger("game_state")
 
 MAX_CREATURE_AGE = 120  # seconds — prune non-DLL creatures older than this
+PRUNE_INTERVAL = 1.0    # seconds — minimum time between creature prune passes
+
+# Sanity-check limits for brute-force stats search
+MAX_VALID_HP = 50000
+MAX_VALID_LEVEL = 5000
+MAX_VALID_MANA = 50000
+MAX_VALID_CAPACITY = 100000
 
 
 class GameState:
@@ -46,6 +53,7 @@ class GameState:
 
         # Timestamp of last map data packet (for creature pruning)
         self.last_map_time: float = 0
+        self._last_prune_time: float = 0
 
         # When True, MAP_SLICE position updates are skipped (DLL provides position)
         self.dll_position_active: bool = False
@@ -55,8 +63,8 @@ def parse_server_packet(opcode: int, reader, gs: GameState) -> None:
     """Parse the first opcode (called by the old single-opcode callback)."""
     try:
         _parse(opcode, reader, gs)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"parse_server_packet error opcode 0x{opcode:02X}: {e}")
 
 
 def scan_packet(data: bytes, gs: GameState) -> None:
@@ -93,12 +101,14 @@ def scan_packet(data: bytes, gs: GameState) -> None:
 
     # Creature tracking is handled entirely by DLL bridge — no packet scanning.
 
-    # M14: Prune stale non-DLL creatures
+    # Prune stale non-DLL creatures (throttled to once per second)
     now = time.time()
-    gs.creatures = {
-        cid: info for cid, info in gs.creatures.items()
-        if info.get("source") == "dll" or now - info.get("t", 0) <= MAX_CREATURE_AGE
-    }
+    if now - gs._last_prune_time >= PRUNE_INTERVAL:
+        gs._last_prune_time = now
+        gs.creatures = {
+            cid: info for cid, info in gs.creatures.items()
+            if info.get("source") == "dll" or now - info.get("t", 0) <= MAX_CREATURE_AGE
+        }
 
 
 
@@ -116,20 +126,20 @@ def _search_for_stats(data: bytes, start: int, gs: GameState) -> None:
         except (struct.error, IndexError):
             continue
         # Tight sanity check to avoid false positives in map data
-        if max_hp == 0 or max_hp > 50000 or hp > max_hp:
+        if max_hp == 0 or max_hp > MAX_VALID_HP or hp > max_hp:
             continue
-        if level == 0 or level > 5000:
+        if level == 0 or level > MAX_VALID_LEVEL:
             continue
-        # Additional mana/capacity checks (M6)
+        # Additional mana/capacity checks
         try:
             mana = struct.unpack_from('<I', data, p + 23)[0]
             max_mana = struct.unpack_from('<I', data, p + 27)[0]
             capacity = struct.unpack_from('<I', data, p + 8)[0]
         except (struct.error, IndexError):
             continue
-        if max_mana > 50000 or mana > max_mana:
+        if max_mana > MAX_VALID_MANA or mana > max_mana:
             continue
-        if capacity == 0 or capacity > 100000:
+        if capacity == 0 or capacity > MAX_VALID_CAPACITY:
             continue
         # Looks valid — parse fully
         _parse_at(ServerOpcode.PLAYER_STATS, data, p, gs)
@@ -290,6 +300,10 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
 
     # PING — 0 bytes
     if opcode == ServerOpcode.PING:
+        return pos
+
+    # PLAYER_CANCEL_ATTACK — 0 bytes
+    if opcode == ServerOpcode.PLAYER_CANCEL_ATTACK:
         return pos
 
     # Unknown opcode — stop

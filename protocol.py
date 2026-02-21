@@ -228,6 +228,8 @@ class PacketReader:
 
     def read_string(self) -> str:
         length = self.read_u16()
+        if length > self.remaining:
+            raise IndexError(f"String length {length} exceeds remaining {self.remaining}")
         data = self.read_bytes(length)
         return data.decode('latin-1')
 

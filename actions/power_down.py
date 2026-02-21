@@ -1,4 +1,4 @@
-"""Say 'power down' every 100ms."""
+"""Say 'power down' every 1 second."""
 
 
 async def run(bot):

@@ -10,8 +10,6 @@ Handles TWO phases:
 import asyncio
 import struct
 import logging
-import sys
-import time
 from crypto import (
     rsa_decrypt, rsa_encrypt, xtea_decrypt, xtea_encrypt,
     adler32_checksum, generate_proxy_rsa_keypair, get_default_rsa_key,
@@ -19,11 +17,6 @@ from crypto import (
 )
 from protocol import PacketReader, PacketWriter, ServerOpcode, ClientOpcode
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    stream=sys.stderr,
-)
 log = logging.getLogger("proxy")
 
 
@@ -45,11 +38,9 @@ class OTProxy:
         # No need to patch the client, just decrypt with the known key.
         self.default_rsa_key = get_default_rsa_key()
 
-        # Also keep a generated proxy key as fallback
-        if shared_rsa_key:
-            self.proxy_rsa_key = shared_rsa_key
-        else:
-            self.proxy_rsa_key = generate_proxy_rsa_keypair()
+        # Lazy-init proxy RSA key only if needed (keygen is expensive)
+        self._shared_rsa_key = shared_rsa_key
+        self._proxy_rsa_key = None
         self.server_rsa_n = DEFAULT_RSA_N
         self.server_rsa_e = DEFAULT_RSA_E
 
@@ -74,6 +65,12 @@ class OTProxy:
         # Stats
         self.packets_from_server = 0
         self.packets_from_client = 0
+
+    @property
+    def proxy_rsa_key(self):
+        if self._proxy_rsa_key is None:
+            self._proxy_rsa_key = self._shared_rsa_key or generate_proxy_rsa_keypair()
+        return self._proxy_rsa_key
 
     async def start(self):
         """Start the proxy server."""
@@ -292,8 +289,7 @@ class OTProxy:
 
         except Exception as e:
             log.error(f"[LOGIN] Error modifying response: {e}")
-            import traceback
-            traceback.print_exc()
+            log.debug("Login response modification traceback:", exc_info=True)
             return None
 
     async def _read_packet(self, reader: asyncio.StreamReader) -> bytes | None:
