@@ -251,6 +251,9 @@ async def run(bot):
                                 if old[2] != cz:
                                     _dbg(f"player z changed: {old} -> ({cx},{cy},{cz})")
                         continue
+                    # Skip dead creatures (0% HP)
+                    if c.get("hp", 0) <= 0:
+                        continue
                     # Skip invalid positions
                     if (cx == 0 and cy == 0) or cx > 65535 or cz > 15:
                         continue
