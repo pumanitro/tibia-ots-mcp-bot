@@ -1,18 +1,13 @@
 /*
  * dbvbot.dll — In-process creature scanner for DBVictory
  *
- * v10: Two-tier scanning, no proximity filter (done in Python).
- *   - Fast scan (~200ms): re-reads cached memory addresses (instant)
- *   - Full scan (~5s):    VirtualQuery to discover new creatures
- *
- * Creature struct layout (confirmed from memory analysis):
- *   +0:   u32 id          (0x10000000..0x80000000)
- *   +4:   MSVC string     (24 bytes: SSO or heap ptr + size + cap)
- *   +28:  u32 health      (0-100)
- *   +576: u32 x, y, z    (current position)
+ * v50: Direct creature map reading + WndProc hook for fast targeting.
+ *   - Map scan (~100ms): walks g_map.m_knownCreatures red-black tree
+ *   - Full scan (~5s):   VirtualQuery fallback (auto if map unavailable)
+ *   - WndProc hook:      executes targeting in ~16ms (one frame)
  *
  * Build (MinGW 32-bit):
- *   g++ -shared -o dbvbot.dll dbvbot.cpp -lkernel32 -static -s -O2 -std=c++17
+ *   g++ -shared -o dbvbot.dll dbvbot.cpp -lkernel32 -luser32 -static -s -O2 -std=c++17
  */
 
 #define WIN32_LEAN_AND_MEAN
@@ -62,9 +57,29 @@ static BOOL safe_memcpy(void* dst, const void* src, size_t len) {
 #define MAX_NAME_LEN    63
 #define FULL_SCAN_INTERVAL 5000  // ms between full VirtualQuery scans
 #define FAST_SCAN_INTERVAL 200   // ms between fast re-reads of cached addrs
+#define MAP_SCAN_INTERVAL  100   // ms between creature map tree walks
 #define SEND_INTERVAL      200   // ms between JSON sends
-#define POS_OFFSET         576   // offset from creature ID to position (NPCs)
-#define PLAYER_POS_OFFSET  -40   // offset from creature ID to position (player)
+
+// ── Configurable offsets (loaded from pipe "set_offsets" command) ────
+// Defaults match known DBVictory layout; overridden at runtime.
+static uint32_t OFF_GAME_SINGLETON_RVA   = 0xB2E970u;
+static uint32_t OFF_GAME_ATTACKING       = 0x0C;
+static uint32_t OFF_GAME_PROTOCOL        = 0x18;
+static uint32_t OFF_GAME_ATKFLAG         = 0x34;
+static uint32_t OFF_GAME_SEQ             = 0x70;
+static uint32_t OFF_CREATURE_VTABLE      = 0x00;
+static uint32_t OFF_CREATURE_REFS        = 0x04;
+static uint32_t OFF_CREATURE_ID          = 0x34;
+static uint32_t OFF_CREATURE_NAME        = 0x38;
+static uint32_t OFF_CREATURE_HP          = 0x50;
+static int32_t  OFF_NPC_POS_FROM_ID      = 576;
+static int32_t  OFF_PLAYER_POS_FROM_ID   = -40;
+static uint32_t OFF_VTABLE_RVA_MIN       = 0x870000u;
+static uint32_t OFF_VTABLE_RVA_MAX       = 0x8A0000u;
+static uint32_t OFF_XTEA_ENCRYPT_RVA     = 0x3AF220u;
+static uint32_t OFF_GAME_ATTACK_RVA      = 0x8F220u;
+static uint32_t OFF_SEND_ATTACK_RVA      = 0x19D100u;
+static uint32_t OFF_GAME_DOATTACK_RVA    = 0x89680u;
 
 
 // ── Creature data ───────────────────────────────────────────────────
@@ -93,6 +108,17 @@ static CRITICAL_SECTION g_cs;
 static char g_dll_dir[MAX_PATH] = {0};
 static int  g_scan_count = 0;
 
+// ── Creature map (g_map) state ──────────────────────────────────────
+static uintptr_t g_map_addr = 0;           // address of the std::map header
+static volatile BOOL g_use_map_scan = FALSE; // feature flag: use tree walk vs VirtualQuery
+static int g_map_scan_count = 0;
+
+// ── WndProc hook state ──────────────────────────────────────────────
+#define WM_BOT_TARGET (WM_USER + 100)
+static HWND    g_game_hwnd = NULL;
+static WNDPROC g_orig_wndproc = NULL;
+static volatile BOOL g_wndproc_hooked = FALSE;
+
 // ── Debug log ───────────────────────────────────────────────────────
 static FILE* g_dbg = NULL;
 
@@ -103,7 +129,7 @@ static void dbg_open(void) {
     if (n < 0 || n >= (int)sizeof(path)) return;
     g_dbg = fopen(path, "a");
     if (g_dbg) {
-        fprintf(g_dbg, "=== dbvbot.dll v31 (Game::attack + crash debug) ===\n");
+        fprintf(g_dbg, "=== dbvbot.dll v50 (map scan + WndProc hook) ===\n");
         fflush(g_dbg);
     }
 }
@@ -193,9 +219,9 @@ static BOOL read_position_at(const uint8_t* id_ptr, int offset, uint32_t* x, uin
 static BOOL read_position(const uint8_t* id_ptr, uint32_t id, uint32_t* x, uint32_t* y, uint32_t* z) {
     // Player creature stores position at a different offset
     if (g_player_id != 0 && id == g_player_id) {
-        return read_position_at(id_ptr, PLAYER_POS_OFFSET, x, y, z);
+        return read_position_at(id_ptr, OFF_PLAYER_POS_FROM_ID, x, y, z);
     }
-    return read_position_at(id_ptr, POS_OFFSET, x, y, z);
+    return read_position_at(id_ptr, OFF_NPC_POS_FROM_ID, x, y, z);
 }
 
 // ── Try to read a creature at a known address ───────────────────────
@@ -435,7 +461,6 @@ static int WSAAPI hooked_WSASend(SOCKET s, LPWSABUF lpBuffers, DWORD dwBufferCou
 
 // ── XTEA constant scanner: find encryption function in game code ────
 #define XTEA_DELTA 0x9E3779B9u
-#define XTEA_ENCRYPT_RVA 0x003AF220u  // known XTEA encrypt entry (confirmed v19/v22)
 
 // Storage for found XTEA locations
 static uintptr_t g_xtea_addrs[16];
@@ -944,7 +969,7 @@ static void open_hook_log(void) {
 
 // ── Attack function hook: capture 'this', replay attacks on game thread ──
 
-#define ATTACK_FUNC_RVA 0x19D100u  // send_attack at VA 0x003FD100
+// OFF_SEND_ATTACK_RVA now uses OFF_SEND_ATTACK_RVA from offsets config
 
 // g_protocol_this, g_attack_request, g_attack_done, g_attack_trampoline
 // are forward-declared above (before XTEA cave builder)
@@ -1031,7 +1056,7 @@ static BOOL install_attack_hook(void) {
     }
 
     HMODULE game = GetModuleHandle(NULL);
-    uint8_t* target = (uint8_t*)((uintptr_t)game + ATTACK_FUNC_RVA);
+    uint8_t* target = (uint8_t*)((uintptr_t)game + OFF_SEND_ATTACK_RVA);
 
     dbg("install_attack_hook: target=%p", target);
     dbg("  bytes: %02X %02X %02X %02X %02X %02X %02X %02X",
@@ -1080,24 +1105,13 @@ static BOOL install_attack_hook(void) {
 
 // ── Game object targeting: write to Game singleton to trigger in-game attack ──
 
-#define GAME_SINGLETON_RVA  0xB2E970u  // VA 0x00D8E970 - base 0x00260000
-#define GAME_TARGET_OFFSET  0x0C   // Creature* (attack target)
-#define GAME_ATKFLAG_OFFSET 0x34   // byte: 1 = attacking
-// Vtable range as RVAs (base-independent, ASLR safe)
-// Old absolute values 0x00AD0000..0x00B00000 were at base 0x00260000
-// RVAs: 0x00870000..0x008A0000
-#define CREATURE_VTABLE_MIN_RVA 0x00870000u
-#define CREATURE_VTABLE_MAX_RVA 0x008A0000u
+// All offsets now come from OFF_* variables (loaded via "set_offsets" pipe command)
 
 static inline bool is_valid_creature_vtable(uint32_t vtable) {
     uintptr_t base = (uintptr_t)GetModuleHandle(NULL);
     uintptr_t rva = (uintptr_t)vtable - base;
-    return rva >= CREATURE_VTABLE_MIN_RVA && rva < CREATURE_VTABLE_MAX_RVA;
+    return rva >= OFF_VTABLE_RVA_MIN && rva < OFF_VTABLE_RVA_MAX;
 }
-#define CREATURE_CID_OFFSET 0x34   // creature_id in Creature object
-#define CREATURE_HP_OFFSET  0x50   // health in Creature object
-#define CREATURE_REFS_OFFSET 0x04  // shared_object::refs (atomic refcount)
-#define GAME_DOATTACK_RVA   0x89680u  // Game::attack(const CreaturePtr&) — __thiscall
 
 // Function pointer type for calling Game::attack via __thiscall convention.
 // ECX = Game* (this), stack param = const CreaturePtr& (pointer to 4-byte Creature*).
@@ -1112,12 +1126,15 @@ static volatile LONG g_pending_game_attack = 0;
 static uint32_t  g_cached_target_cid = 0;
 static uintptr_t g_cached_target_ptr = 0;
 
+// Forward declaration (defined after the g_map scanning section)
+static uintptr_t find_creature_in_map(uint32_t creature_id);
+
 static uintptr_t find_creature_ptr(uint32_t creature_id) {
     // Check cache first
     if (g_cached_target_cid == creature_id && g_cached_target_ptr) {
         uint32_t check_vtable = 0, check_id = 0;
         if (safe_memcpy(&check_vtable, (void*)g_cached_target_ptr, 4) &&
-            safe_memcpy(&check_id, (void*)(g_cached_target_ptr + CREATURE_CID_OFFSET), 4) &&
+            safe_memcpy(&check_id, (void*)(g_cached_target_ptr + OFF_CREATURE_ID), 4) &&
             is_valid_creature_vtable(check_vtable) &&
             check_id == creature_id) {
             return g_cached_target_ptr;
@@ -1126,10 +1143,22 @@ static uintptr_t find_creature_ptr(uint32_t creature_id) {
         g_cached_target_ptr = 0;
     }
 
+    // Check creature map tree (O(log n) — instant)
+    if (g_map_addr) {
+        uintptr_t map_result = find_creature_in_map(creature_id);
+        if (map_result) {
+            g_cached_target_cid = creature_id;
+            g_cached_target_ptr = map_result;
+            dbg("find_creature_ptr: 0x%08X -> map tree, Creature* %p",
+                creature_id, (void*)map_result);
+            return map_result;
+        }
+    }
+
     // Check creature scan cache (g_addrs) — avoids expensive heap scan
     for (int i = 0; i < g_addr_count; i++) {
         if (g_addrs[i].id == creature_id) {
-            uintptr_t obj_addr = (uintptr_t)g_addrs[i].addr - CREATURE_CID_OFFSET;
+            uintptr_t obj_addr = (uintptr_t)g_addrs[i].addr - OFF_CREATURE_ID;
             uint32_t vtable = 0;
             if (safe_memcpy(&vtable, (void*)obj_addr, 4) &&
                 is_valid_creature_vtable(vtable)) {
@@ -1172,7 +1201,7 @@ static uintptr_t find_creature_ptr(uint32_t creature_id) {
                     if (val != creature_id) continue;
 
                     uintptr_t cid_addr = page + off;
-                    uintptr_t obj_addr = cid_addr - CREATURE_CID_OFFSET;
+                    uintptr_t obj_addr = cid_addr - OFF_CREATURE_ID;
                     if (obj_addr < 0x10000) continue;
 
                     uint32_t vtable;
@@ -1195,7 +1224,7 @@ static uintptr_t find_creature_ptr(uint32_t creature_id) {
 // Called from XTEA hook cave on the GAME THREAD.
 // Calls Game::attack(const CreaturePtr&) at RVA +0x8F220 to trigger
 // in-game targeting (red square, battle list, follow, attack packet).
-#define GAME_ATTACK_RVA 0x8F220u
+// GAME_ATTACK_RVA now uses OFF_GAME_ATTACK_RVA from offsets config
 
 static volatile uint32_t g_last_attack_target_cid = 0; // track what we last attacked
 
@@ -1214,21 +1243,21 @@ static void __cdecl do_game_target_update(void) {
     // Quick validate creature
     uint32_t vtable = 0, cid = 0, hp = 0;
     if (!safe_memcpy(&vtable, (void*)creature_ptr, 4) ||
-        !safe_memcpy(&cid, (void*)(creature_ptr + CREATURE_CID_OFFSET), 4) ||
-        !safe_memcpy(&hp, (void*)(creature_ptr + CREATURE_HP_OFFSET), 4))
+        !safe_memcpy(&cid, (void*)(creature_ptr + OFF_CREATURE_ID), 4) ||
+        !safe_memcpy(&hp, (void*)(creature_ptr + OFF_CREATURE_HP), 4))
         return;
     if (!is_valid_creature_vtable(vtable) || hp == 0 || hp > 100)
         return;
 
     HMODULE game_mod = GetModuleHandle(NULL);
     uintptr_t base = (uintptr_t)game_mod;
-    uintptr_t game_obj = base + GAME_SINGLETON_RVA;
-    uintptr_t func_addr = base + GAME_ATTACK_RVA;
+    uintptr_t game_obj = base + OFF_GAME_SINGLETON_RVA;
+    uintptr_t func_addr = base + OFF_GAME_ATTACK_RVA;
 
     // Check if game still has our target — if game cleared it (Z change, etc.), re-target
     if (cid == g_last_attack_target_cid) {
         uintptr_t cur = 0;
-        safe_memcpy(&cur, (void*)(game_obj + GAME_TARGET_OFFSET), 4);
+        safe_memcpy(&cur, (void*)(game_obj + OFF_GAME_ATTACKING), 4);
         if (cur != 0) return;  // game still targeting something, skip
         // Game cleared the target — re-send
         dbg("[GTUPD] re-target 0x%08X (game cleared target)", cid);
@@ -1247,14 +1276,14 @@ static void __cdecl do_game_target_update(void) {
     //    ECX = protocol (Game+0x18), stack = (creature_id, seq)
     //    Seq comes from Game+0x70 (increment first, like the tick function does)
     uintptr_t proto = 0;
-    safe_memcpy(&proto, (void*)(game_obj + 0x18), 4);
+    safe_memcpy(&proto, (void*)(game_obj + OFF_GAME_PROTOCOL), 4);
     if (proto > 0x10000) {
-        // Increment seq counter (game+0x70) then read it
-        volatile uint32_t* seq_ptr = (volatile uint32_t*)(game_obj + 0x70);
+        // Increment seq counter then read it
+        volatile uint32_t* seq_ptr = (volatile uint32_t*)(game_obj + OFF_GAME_SEQ);
         uint32_t seq = InterlockedIncrement((volatile LONG*)seq_ptr);
 
         typedef void (__attribute__((thiscall)) *SendAttack_fn)(void* proto_this, uint32_t creature_id, uint32_t seq);
-        SendAttack_fn send_fn = (SendAttack_fn)(base + ATTACK_FUNC_RVA);
+        SendAttack_fn send_fn = (SendAttack_fn)(base + OFF_SEND_ATTACK_RVA);
         send_fn((void*)proto, cid, seq);
         dbg("[GTUPD] sendAttackCreature(0x%08X, seq=%u) via protocol=%p", cid, seq, (void*)proto);
     } else {
@@ -1271,9 +1300,9 @@ static void request_game_attack(uint32_t creature_id) {
     // Skip if already attacking this creature (unless game cleared it)
     if (creature_id == g_last_attack_target_cid) {
         HMODULE gm = GetModuleHandle(NULL);
-        uintptr_t go = (uintptr_t)gm + GAME_SINGLETON_RVA;
+        uintptr_t go = (uintptr_t)gm + OFF_GAME_SINGLETON_RVA;
         uintptr_t cur = 0;
-        safe_memcpy(&cur, (void*)(go + GAME_TARGET_OFFSET), 4);
+        safe_memcpy(&cur, (void*)(go + OFF_GAME_ATTACKING), 4);
         if (cur != 0) return;  // still targeting, skip
         // Game cleared target — allow re-queue
     }
@@ -1288,7 +1317,7 @@ static void request_game_attack(uint32_t creature_id) {
     // Quick validation before queuing
     uint32_t vtable = 0, hp = 0;
     if (!safe_memcpy(&vtable, (void*)creature_ptr, 4) ||
-        !safe_memcpy(&hp, (void*)(creature_ptr + CREATURE_HP_OFFSET), 4))
+        !safe_memcpy(&hp, (void*)(creature_ptr + OFF_CREATURE_HP), 4))
         return;
     if (!is_valid_creature_vtable(vtable) || hp == 0 || hp > 100) {
         g_cached_target_cid = 0;
@@ -1301,6 +1330,535 @@ static void request_game_attack(uint32_t creature_id) {
     // Queue for game thread
     g_pending_creature_ptr = creature_ptr;
     InterlockedExchange(&g_pending_game_attack, 1);
+
+    // Trigger immediate execution via WndProc hook (~16ms) instead of
+    // waiting for next XTEA hook fire (~1s). XTEA hook remains as backup.
+    if (g_wndproc_hooked && g_game_hwnd) {
+        PostMessage(g_game_hwnd, WM_BOT_TARGET, 0, 0);
+    }
+}
+
+// ── Creature map (g_map) scanning ───────────────────────────────────
+// MSVC std::map<uint32, CreaturePtr> uses a red-black tree:
+//   Map header:  +0x00 = sentinel node*, +0x04 = element count
+//   Tree node:   +0x00 = left*, +0x04 = parent*, +0x08 = right*,
+//                +0x0C = color(1), +0x0D = isnil(1), +0x0E = pad(2),
+//                +0x10 = key (creature_id), +0x14 = Creature*
+
+// Validate that a pointer looks like an MSVC std::map sentinel node:
+// sentinel->isnil == 1, and left/right/parent are readable pointers.
+static BOOL validate_map_sentinel(uintptr_t sentinel_addr) {
+    uint8_t buf[16];
+    if (!safe_memcpy(buf, (void*)sentinel_addr, 16)) return FALSE;
+
+    // Check isnil byte at +0x0D
+    if (buf[0x0D] != 1) return FALSE;
+
+    // Check left/parent/right are readable pointers
+    uintptr_t left, parent, right;
+    memcpy(&left,   buf + 0x00, 4);
+    memcpy(&parent, buf + 0x04, 4);
+    memcpy(&right,  buf + 0x08, 4);
+
+    if (left   < 0x10000 || left   >= 0x7FFE0000u) return FALSE;
+    if (parent < 0x10000 || parent >= 0x7FFE0000u) return FALSE;
+    if (right  < 0x10000 || right  >= 0x7FFE0000u) return FALSE;
+
+    return TRUE;
+}
+
+// Validate that a std::map looks like it contains creatures.
+// Checks: sentinel valid, count > 0, first few nodes contain valid creature IDs.
+static BOOL validate_creature_map(uintptr_t map_addr, int expected_min) {
+    uint8_t hdr[8];
+    if (!safe_memcpy(hdr, (void*)map_addr, 8)) return FALSE;
+
+    uintptr_t sentinel;
+    uint32_t count;
+    memcpy(&sentinel, hdr, 4);
+    memcpy(&count, hdr + 4, 4);
+
+    if (count == 0 || count > 500) return FALSE;  // sanity check
+    if (!validate_map_sentinel(sentinel)) return FALSE;
+
+    // Walk first 3 nodes and check they have valid creature IDs
+    // Start from sentinel->left (smallest key = leftmost node)
+    uintptr_t node;
+    if (!safe_memcpy(&node, (void*)(sentinel + 0x00), 4)) return FALSE;
+    if (node == sentinel) return FALSE;  // empty tree
+
+    int valid_count = 0;
+    for (int i = 0; i < 3 && node != sentinel; i++) {
+        uint8_t nbuf[0x18];
+        if (!safe_memcpy(nbuf, (void*)node, 0x18)) break;
+
+        uint8_t isnil = nbuf[0x0D];
+        if (isnil) break;  // hit sentinel
+
+        uint32_t key;
+        memcpy(&key, nbuf + 0x10, 4);
+        if (key >= MIN_CREATURE_ID && key < MAX_CREATURE_ID)
+            valid_count++;
+
+        // In-order successor: if right child exists, go to leftmost of right subtree
+        uintptr_t right_child;
+        memcpy(&right_child, nbuf + 0x08, 4);
+        if (right_child != sentinel) {
+            node = right_child;
+            // Go leftmost
+            for (int safety = 0; safety < 500; safety++) {
+                uintptr_t lc;
+                if (!safe_memcpy(&lc, (void*)(node + 0x00), 4)) break;
+                if (lc == sentinel) break;
+                node = lc;
+            }
+        } else {
+            // Go up until we come from a left child
+            uintptr_t parent_node;
+            memcpy(&parent_node, nbuf + 0x04, 4);
+            uintptr_t cur = node;
+            node = parent_node;
+            for (int safety = 0; safety < 500; safety++) {
+                if (node == sentinel) break;
+                uintptr_t n_right;
+                if (!safe_memcpy(&n_right, (void*)(node + 0x08), 4)) { node = sentinel; break; }
+                if (n_right != cur) break;  // came from left child
+                cur = node;
+                if (!safe_memcpy(&node, (void*)(node + 0x04), 4)) { node = sentinel; break; }
+            }
+        }
+    }
+
+    return valid_count >= 1;
+}
+
+// Scan Game::attack function code to find g_map address by looking for
+// MOV/LEA instructions that reference global variables, then checking
+// if any of those globals is a valid creature std::map.
+static void scan_gmap(void) {
+    HMODULE game = GetModuleHandle(NULL);
+    uintptr_t base = (uintptr_t)game;
+    uintptr_t func_addr = base + OFF_GAME_ATTACK_RVA;
+
+    dbg("[GMAP] scanning for g_map from Game::attack at VA 0x%08X...", (unsigned)func_addr);
+
+    // Read 512 bytes of the function
+    uint8_t code[512];
+    if (!safe_memcpy(code, (void*)func_addr, 512)) {
+        dbg("[GMAP] failed to read Game::attack code");
+        return;
+    }
+
+    // Extract absolute addresses from MOV/LEA instructions
+    // Common patterns: 8B 0D XX XX XX XX  (mov ecx, [addr])
+    //                  8B 15 XX XX XX XX  (mov edx, [addr])
+    //                  A1 XX XX XX XX     (mov eax, [addr])
+    //                  8D 05 XX XX XX XX  (lea eax, [addr])
+    //                  B8 XX XX XX XX     (mov eax, imm32) — could be a global addr
+    uintptr_t candidates[64];
+    int ncand = 0;
+
+    for (int i = 0; i < 512 - 6 && ncand < 64; i++) {
+        uintptr_t addr = 0;
+
+        if (code[i] == 0xA1) {
+            // mov eax, [imm32]
+            memcpy(&addr, &code[i+1], 4);
+            i += 4;
+        } else if (code[i] == 0x8B && (code[i+1] & 0xC7) == 0x05) {
+            // mov reg, [imm32] — 8B mod=00 r/m=101 (disp32)
+            memcpy(&addr, &code[i+2], 4);
+            i += 5;
+        } else if (code[i] == 0x8B && (code[i+1] & 0xC7) == 0x0D) {
+            // mov reg, [imm32] — 8B 0D pattern
+            memcpy(&addr, &code[i+2], 4);
+            i += 5;
+        } else if (code[i] == 0x8B && (code[i+1] & 0xC7) == 0x15) {
+            // mov reg, [imm32] — 8B 15 pattern
+            memcpy(&addr, &code[i+2], 4);
+            i += 5;
+        } else if (code[i] == 0x8D && (code[i+1] & 0xC7) == 0x05) {
+            // lea reg, [imm32]
+            memcpy(&addr, &code[i+2], 4);
+            i += 5;
+        } else if (code[i] == 0x8D && (code[i+1] & 0xC7) == 0x0D) {
+            // lea reg, [imm32]
+            memcpy(&addr, &code[i+2], 4);
+            i += 5;
+        } else if (code[i] == 0xB8 || code[i] == 0xB9 || code[i] == 0xBB) {
+            // mov eax/ecx/ebx, imm32
+            memcpy(&addr, &code[i+1], 4);
+            i += 4;
+        } else if (code[i] == 0x68) {
+            // push imm32
+            memcpy(&addr, &code[i+1], 4);
+            i += 4;
+        }
+
+        if (addr >= 0x10000 && addr < 0x7FFE0000u) {
+            // Dedup
+            BOOL dup = FALSE;
+            for (int j = 0; j < ncand; j++) {
+                if (candidates[j] == addr) { dup = TRUE; break; }
+            }
+            if (!dup) {
+                candidates[ncand++] = addr;
+            }
+        }
+    }
+
+    dbg("[GMAP] found %d candidate addresses in Game::attack", ncand);
+
+    // Also scan a range around each candidate (maps might be at addr or addr+offset)
+    int expected_creature_count = g_addr_count;  // from VirtualQuery scan
+    dbg("[GMAP] current VQ scan has %d creatures for cross-check", expected_creature_count);
+
+    for (int i = 0; i < ncand; i++) {
+        uintptr_t cand = candidates[i];
+        // Try the address directly as a map header
+        // Also try reading it as a pointer-to-map
+        uintptr_t try_addrs[3] = { cand, 0, 0 };
+        int ntry = 1;
+
+        // Also dereference it (pointer to map)
+        uintptr_t deref = 0;
+        if (safe_memcpy(&deref, (void*)cand, 4) && deref >= 0x10000 && deref < 0x7FFE0000u) {
+            try_addrs[ntry++] = deref;
+        }
+
+        for (int t = 0; t < ntry; t++) {
+            uintptr_t try_addr = try_addrs[t];
+            if (validate_creature_map(try_addr, expected_creature_count > 0 ? 1 : 0)) {
+                uint32_t count = 0;
+                safe_memcpy(&count, (void*)(try_addr + 4), 4);
+                dbg("[GMAP] FOUND creature map at 0x%08X (count=%u) via candidate 0x%08X%s",
+                    (unsigned)try_addr, count, (unsigned)cand,
+                    t == 0 ? " (direct)" : " (deref)");
+                g_map_addr = try_addr;
+                return;
+            }
+        }
+    }
+
+    // Broader scan: check globals in writable data sections only (.data, .bss)
+    // IMPORTANT: Skip .rdata — it contains read-only constants; dereferencing
+    // arbitrary values there as pointers causes access violations.
+    dbg("[GMAP] no map found in Game::attack refs, scanning writable sections...");
+    PIMAGE_DOS_HEADER dos = (PIMAGE_DOS_HEADER)game;
+    PIMAGE_NT_HEADERS nt = (PIMAGE_NT_HEADERS)((BYTE*)game + dos->e_lfanew);
+    PIMAGE_SECTION_HEADER sec = IMAGE_FIRST_SECTION(nt);
+    for (int s = 0; s < nt->FileHeader.NumberOfSections; s++) {
+        // Only scan writable data sections (.data, .bss)
+        if (!(sec[s].Characteristics & IMAGE_SCN_MEM_WRITE)) continue;
+        if (sec[s].Characteristics & IMAGE_SCN_CNT_CODE) continue;
+        uintptr_t sec_start = base + sec[s].VirtualAddress;
+        uintptr_t sec_end = sec_start + sec[s].Misc.VirtualSize;
+        dbg("[GMAP] scanning section '%s' (0x%08X - 0x%08X)...",
+            sec[s].Name, (unsigned)sec_start, (unsigned)sec_end);
+
+        // Pre-filter: only check addresses that look like a plausible map header
+        // (first 4 bytes = pointer in heap range, next 4 = small count 1..500)
+        for (uintptr_t addr = sec_start; addr + 8 <= sec_end; addr += 4) {
+            uint8_t peek[8];
+            if (!safe_memcpy(peek, (void*)addr, 8)) continue;
+            uintptr_t sentinel_candidate;
+            uint32_t count_candidate;
+            memcpy(&sentinel_candidate, peek, 4);
+            memcpy(&count_candidate, peek + 4, 4);
+            // Quick reject: sentinel must be a heap pointer, count must be 1..500
+            if (sentinel_candidate < 0x10000 || sentinel_candidate >= 0x7FFE0000u) continue;
+            if (count_candidate == 0 || count_candidate > 500) continue;
+
+            if (validate_creature_map(addr, expected_creature_count > 0 ? 1 : 0)) {
+                dbg("[GMAP] FOUND creature map at 0x%08X (count=%u) in section '%s'",
+                    (unsigned)addr, count_candidate, sec[s].Name);
+                g_map_addr = addr;
+                return;
+            }
+        }
+    }
+    dbg("[GMAP] creature map NOT FOUND");
+}
+
+// Walk the creature map tree and populate g_addrs[].
+// Returns the number of creatures found.
+static int walk_creature_map(void) {
+    if (!g_map_addr) return -1;
+
+    uint8_t hdr[8];
+    if (!safe_memcpy(hdr, (void*)g_map_addr, 8)) return -1;
+
+    uintptr_t sentinel;
+    uint32_t count;
+    memcpy(&sentinel, hdr, 4);
+    memcpy(&count, hdr + 4, 4);
+
+    // Validate sentinel still looks correct
+    if (count == 0 || count > 500 || !validate_map_sentinel(sentinel)) {
+        dbg("[MAP] map validation failed (count=%u sentinel=0x%08X)", count, (unsigned)sentinel);
+        return -1;
+    }
+
+    // Find leftmost node (smallest key)
+    uintptr_t node = sentinel;
+    {
+        uintptr_t left;
+        if (!safe_memcpy(&left, (void*)(sentinel + 0x00), 4)) return -1;
+        node = left;
+    }
+    if (node == sentinel) return 0;  // empty tree
+
+    // Go to leftmost
+    for (int safety = 0; safety < 500; safety++) {
+        uintptr_t lc;
+        if (!safe_memcpy(&lc, (void*)(node + 0x00), 4)) break;
+        if (lc == sentinel) break;
+        node = lc;
+    }
+
+    // In-order traversal
+    CachedCreature found[MAX_CREATURES];
+    int found_count = 0;
+
+    for (int iter = 0; iter < 500 && node != sentinel && found_count < MAX_CREATURES; iter++) {
+        uint8_t nbuf[0x18];
+        if (!safe_memcpy(nbuf, (void*)node, 0x18)) break;
+
+        uint8_t isnil = nbuf[0x0D];
+        if (isnil) break;  // hit sentinel
+
+        uint32_t key;
+        uintptr_t creature_ptr;
+        memcpy(&key, nbuf + 0x10, 4);
+        memcpy(&creature_ptr, nbuf + 0x14, 4);
+
+        // Read creature data from Creature* object
+        if (key >= MIN_CREATURE_ID && key < MAX_CREATURE_ID &&
+            creature_ptr >= 0x10000 && creature_ptr < 0x7FFE0000u) {
+            // Validate vtable
+            uint32_t vtable = 0;
+            if (safe_memcpy(&vtable, (void*)creature_ptr, 4) &&
+                is_valid_creature_vtable(vtable)) {
+
+                // Read creature_id from object to confirm
+                uint32_t obj_id = 0;
+                safe_memcpy(&obj_id, (void*)(creature_ptr + OFF_CREATURE_ID), 4);
+
+                if (obj_id == key) {
+                    // Read health
+                    uint32_t hp = 0;
+                    safe_memcpy(&hp, (void*)(creature_ptr + OFF_CREATURE_HP), 4);
+
+                    // Read name from object (name field is at Creature* + OFF_CREATURE_NAME)
+                    char name[64] = {0};
+                    uint8_t name_raw[24];
+                    uintptr_t name_addr = creature_ptr + OFF_CREATURE_NAME;
+                    if (safe_memcpy(name_raw, (void*)name_addr, 24)) {
+                        try_read_name(name_raw, name, sizeof(name));
+                    }
+
+                    // Read position (using id_ptr = Creature* + OFF_CREATURE_ID)
+                    uint8_t* id_ptr = (uint8_t*)(creature_ptr + OFF_CREATURE_ID);
+                    uint32_t cx = 0, cy = 0, cz = 0;
+                    read_position(id_ptr, key, &cx, &cy, &cz);
+
+                    CachedCreature* c = &found[found_count++];
+                    c->addr = id_ptr;
+                    c->id = key;
+                    strncpy(c->name, name, MAX_NAME_LEN);
+                    c->name[MAX_NAME_LEN] = '\0';
+                    c->health = (hp <= 100) ? (uint8_t)hp : 0;
+                    c->x = cx;
+                    c->y = cy;
+                    c->z = cz;
+                }
+            }
+        }
+
+        // In-order successor
+        uintptr_t right_child;
+        memcpy(&right_child, nbuf + 0x08, 4);
+        if (right_child != sentinel) {
+            node = right_child;
+            for (int safety = 0; safety < 500; safety++) {
+                uintptr_t lc;
+                if (!safe_memcpy(&lc, (void*)(node + 0x00), 4)) break;
+                if (lc == sentinel) break;
+                node = lc;
+            }
+        } else {
+            uintptr_t parent_node;
+            memcpy(&parent_node, nbuf + 0x04, 4);
+            uintptr_t cur = node;
+            node = parent_node;
+            for (int safety = 0; safety < 500; safety++) {
+                if (node == sentinel) break;
+                uintptr_t n_right;
+                if (!safe_memcpy(&n_right, (void*)(node + 0x08), 4)) { node = sentinel; break; }
+                if (n_right != cur) break;
+                cur = node;
+                if (!safe_memcpy(&node, (void*)(node + 0x04), 4)) { node = sentinel; break; }
+            }
+        }
+    }
+
+    // Replace address cache
+    memcpy(g_addrs, found, sizeof(CachedCreature) * found_count);
+    g_addr_count = found_count;
+    copy_to_output();
+    return found_count;
+}
+
+// Find a specific creature by ID using the map tree (O(log n) binary search).
+static uintptr_t find_creature_in_map(uint32_t creature_id) {
+    if (!g_map_addr) return 0;
+
+    uint8_t hdr[8];
+    if (!safe_memcpy(hdr, (void*)g_map_addr, 8)) return 0;
+
+    uintptr_t sentinel;
+    uint32_t count;
+    memcpy(&sentinel, hdr, 4);
+    memcpy(&count, hdr + 4, 4);
+    if (count == 0 || !validate_map_sentinel(sentinel)) return 0;
+
+    // Start from root: sentinel->parent is the root node
+    uintptr_t node;
+    if (!safe_memcpy(&node, (void*)(sentinel + 0x04), 4)) return 0;
+
+    for (int i = 0; i < 30 && node != sentinel; i++) {  // log2(500) < 10, 30 is generous
+        uint8_t nbuf[0x18];
+        if (!safe_memcpy(nbuf, (void*)node, 0x18)) return 0;
+        if (nbuf[0x0D]) return 0;  // isnil — hit sentinel
+
+        uint32_t key;
+        memcpy(&key, nbuf + 0x10, 4);
+
+        if (creature_id == key) {
+            uintptr_t creature_ptr;
+            memcpy(&creature_ptr, nbuf + 0x14, 4);
+            if (creature_ptr >= 0x10000 && creature_ptr < 0x7FFE0000u) {
+                uint32_t vtable = 0;
+                if (safe_memcpy(&vtable, (void*)creature_ptr, 4) &&
+                    is_valid_creature_vtable(vtable)) {
+                    return creature_ptr;
+                }
+            }
+            return 0;
+        } else if (creature_id < key) {
+            memcpy(&node, nbuf + 0x00, 4);  // go left
+        } else {
+            memcpy(&node, nbuf + 0x08, 4);  // go right
+        }
+    }
+    return 0;
+}
+
+// ── WndProc hook: execute targeting on the game thread in ~16ms ─────
+
+static LRESULT CALLBACK bot_wndproc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (msg == WM_BOT_TARGET) {
+        do_game_target_update();
+        return 0;
+    }
+    return CallWindowProc(g_orig_wndproc, hwnd, msg, wParam, lParam);
+}
+
+// EnumWindows callback to find the game window (matches the game process)
+static BOOL CALLBACK find_game_window_cb(HWND hwnd, LPARAM lParam) {
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    if (pid == GetCurrentProcessId()) {
+        // Only match visible top-level windows with a title
+        if (IsWindowVisible(hwnd)) {
+            char title[128] = {0};
+            GetWindowTextA(hwnd, title, sizeof(title));
+            if (title[0] != '\0') {
+                *(HWND*)lParam = hwnd;
+                return FALSE;  // stop enumeration
+            }
+        }
+    }
+    return TRUE;
+}
+
+static BOOL install_wndproc_hook(void) {
+    if (g_wndproc_hooked) return TRUE;
+
+    // Find the game window
+    g_game_hwnd = NULL;
+    EnumWindows(find_game_window_cb, (LPARAM)&g_game_hwnd);
+    if (!g_game_hwnd) {
+        dbg("[WNDPROC] game window not found");
+        return FALSE;
+    }
+
+    char title[128] = {0};
+    GetWindowTextA(g_game_hwnd, title, sizeof(title));
+    dbg("[WNDPROC] found game window: hwnd=%p title='%s'", g_game_hwnd, title);
+
+    // Subclass the window procedure
+    g_orig_wndproc = (WNDPROC)SetWindowLongPtr(g_game_hwnd, GWLP_WNDPROC, (LONG_PTR)bot_wndproc);
+    if (!g_orig_wndproc) {
+        dbg("[WNDPROC] SetWindowLongPtr failed (err=%lu)", GetLastError());
+        return FALSE;
+    }
+
+    g_wndproc_hooked = TRUE;
+    dbg("[WNDPROC] hook installed — targeting via PostMessage(WM_USER+100)");
+    return TRUE;
+}
+
+// ── Parse hex string helper ─────────────────────────────────────────
+static uint32_t parse_hex_or_dec(const char* s) {
+    while (*s == ' ' || *s == '"' || *s == ':') s++;
+    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X'))
+        return (uint32_t)strtoul(s, NULL, 16);
+    return (uint32_t)strtoul(s, NULL, 10);
+}
+
+// ── set_offsets parser: update all OFF_* variables from JSON ─────────
+static void parse_set_offsets(const char* line) {
+    // Simple key-value extraction from the JSON string
+    // Format: {"cmd":"set_offsets","game_singleton_rva":"0xB2E970",...}
+    auto get_val = [&](const char* key) -> uint32_t {
+        const char* p = strstr(line, key);
+        if (!p) return 0xFFFFFFFF;
+        p = strchr(p + strlen(key), ':');
+        if (!p) return 0xFFFFFFFF;
+        return parse_hex_or_dec(p + 1);
+    };
+
+    uint32_t v;
+    if ((v = get_val("\"game_singleton_rva\"")) != 0xFFFFFFFF) { OFF_GAME_SINGLETON_RVA = v; dbg("[OFF] game_singleton_rva=0x%X", v); }
+    if ((v = get_val("\"attacking_creature\"")) != 0xFFFFFFFF) { OFF_GAME_ATTACKING = v; }
+    if ((v = get_val("\"protocol_game\"")) != 0xFFFFFFFF) { OFF_GAME_PROTOCOL = v; }
+    if ((v = get_val("\"attack_flag\"")) != 0xFFFFFFFF) { OFF_GAME_ATKFLAG = v; }
+    if ((v = get_val("\"seq_counter\"")) != 0xFFFFFFFF) { OFF_GAME_SEQ = v; }
+    if ((v = get_val("\"creature_id\"")) != 0xFFFFFFFF) { OFF_CREATURE_ID = v; }
+    if ((v = get_val("\"creature_name\"")) != 0xFFFFFFFF) { OFF_CREATURE_NAME = v; }
+    if ((v = get_val("\"creature_hp\"")) != 0xFFFFFFFF) { OFF_CREATURE_HP = v; }
+    if ((v = get_val("\"creature_refs\"")) != 0xFFFFFFFF) { OFF_CREATURE_REFS = v; }
+    if ((v = get_val("\"vtable_rva_min\"")) != 0xFFFFFFFF) { OFF_VTABLE_RVA_MIN = v; }
+    if ((v = get_val("\"vtable_rva_max\"")) != 0xFFFFFFFF) { OFF_VTABLE_RVA_MAX = v; }
+    if ((v = get_val("\"xtea_encrypt_rva\"")) != 0xFFFFFFFF) { OFF_XTEA_ENCRYPT_RVA = v; }
+    if ((v = get_val("\"game_attack_rva\"")) != 0xFFFFFFFF) { OFF_GAME_ATTACK_RVA = v; }
+    if ((v = get_val("\"send_attack_rva\"")) != 0xFFFFFFFF) { OFF_SEND_ATTACK_RVA = v; }
+    if ((v = get_val("\"game_doattack_rva\"")) != 0xFFFFFFFF) { OFF_GAME_DOATTACK_RVA = v; }
+
+    // Signed offsets
+    const char* npc_pos = strstr(line, "\"npc_pos_from_id\"");
+    if (npc_pos) {
+        npc_pos = strchr(npc_pos + 17, ':');
+        if (npc_pos) OFF_NPC_POS_FROM_ID = (int32_t)atoi(npc_pos + 1);
+    }
+    const char* pl_pos = strstr(line, "\"player_pos_from_id\"");
+    if (pl_pos) {
+        pl_pos = strchr(pl_pos + 19, ':');
+        if (pl_pos) OFF_PLAYER_POS_FROM_ID = (int32_t)atoi(pl_pos + 1);
+    }
+
+    dbg("[OFF] offsets updated from pipe command");
 }
 
 // ── Command parser ──────────────────────────────────────────────────
@@ -1336,11 +1894,11 @@ static void parse_command(const char* line) {
         dbg("CMD hook_xtea");
         // Use hardcoded known address (prologue scan fails if old hook patched it)
         HMODULE game = GetModuleHandle(NULL);
-        uintptr_t known_entry = (uintptr_t)game + XTEA_ENCRYPT_RVA;
+        uintptr_t known_entry = (uintptr_t)game + OFF_XTEA_ENCRYPT_RVA;
         if (g_xtea_func_entry == 0) {
             g_xtea_func_entry = known_entry;
             dbg("Using hardcoded XTEA encrypt at VA 0x%08X (RVA +0x%08X)",
-                (unsigned)known_entry, XTEA_ENCRYPT_RVA);
+                (unsigned)known_entry, OFF_XTEA_ENCRYPT_RVA);
         }
         if (g_xtea_func_entry != 0) {
             open_xtea_log();
@@ -1496,7 +2054,7 @@ static void parse_command(const char* line) {
         }
 
         // 2. Scan for CALL instructions to sendAttackCreature (RVA +0x19D100)
-        uintptr_t target_func = base + ATTACK_FUNC_RVA;
+        uintptr_t target_func = base + OFF_SEND_ATTACK_RVA;
         dbg("[SCAN] Scanning for CALL to sendAttackCreature VA=0x%08X...", (uint32_t)target_func);
         int call_count = 0;
         uintptr_t scan_addr = base;
@@ -1619,6 +2177,36 @@ static void parse_command(const char* line) {
             dbg("[SCAN] Found %d PUSH references", push_count);
         }
         dbg("[SCAN] === scan complete ===");
+    } else if (strstr(line, "\"set_offsets\"")) {
+        dbg("CMD set_offsets");
+        parse_set_offsets(line);
+    } else if (strstr(line, "\"scan_gmap\"")) {
+        dbg("CMD scan_gmap");
+        scan_gmap();
+        if (g_map_addr) {
+            uint32_t count = 0;
+            safe_memcpy(&count, (void*)(g_map_addr + 4), 4);
+            dbg("[GMAP] map ready at 0x%08X with %u creatures", (unsigned)g_map_addr, count);
+        }
+    } else if (strstr(line, "\"use_map_scan\"")) {
+        const char* en = strstr(line, "\"enabled\"");
+        BOOL enable = TRUE;
+        if (en) {
+            en = strchr(en + 9, ':');
+            if (en) {
+                while (*++en == ' ');
+                enable = (*en == 't' || *en == '1') ? TRUE : FALSE;
+            }
+        }
+        if (enable && !g_map_addr) {
+            dbg("CMD use_map_scan: REJECTED — g_map not found yet (run scan_gmap first)");
+        } else {
+            g_use_map_scan = enable;
+            dbg("CMD use_map_scan: %s", enable ? "ENABLED" : "DISABLED");
+        }
+    } else if (strstr(line, "\"hook_wndproc\"")) {
+        dbg("CMD hook_wndproc");
+        install_wndproc_hook();
     } else if (strstr(line, "\"stop\"")) {
         dbg("CMD stop");
         g_running = FALSE;
@@ -1660,6 +2248,7 @@ static DWORD WINAPI pipe_thread(LPVOID param) {
         int line_len = 0;
         DWORD last_full_scan = 0;
         DWORD last_fast_scan = 0;
+        DWORD last_map_scan = 0;
         DWORD last_send = 0;
 
         while (g_running) {
@@ -1683,16 +2272,36 @@ static DWORD WINAPI pipe_thread(LPVOID param) {
             {
                 DWORD now = GetTickCount();
 
-                // Full scan: expensive, finds new creatures
-                if (now - last_full_scan > FULL_SCAN_INTERVAL) {
-                    full_scan();
-                    last_full_scan = GetTickCount();  // use time AFTER scan completes
-                    last_fast_scan = last_full_scan;
-                }
-                // Fast scan: re-read cached addresses for updated hp/position
-                else if (now - last_fast_scan > FAST_SCAN_INTERVAL) {
-                    fast_scan();
-                    last_fast_scan = now;
+                if (g_use_map_scan && g_map_addr) {
+                    // Map scan mode: walk the creature tree every 100ms
+                    if (now - last_map_scan > MAP_SCAN_INTERVAL) {
+                        int result = walk_creature_map();
+                        last_map_scan = GetTickCount();
+                        if (result < 0) {
+                            // Map validation failed — auto-revert to VirtualQuery
+                            dbg("[MAP] tree walk failed — reverting to VirtualQuery scan");
+                            g_use_map_scan = FALSE;
+                            g_map_addr = 0;
+                        } else {
+                            g_map_scan_count++;
+                            if (g_map_scan_count <= 3 || g_map_scan_count % 100 == 0) {
+                                dbg("[MAP] scan#%d: %d creatures", g_map_scan_count, result);
+                            }
+                        }
+                    }
+                } else {
+                    // VirtualQuery fallback mode
+                    // Full scan: expensive, finds new creatures
+                    if (now - last_full_scan > FULL_SCAN_INTERVAL) {
+                        full_scan();
+                        last_full_scan = GetTickCount();  // use time AFTER scan completes
+                        last_fast_scan = last_full_scan;
+                    }
+                    // Fast scan: re-read cached addresses for updated hp/position
+                    else if (now - last_fast_scan > FAST_SCAN_INTERVAL) {
+                        fast_scan();
+                        last_fast_scan = now;
+                    }
                 }
 
                 // Flush XTEA captures from ring buffer to log file
@@ -1720,6 +2329,9 @@ static DWORD WINAPI pipe_thread(LPVOID param) {
         g_player_id = 0;
         g_scan_count = 0;
         g_addr_count = 0;
+        g_map_scan_count = 0;
+        g_use_map_scan = FALSE;
+        // Keep g_map_addr — it's still valid if game hasn't restarted
         EnterCriticalSection(&g_cs);
         g_output_count = 0;
         LeaveCriticalSection(&g_cs);
@@ -1786,7 +2398,7 @@ static void early_debug(const char* dir) {
     _snprintf(path, sizeof(path), "%s\\dbvbot_debug.txt", dir);
     FILE* f = fopen(path, "a");
     if (f) {
-        fprintf(f, "=== DllMain ATTACH v40 === base=%p\n", (void*)GetModuleHandle(NULL));
+        fprintf(f, "=== DllMain ATTACH v50 (map scan + WndProc) === base=%p\n", (void*)GetModuleHandle(NULL));
         fflush(f);
         fclose(f);
     }

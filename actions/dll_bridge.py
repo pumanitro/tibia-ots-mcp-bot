@@ -6,6 +6,7 @@ and updates game_state.creatures with authoritative memory-read data.
 import sys
 import os
 import glob
+import json
 import shutil
 import time
 import logging
@@ -23,7 +24,49 @@ INJECT_RETRY = 10     # seconds to wait before retrying injection
 CONNECT_RETRY = 2     # seconds between pipe connection attempts
 PROXIMITY_RANGE = 7   # max tile Chebyshev distance (visible screen range)
 STALE_REINJECT = 3    # number of stale cycles before re-injecting DLL
-DEBUG_LOG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dll_bridge_debug.txt")
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEBUG_LOG = os.path.join(PROJECT_ROOT, "dll_bridge_debug.txt")
+OFFSETS_FILE = os.path.join(PROJECT_ROOT, "offsets.json")
+
+
+def _load_offsets():
+    """Load offsets.json and build a set_offsets command dict for the DLL."""
+    try:
+        with open(OFFSETS_FILE, "r") as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        _dbg(f"offsets.json load failed: {e}")
+        return None
+
+    # Build flat dict for DLL's parse_set_offsets()
+    cmd = {"cmd": "set_offsets"}
+    cmd["game_singleton_rva"] = data.get("game_singleton_rva", "0xB2E970")
+
+    game_off = data.get("game_offsets", {})
+    cmd["attacking_creature"] = game_off.get("attacking_creature", "0x0C")
+    cmd["protocol_game"] = game_off.get("protocol_game", "0x18")
+    cmd["attack_flag"] = game_off.get("attack_flag", "0x34")
+    cmd["seq_counter"] = game_off.get("seq_counter", "0x70")
+
+    creature_off = data.get("creature_offsets", {})
+    cmd["creature_id"] = creature_off.get("id", "0x34")
+    cmd["creature_name"] = creature_off.get("name", "0x38")
+    cmd["creature_hp"] = creature_off.get("health", "0x50")
+    cmd["creature_refs"] = creature_off.get("refs", "0x04")
+    cmd["npc_pos_from_id"] = creature_off.get("npc_position_from_id", 576)
+    cmd["player_pos_from_id"] = creature_off.get("player_position_from_id", -40)
+
+    vtable_range = data.get("creature_vtable_rva_range", ["0x870000", "0x8A0000"])
+    cmd["vtable_rva_min"] = vtable_range[0]
+    cmd["vtable_rva_max"] = vtable_range[1]
+
+    funcs = data.get("functions", {})
+    cmd["xtea_encrypt_rva"] = funcs.get("xtea_encrypt_rva", "0x3AF220")
+    cmd["game_attack_rva"] = funcs.get("game_attack_rva", "0x8F220")
+    cmd["send_attack_rva"] = funcs.get("send_attack_rva", "0x19D100")
+    cmd["game_doattack_rva"] = funcs.get("game_doattack_rva", "0x89680")
+
+    return cmd
 
 
 def _find_latest_dll():
@@ -57,18 +100,39 @@ def _inject_fresh_dll():
     return temp_name
 
 
+def _send_init_commands(bridge, player_id):
+    """Send full init sequence to DLL: offsets, init, hooks, scans, map mode."""
+    # 1. Send offsets first (before any hooks that use them)
+    offsets_cmd = _load_offsets()
+    if offsets_cmd:
+        bridge.send_command(offsets_cmd)
+        _dbg("sent set_offsets from offsets.json")
+
+    # 2. Core init
+    bridge.send_command({"cmd": "init", "player_id": player_id})
+    bridge.send_command({"cmd": "hook_attack"})
+    bridge.send_command({"cmd": "hook_send"})
+    bridge.send_command({"cmd": "scan_xtea"})
+    bridge.send_command({"cmd": "hook_xtea"})
+    bridge.send_command({"cmd": "scan_game_attack"})
+
+    # 3. WndProc hook for fast targeting (~16ms instead of ~1s XTEA)
+    bridge.send_command({"cmd": "hook_wndproc"})
+
+    # 4. Creature map scanning (replaces VirtualQuery)
+    bridge.send_command({"cmd": "scan_gmap"})
+    bridge.send_command({"cmd": "use_map_scan", "enabled": True})
+
+    _dbg("sent full init: offsets + hooks + wndproc + gmap")
+
+
 async def _connect_with_inject(bridge, bot):
     """Try existing pipe, health-check it, re-inject if needed. Returns True on success."""
     # Try existing pipe first (DLL may still be loaded with live thread)
     await bot.sleep(1)
     if bridge.connect():
-        bridge.send_command({"cmd": "init", "player_id": bot.player_id})
-        bridge.send_command({"cmd": "hook_attack"})
-        bridge.send_command({"cmd": "hook_send"})
-        bridge.send_command({"cmd": "scan_xtea"})
-        bridge.send_command({"cmd": "hook_xtea"})
-        bridge.send_command({"cmd": "scan_game_attack"})
-        _dbg("connected to existing pipe — sent init + hooks + scan, health checking...")
+        _send_init_commands(bridge, bot.player_id)
+        _dbg("connected to existing pipe — health checking...")
         # DLL full scan can take up to 20s on first run
         for check in range(40):
             await bot.sleep(0.5)
@@ -90,13 +154,8 @@ async def _connect_with_inject(bridge, bot):
 
     for attempt in range(30):
         if bridge.connect():
-            bridge.send_command({"cmd": "init", "player_id": bot.player_id})
-            bridge.send_command({"cmd": "hook_attack"})
-            bridge.send_command({"cmd": "hook_send"})
-            bridge.send_command({"cmd": "scan_xtea"})
-            bridge.send_command({"cmd": "hook_xtea"})
-            bridge.send_command({"cmd": "scan_game_attack"})
-            _dbg(f"pipe connected on attempt {attempt+1} — sent init + hooks + scan, waiting for first scan...")
+            _send_init_commands(bridge, bot.player_id)
+            _dbg(f"pipe connected on attempt {attempt+1} — waiting for first scan...")
             # Wait for DLL to complete first full scan before returning
             for check in range(40):
                 await bot.sleep(0.5)

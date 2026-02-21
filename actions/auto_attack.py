@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-INTERVAL = 0.2  # 200ms loop
+INTERVAL = 0.1  # 100ms loop (map scan provides data every 100ms)
 MONSTER_MIN = 0x40000000
 MAX_AGE = 60
 
