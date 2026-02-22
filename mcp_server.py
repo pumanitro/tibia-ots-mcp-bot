@@ -421,7 +421,14 @@ def _build_status_report() -> str:
     if state.ready and state.game_proxy:
         svr = state.game_proxy.packets_from_server
         cli = state.game_proxy.packets_from_client
-        lines.append(f"[OK] Proxy: connected (server={svr} client={cli} packets)")
+        has_writers = (state.game_proxy.server_writer is not None
+                       and state.game_proxy.client_writer is not None)
+        logged_in = state.game_proxy.logged_in
+        if logged_in and has_writers:
+            lines.append(f"[OK] Proxy: connected (server={svr} client={cli} packets)")
+        else:
+            lines.append(f"[!!] Proxy: BROKEN (logged_in={logged_in} writers={has_writers} "
+                         f"server={svr} client={cli})")
     elif state.game_proxy:
         lines.append("[..] Proxy: started, waiting for login")
     else:
@@ -550,31 +557,36 @@ async def _reset_bot() -> str:
         _stop_action(name)
     await asyncio.sleep(0.1)
 
-    # 2. Cancel proxy tasks (serve_forever + connection handlers)
-    for task in state._proxy_tasks:
-        if not task.done():
-            task.cancel()
-    state._proxy_tasks.clear()
-
-    # 2b. Cancel active connection handler tasks
+    # 2. Cancel active connection handler tasks FIRST (they hold the sockets)
     for proxy in (state.game_proxy, state.login_proxy):
         if proxy:
             ct = getattr(proxy, '_connection_task', None)
             if ct and not ct.done():
                 ct.cancel()
 
-    await asyncio.sleep(0.2)  # Give tasks time to handle cancellation
+    # 2b. Cancel proxy tasks (serve_forever)
+    for task in state._proxy_tasks:
+        if not task.done():
+            task.cancel()
+    state._proxy_tasks.clear()
 
-    # 3. Close proxy connections
+    await asyncio.sleep(0.5)  # Windows needs more time for socket cleanup
+
+    # 3. Force-close proxy connections
     for proxy in (state.game_proxy, state.login_proxy):
         if proxy:
-            try:
-                if proxy.client_writer:
-                    proxy.client_writer.close()
-                if proxy.server_writer:
-                    proxy.server_writer.close()
-            except Exception:
-                pass
+            for writer_attr in ('client_writer', 'server_writer'):
+                w = getattr(proxy, writer_attr, None)
+                if w:
+                    try:
+                        w.close()
+                    except Exception:
+                        pass
+            proxy.client_writer = None
+            proxy.server_writer = None
+            proxy.logged_in = False
+
+    await asyncio.sleep(0.3)  # Extra time for port release on Windows
 
     # 4. Kill dashboard (Electron + Next.js dev server)
     _kill_port(DASHBOARD_PORT)
@@ -710,6 +722,24 @@ async def start_bot() -> str:
     # Wait up to 120 s for the player to log in
     for _ in range(240):
         if state.ready:
+            # Verify the proxy connection is actually functional
+            proxy_ok = (
+                state.game_proxy
+                and state.game_proxy.logged_in
+                and state.game_proxy.server_writer is not None
+                and state.game_proxy.client_writer is not None
+            )
+            if not proxy_ok:
+                # Wait a bit more for connection to stabilize
+                for _ in range(10):
+                    await asyncio.sleep(0.5)
+                    if (state.game_proxy and state.game_proxy.logged_in
+                            and state.game_proxy.server_writer is not None):
+                        proxy_ok = True
+                        break
+            if not proxy_ok:
+                log.error("Proxy connection verification FAILED — packets won't flow")
+
             actions_started = _start_all_enabled_actions()
             actions_msg = f" {actions_started} automated action(s) started." if actions_started else ""
 

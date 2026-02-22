@@ -59,6 +59,9 @@ class GameState:
         self.last_map_time: float = 0
         self._last_prune_time: float = 0
 
+        # Timestamp of last PLAYER_STATS update (for debugging HP freshness)
+        self.stats_updated_at: float = 0
+
         # When True, MAP_SLICE position updates are skipped (DLL provides position)
         self.dll_position_active: bool = False
 
@@ -203,6 +206,7 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
         # pos+32: u8 mlvl%
         gs.soul = data[pos + 33]
         # pos+34: u16 stamina
+        gs.stats_updated_at = time.time()
         log.info(
             f"Stats: HP={gs.hp}/{gs.max_hp} MP={gs.mana}/{gs.max_mana} "
             f"Lv={gs.level} XP={gs.experience} ML={gs.magic_level}"
@@ -303,6 +307,29 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
     # SHOOT_EFFECT — 11 bytes: from_pos(5) + to_pos(5) + u8 effect
     if opcode == ServerOpcode.SHOOT_EFFECT:
         return pos + 11 if pos + 11 <= len(data) else -1
+
+    # ANIMATED_TEXT — variable: pos(5) + u8 color + string(u16 len + chars)
+    # Very common during combat (damage numbers). Must handle to not break scan.
+    if opcode == ServerOpcode.ANIMATED_TEXT:
+        if pos + 8 > len(data):
+            return -1
+        str_len = struct.unpack_from('<H', data, pos + 6)[0]
+        end = pos + 8 + str_len
+        if end > len(data):
+            return -1
+        return end
+
+    # TILE_REMOVE_THING — 6 bytes: pos(5) + u8 stack_pos
+    if opcode == ServerOpcode.TILE_REMOVE_THING:
+        return pos + 6 if pos + 6 <= len(data) else -1
+
+    # CLOSE_CONTAINER — 1 byte: u8 container_id
+    if opcode == ServerOpcode.CLOSE_CONTAINER:
+        return pos + 1 if pos + 1 <= len(data) else -1
+
+    # REMOVE_FROM_CONTAINER — 2 bytes: u8 container_id + u8 slot
+    if opcode == ServerOpcode.REMOVE_FROM_CONTAINER:
+        return pos + 2 if pos + 2 <= len(data) else -1
 
     # CREATURE_LIGHT — 6 bytes: u32 creature_id + u8 level + u8 color
     if opcode == ServerOpcode.CREATURE_LIGHT:

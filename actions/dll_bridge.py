@@ -237,7 +237,7 @@ async def run(bot):
                         continue
                     raw_count += 1
                     cx, cy, cz = c.get("x", 0), c.get("y", 0), c.get("z", 0)
-                    # Use player's own creature to keep gs.position updated
+                    # Use player's own creature to keep gs.position and HP updated
                     if cid == bot.player_id:
                         if 0 < cx < 65535 and 0 < cy < 65535 and cz < 16:
                             if gs.position != (cx, cy, cz):
@@ -250,6 +250,14 @@ async def run(bot):
                                 px, py, pz = cx, cy, cz
                                 if old[2] != cz:
                                     _dbg(f"player z changed: {old} -> ({cx},{cy},{cz})")
+                        # Update HP from memory (creature health %) — much more
+                        # reliable than packet parsing during combat
+                        hp_pct = c.get("hp", 0)
+                        if gs.max_hp > 0 and 0 <= hp_pct <= 100:
+                            new_hp = round(hp_pct / 100 * gs.max_hp)
+                            if new_hp != gs.hp:
+                                _dbg(f"HP from memory: {gs.hp} -> {new_hp} ({hp_pct}%)")
+                                gs.hp = new_hp
                         continue
                     # Skip dead creatures (0% HP)
                     if c.get("hp", 0) <= 0:

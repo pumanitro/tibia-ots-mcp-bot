@@ -213,12 +213,14 @@ def _build_state_json() -> str:
     pkt_client = st.game_proxy.packets_from_client if st.game_proxy else 0
 
     gs = st.game_state
+    stats_age = time.time() - gs.stats_updated_at if gs.stats_updated_at else -1
     player = {
         "hp": gs.hp, "max_hp": gs.max_hp,
         "mana": gs.mana, "max_mana": gs.max_mana,
         "level": gs.level, "experience": gs.experience,
         "position": list(gs.position),
         "magic_level": gs.magic_level, "soul": gs.soul,
+        "stats_age": round(stats_age, 1),
     }
 
     creatures_snapshot = dict(gs.creatures)
