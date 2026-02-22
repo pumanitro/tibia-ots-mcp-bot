@@ -2,7 +2,7 @@
 
 import { useBot } from "@/lib/useBot";
 import { useState } from "react";
-import { toggleAction, restartAction, deleteAction } from "@/lib/api";
+import { toggleAction, deleteAction } from "@/lib/api";
 import type { ActionInfo, PlayerInfo, CreatureInfo } from "@/lib/api";
 
 function StatusBadge({ label, connected }: { label: string; connected: boolean }) {
@@ -55,14 +55,10 @@ function ActionCard({
   onRefresh: () => void;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
 
   const handleToggle = async (enabled: boolean) => {
     await toggleAction(action.name, enabled);
-    onRefresh();
-  };
-
-  const handleRestart = async () => {
-    await restartAction(action.name);
     onRefresh();
   };
 
@@ -71,6 +67,8 @@ function ActionCard({
     setConfirmDelete(false);
     onRefresh();
   };
+
+  const hasLogs = action.logs && action.logs.length > 0;
 
   return (
     <div className="rounded-lg border border-gray-700 bg-gray-800 p-4">
@@ -93,6 +91,19 @@ function ActionCard({
         </div>
 
         <div className="flex items-center gap-3">
+          {hasLogs && (
+            <button
+              onClick={() => setShowLogs(!showLogs)}
+              className={`rounded px-2 py-1 text-xs transition-colors ${
+                showLogs
+                  ? "text-blue-300 bg-blue-900/30"
+                  : "text-gray-300 hover:bg-gray-700"
+              }`}
+              title="Toggle logs"
+            >
+              Logs
+            </button>
+          )}
           <button
             onClick={() => setConfirmDelete(true)}
             className="rounded px-2 py-1 text-xs text-red-400 hover:bg-red-900/30 transition-colors"
@@ -100,17 +111,20 @@ function ActionCard({
           >
             Remove
           </button>
-          <button
-            onClick={handleRestart}
-            disabled={!action.enabled}
-            className="rounded px-2 py-1 text-xs text-gray-300 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            title="Restart action"
-          >
-            Restart
-          </button>
           <Toggle enabled={action.enabled} onChange={handleToggle} />
         </div>
       </div>
+
+      {/* Logs panel */}
+      {showLogs && hasLogs && (
+        <div className="mt-3 rounded-md bg-gray-900 border border-gray-700 p-3 max-h-48 overflow-y-auto">
+          <div className="space-y-0.5 font-mono text-xs text-gray-300">
+            {action.logs!.map((line, i) => (
+              <div key={i} className="whitespace-pre-wrap">{line}</div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Delete confirmation */}
       {confirmDelete && (

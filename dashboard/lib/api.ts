@@ -5,6 +5,7 @@ export interface ActionInfo {
   enabled: boolean;
   running: boolean;
   description: string;
+  logs?: string[];
 }
 
 export interface PlayerInfo {
@@ -60,11 +61,6 @@ export async function toggleAction(
   }
 }
 
-export async function restartAction(name: string): Promise<void> {
-  await fetch(`${API_BASE}/api/actions/${name}/restart`, {
-    method: "POST",
-  });
-}
 
 export async function deleteAction(name: string): Promise<void> {
   const res = await fetch(`${API_BASE}/api/actions/${name}`, {

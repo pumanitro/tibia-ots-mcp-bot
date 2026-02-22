@@ -24,6 +24,8 @@ async def run(bot):
                 continue
 
             now = time.time()
+            px, py, pz = gs.position if gs.position else (0, 0, 0)
+
             monsters = {
                 cid: info for cid, info in gs.creatures.items()
                 if cid >= MONSTER_MIN
@@ -32,15 +34,21 @@ async def run(bot):
             }
 
             target = None
-            if monsters:
-                target = min(monsters, key=lambda cid: monsters[cid]["health"])
+            if monsters and px > 0 and py > 0:
+                target = min(monsters, key=lambda cid: max(
+                    abs(monsters[cid].get("x", 0) - px),
+                    abs(monsters[cid].get("y", 0) - py),
+                ))
 
             if target is not None:
                 if target != last_target:
+                    dist = max(abs(monsters[target].get("x", 0) - px),
+                               abs(monsters[target].get("y", 0) - py))
                     bot.log(f"attacking {monsters[target].get('name','?')} "
-                            f"(0x{target:08X}) hp={monsters[target]['health']}%")
-                bridge.send_command({"cmd": "game_attack", "creature_id": target})
-                last_target = target
+                            f"(0x{target:08X}) hp={monsters[target]['health']}% "
+                            f"dist={dist}")
+                    bridge.send_command({"cmd": "game_attack", "creature_id": target})
+                    last_target = target
             else:
                 last_target = None
 

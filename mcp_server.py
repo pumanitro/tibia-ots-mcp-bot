@@ -8,6 +8,7 @@ Transport: stdio  (stdout = JSON-RPC, all logging → stderr)
 """
 
 import asyncio
+import collections
 import importlib
 import importlib.util
 import json
@@ -15,6 +16,7 @@ import logging
 import subprocess
 import sys
 import os
+import time as _time
 import traceback
 from pathlib import Path
 
@@ -78,6 +80,9 @@ def save_settings(settings: dict) -> None:
 
 # ── Global state ────────────────────────────────────────────────────
 
+MAX_ACTION_LOGS = 50
+
+
 class BotState:
     """Holds proxy references and connection status."""
 
@@ -90,6 +95,7 @@ class BotState:
         self.settings: dict = load_settings()
         self._action_tasks: dict[str, asyncio.Task] = {}
         self.game_state: GameState = GameState()
+        self.action_logs: dict[str, collections.deque] = {}
 
     @property
     def connected(self) -> bool:
@@ -104,8 +110,9 @@ state = BotState()
 class BotContext:
     """API surface available to action scripts via the `bot` parameter."""
 
-    def __init__(self):
+    def __init__(self, action_name: str = ""):
         self._log = logging.getLogger("action")
+        self._action_name = action_name
 
     # ── connection ──────────────────────────────────────────────────
     @property
@@ -156,6 +163,13 @@ class BotContext:
 
     def log(self, msg: str) -> None:
         self._log.info(msg)
+        if self._action_name:
+            buf = state.action_logs.get(self._action_name)
+            if buf is None:
+                buf = collections.deque(maxlen=MAX_ACTION_LOGS)
+                state.action_logs[self._action_name] = buf
+            ts = _time.strftime("%H:%M:%S")
+            buf.append(f"[{ts}] {msg}")
 
     # ── game state properties ────────────────────────────────────────
     @property
@@ -251,10 +265,12 @@ def _start_action(name: str) -> str | None:
     if not hasattr(mod, "run") or not asyncio.iscoroutinefunction(mod.run):
         return f"actions/{name}.py has no async def run(bot)."
 
+    ctx = BotContext(action_name=name)
+
     async def _wrapper():
         try:
             log.info(f"[action:{name}] Started")
-            await mod.run(bot_ctx)
+            await mod.run(ctx)
         except asyncio.CancelledError:
             log.info(f"[action:{name}] Stopped")
         except Exception:

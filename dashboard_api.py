@@ -204,10 +204,14 @@ def _build_state_json() -> str:
                     break
         except OSError:
             pass
-        actions.append({
+        logs = list(st.action_logs.get(name, []))
+        entry = {
             "name": name, "enabled": enabled,
             "running": running, "description": desc,
-        })
+        }
+        if logs:
+            entry["logs"] = logs
+        actions.append(entry)
 
     pkt_server = st.game_proxy.packets_from_server if st.game_proxy else 0
     pkt_client = st.game_proxy.packets_from_client if st.game_proxy else 0
