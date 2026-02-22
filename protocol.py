@@ -239,6 +239,10 @@ class PacketReader:
         z = self.read_u8()
         return (x, y, z)
 
+    def peek_remaining(self) -> bytes:
+        """Return remaining unread bytes without advancing the position."""
+        return self._data[self._pos:]
+
 
 class PacketWriter:
     """Build an OT protocol packet."""

@@ -55,8 +55,8 @@ class OTProxy:
         self.server_writer = None
 
         # Callbacks for bot
-        self.on_server_packet = None
-        self.on_client_packet = None
+        self.on_server_packet = None          # legacy — only bot.py/start.py use it
+        self._client_packet_callbacks = []    # list of (opcode, reader) callables
         self.on_login_success = None
         self.on_game_disconnected = None
         self.on_raw_server_data = None  # Called with full decrypted bytes
@@ -68,6 +68,30 @@ class OTProxy:
 
         # Track the active connection handler task for clean shutdown
         self._connection_task: asyncio.Task | None = None
+
+    # ── Client packet callback registry ────────────────────────────
+    def register_client_packet_callback(self, callback):
+        if callback not in self._client_packet_callbacks:
+            self._client_packet_callbacks.append(callback)
+
+    def unregister_client_packet_callback(self, callback):
+        try:
+            self._client_packet_callbacks.remove(callback)
+        except ValueError:
+            pass
+
+    @property
+    def on_client_packet(self):
+        return self._client_packet_callbacks[0] if self._client_packet_callbacks else None
+
+    @on_client_packet.setter
+    def on_client_packet(self, callback):
+        if callback is None:
+            self._client_packet_callbacks.clear()
+        elif self._client_packet_callbacks:
+            self._client_packet_callbacks[0] = callback
+        else:
+            self._client_packet_callbacks.append(callback)
 
     @property
     def proxy_rsa_key(self):
@@ -487,15 +511,16 @@ class OTProxy:
 
     def _process_client_game_packet(self, data: bytes) -> bytes:
         """Process a game packet from the client (inspect, forward)."""
-        if self.on_client_packet and self.xtea_keys:
+        if self._client_packet_callbacks and self.xtea_keys:
             try:
                 decrypted = self._decrypt_game_packet(data)
                 if decrypted:
-                    pr = PacketReader(decrypted)
-                    if pr.remaining > 0:
-                        opcode = pr.read_u8()
+                    for cb in list(self._client_packet_callbacks):
                         try:
-                            self.on_client_packet(opcode, pr)
+                            pr = PacketReader(decrypted)
+                            if pr.remaining > 0:
+                                opcode = pr.read_u8()
+                                cb(opcode, pr)
                         except Exception as e:
                             log.debug(f"Client packet callback error: {e}")
             except Exception:

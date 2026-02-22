@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 INTERVAL = 0.1  # 100ms loop (map scan provides data every 100ms)
-MONSTER_MIN = 0x40000000
+MONSTER_MIN = 0x40000000  # OT creature ID range: monsters start at 0x40000000
 MAX_AGE = 60
 
 
@@ -47,6 +47,9 @@ async def run(bot):
                     bot.log(f"attacking {monsters[target].get('name','?')} "
                             f"(0x{target:08X}) hp={monsters[target]['health']}% "
                             f"dist={dist}")
+                    # DLL calls Game::attack (UI) + sendAttackCreature (network).
+                    # The network packet flows through the proxy, so other actions
+                    # (e.g. auto_rune) can intercept the ATTACK opcode.
                     bridge.send_command({"cmd": "game_attack", "creature_id": target})
                     last_target = target
             else:

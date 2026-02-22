@@ -718,7 +718,7 @@ async def start_bot() -> str:
     def on_raw_server_data(data):
         scan_packet(data, state.game_state)
 
-    state.game_proxy.on_client_packet = on_client_packet
+    state.game_proxy.register_client_packet_callback(on_client_packet)
     state.game_proxy.on_login_success = on_login_success
     state.game_proxy.on_raw_server_data = on_raw_server_data
 

@@ -3,15 +3,14 @@ import sys, os
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from protocol import ClientOpcode, PacketReader
+from protocol import ClientOpcode
 
 SNIFF_LOG = Path(__file__).parent.parent / "sniff_log.txt"
 
 
 async def run(bot):
-    main = sys.modules["__main__"]
-    proxy = main.state.game_proxy
-    original_cb = proxy.on_client_packet
+    state = sys.modules["__main__"].state
+    proxy = state.game_proxy
 
     def sniffer(opcode, reader):
         try:
@@ -20,9 +19,7 @@ async def run(bot):
             except ValueError:
                 name = "?"
 
-            # Save reader position before consuming bytes for analysis
-            saved_pos = reader._pos
-            raw = reader.read_bytes(reader.remaining) if reader.remaining > 0 else b""
+            raw = reader.peek_remaining()
             hex_dump = raw.hex(" ") if raw else "(empty)"
 
             line = f"0x{opcode:02X} ({name}) [{len(raw)} bytes] {hex_dump}\n"
@@ -46,11 +43,7 @@ async def run(bot):
             with open(SNIFF_LOG, "a") as f:
                 f.write(f"ERROR: {e}\n")
 
-        if original_cb:
-            fresh_reader = PacketReader(reader._data[saved_pos:])
-            original_cb(opcode, fresh_reader)
-
-    proxy.on_client_packet = sniffer
+    proxy.register_client_packet_callback(sniffer)
     with open(SNIFF_LOG, "w") as f:
         f.write("--- Full packet sniffer started ---\n")
     bot.log("[SNIFF] Full packet sniffer installed — press your hotkey now")
@@ -59,5 +52,5 @@ async def run(bot):
         while True:
             await bot.sleep(60)
     except BaseException:
-        proxy.on_client_packet = original_cb
+        proxy.unregister_client_packet_callback(sniffer)
         bot.log("[SNIFF] Removed")
