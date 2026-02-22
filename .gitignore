@@ -20,7 +20,7 @@ creature_format_dump.txt
 creature_debug.txt
 packet_debug.txt
 dll_bridge_debug.txt
-auto_attack_debug.txt
+auto_targeting_debug.txt
 dll/*_debug*.txt
 dll/*_hook_log*.txt
 dll/*_crash*.txt

@@ -70,7 +70,7 @@ dbv_exp/
 ├── actions/
 │   ├── dll_bridge.py      Action wrapper — starts the DLL bridge as a
 │   │                      background action so it runs continuously.
-│   ├── auto_attack.py     Auto-targets and attacks nearest creature.
+│   ├── auto_targeting.py  Auto-targets and attacks nearest creature.
 │   ├── eat_food.py        Periodically eats food (red ham, item 3583).
 │   ├── packet_sniffer.py  Logs all packets flowing through proxy.
 │   ├── power_up.py        Uses power-up healing ability.

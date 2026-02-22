@@ -1,4 +1,4 @@
-"""Auto-attack: targets nearest alive monster using DLL internal attack call."""
+"""Auto-targeting: targets nearest alive monster using DLL internal attack call."""
 import sys
 import os
 import time

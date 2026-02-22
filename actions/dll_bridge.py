@@ -191,7 +191,7 @@ async def run(bot):
     state = sys.modules["__main__"].state
     gs = state.game_state
 
-    # Expose bridge on game_state so other actions (auto_attack) can send commands
+    # Expose bridge on game_state so other actions (auto_targeting) can send commands
     gs.dll_bridge = bridge
 
     poll_count = 0
