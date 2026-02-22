@@ -1,7 +1,6 @@
 {
   "version": "0.4.2",
-  "note": "DBVictory client offsets — update after game patches",
-
+  "note": "DBVictory client offsets \u00e2\u20ac\u201d update after game patches",
   "game_singleton_rva": "0xB2E970",
   "game_offsets": {
     "attacking_creature": "0x0C",
@@ -9,7 +8,6 @@
     "attack_flag": "0x34",
     "seq_counter": "0x70"
   },
-
   "creature_offsets": {
     "vtable": "0x00",
     "refs": "0x04",
@@ -19,16 +17,21 @@
     "npc_position_from_id": 576,
     "player_position_from_id": -40
   },
-
-  "creature_vtable_rva_range": ["0x870000", "0x8A0000"],
-
+  "creature_vtable_rva_range": [
+    "0x870000",
+    "0x8A0000"
+  ],
   "functions": {
     "xtea_encrypt_rva": "0x3AF220",
     "game_attack_rva": "0x8F220",
     "send_attack_rva": "0x19D100",
     "game_doattack_rva": "0x89680"
   },
-
+  "world_light": {
+    "addr_rva": "0xB2ECF8",
+    "render_addr_rva": "0xB2ECFC",
+    "format": 0
+  },
   "discovered_at_runtime": {
     "g_map_addr": null,
     "known_creatures_offset": null,

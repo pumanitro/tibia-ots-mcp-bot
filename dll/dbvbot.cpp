@@ -119,6 +119,24 @@ static HWND    g_game_hwnd = NULL;
 static WNDPROC g_orig_wndproc = NULL;
 static volatile BOOL g_wndproc_hooked = FALSE;
 
+// ── Full light state ─────────────────────────────────────────────────
+static volatile BOOL g_full_light = FALSE;
+static uintptr_t g_light_addr = 0;      // absolute address of world light level
+static int       g_light_format = 0;     // 0=u8 pair (level,color), 1=u32 pair
+// Rendering light structure base (RVA 0xB2ECF0 = base + game_singleton_rva + offset)
+// Layout discovered via xref analysis:
+//   +0x00 (0xB2ECF0): u32 cleared by packet handler
+//   +0x04 (0xB2ECF4): u32 cleared by packet handler
+//   +0x08 (0xB2ECF8): u8 world light level (written by 0x82 opcode)
+//   +0x09 (0xB2ECF9): u8 world light color
+//   +0x0C (0xB2ECFC): u32 rendering param #1 (7 xrefs in tile renderers)
+//   +0x10 (0xB2ED00): u32 rendering param #2 (7 xrefs in tile renderers)
+//   +0x14 (0xB2ED04): u16 rendering param #3
+static uintptr_t g_light_render_base = 0;  // absolute addr of 0xB2ECFC
+
+// ── Pipe handle (for scan responses) ─────────────────────────────────
+static HANDLE g_active_pipe = INVALID_HANDLE_VALUE;
+
 // ── Debug log ───────────────────────────────────────────────────────
 static FILE* g_dbg = NULL;
 
@@ -1865,6 +1883,387 @@ static void parse_set_offsets(const char* line) {
     dbg("[OFF] offsets updated from pipe command");
 }
 
+// ── Light memory scanner ─────────────────────────────────────────────
+
+#define MAX_LIGHT_CANDIDATES 256
+
+// Snapshot for differential scan
+static uintptr_t g_snap_addrs[MAX_LIGHT_CANDIDATES];
+static int       g_snap_fmts[MAX_LIGHT_CANDIDATES];
+static int       g_snap_count = 0;
+
+static void scan_light_memory(uint8_t level, uint8_t color) {
+    HMODULE game = GetModuleHandle(NULL);
+    uintptr_t base = (uintptr_t)game;
+
+    // Get image size from PE header
+    IMAGE_DOS_HEADER* dos = (IMAGE_DOS_HEADER*)base;
+    if (!safe_readable(dos, sizeof(*dos)) || dos->e_magic != IMAGE_DOS_SIGNATURE) {
+        dbg("[LIGHT] bad DOS header");
+        return;
+    }
+    IMAGE_NT_HEADERS* nt = (IMAGE_NT_HEADERS*)(base + dos->e_lfanew);
+    if (!safe_readable(nt, sizeof(*nt)) || nt->Signature != IMAGE_NT_SIGNATURE) {
+        dbg("[LIGHT] bad NT header");
+        return;
+    }
+    uintptr_t end = base + nt->OptionalHeader.SizeOfImage;
+
+    struct { uintptr_t addr; int format; } candidates[MAX_LIGHT_CANDIDATES];
+    int count = 0;
+
+    MEMORY_BASIC_INFORMATION mbi;
+    uintptr_t addr = base;
+
+    while (addr < end && count < MAX_LIGHT_CANDIDATES) {
+        if (VirtualQuery((void*)addr, &mbi, sizeof(mbi)) == 0) break;
+        uintptr_t rstart = (uintptr_t)mbi.BaseAddress;
+        uintptr_t rend = rstart + mbi.RegionSize;
+        if (rend > end) rend = end;
+
+        DWORD prot = mbi.Protect & ~(PAGE_GUARD | PAGE_NOCACHE | PAGE_WRITECOMBINE);
+        BOOL writable = (prot == PAGE_READWRITE || prot == PAGE_EXECUTE_READWRITE ||
+                         prot == PAGE_WRITECOPY || prot == PAGE_EXECUTE_WRITECOPY);
+
+        if (mbi.State == MEM_COMMIT && writable) {
+            uint8_t buf[4096];
+            for (uintptr_t page = rstart; page < rend && count < MAX_LIGHT_CANDIDATES; page += 4096) {
+                size_t chunk = 4096;
+                if (page + chunk > rend) chunk = rend - page;
+                if (chunk < 2) continue;
+                if (!safe_memcpy(buf, (void*)page, chunk)) continue;
+
+                // fmt 0: u8 pair level,color
+                for (size_t i = 0; i + 1 < chunk && count < MAX_LIGHT_CANDIDATES; i++) {
+                    if (buf[i] == level && buf[i + 1] == color) {
+                        candidates[count].addr = page + i;
+                        candidates[count].format = 0;
+                        count++;
+                    }
+                }
+
+                // fmt 1: u8 pair color,level (reversed)
+                for (size_t i = 0; i + 1 < chunk && count < MAX_LIGHT_CANDIDATES; i++) {
+                    if (buf[i] == color && buf[i + 1] == level) {
+                        candidates[count].addr = page + i;
+                        candidates[count].format = 1;
+                        count++;
+                    }
+                }
+
+                // fmt 2: u32 pair level,color (4-byte aligned)
+                for (size_t i = 0; i + 7 < chunk && count < MAX_LIGHT_CANDIDATES; i += 4) {
+                    uint32_t v1, v2;
+                    memcpy(&v1, &buf[i], 4);
+                    memcpy(&v2, &buf[i + 4], 4);
+                    if (v1 == (uint32_t)level && v2 == (uint32_t)color) {
+                        candidates[count].addr = page + i;
+                        candidates[count].format = 2;
+                        count++;
+                    }
+                }
+
+                // fmt 3: u32 pair color,level (reversed, 4-byte aligned)
+                for (size_t i = 0; i + 7 < chunk && count < MAX_LIGHT_CANDIDATES; i += 4) {
+                    uint32_t v1, v2;
+                    memcpy(&v1, &buf[i], 4);
+                    memcpy(&v2, &buf[i + 4], 4);
+                    if (v1 == (uint32_t)color && v2 == (uint32_t)level) {
+                        candidates[count].addr = page + i;
+                        candidates[count].format = 3;
+                        count++;
+                    }
+                }
+            }
+        }
+
+        addr = rend;
+    }
+
+    dbg("[LIGHT] scan found %d candidates for level=%d color=%d", count, level, color);
+    for (int i = 0; i < count; i++) {
+        uintptr_t rva = candidates[i].addr - base;
+        // Read 8 bytes context around the match
+        uint8_t ctx[8] = {0};
+        safe_memcpy(ctx, (void*)candidates[i].addr, 8);
+        const char* fmt_names[] = {"u8:lc", "u8:cl", "u32:lc", "u32:cl"};
+        dbg("[LIGHT]   #%d: RVA=0x%X fmt=%s bytes=[%02X %02X %02X %02X %02X %02X %02X %02X]",
+            i, (unsigned)rva, fmt_names[candidates[i].format & 3],
+            ctx[0], ctx[1], ctx[2], ctx[3], ctx[4], ctx[5], ctx[6], ctx[7]);
+    }
+
+    // Write results as JSON to the pipe
+    if (g_active_pipe != INVALID_HANDLE_VALUE) {
+        char resp[8192];
+        int pos = _snprintf(resp, sizeof(resp), "{\"scan_light_results\":[");
+        for (int i = 0; i < count && pos < (int)sizeof(resp) - 100; i++) {
+            if (i > 0) resp[pos++] = ',';
+            uintptr_t rva = candidates[i].addr - base;
+            pos += _snprintf(resp + pos, sizeof(resp) - pos,
+                "{\"rva\":\"0x%X\",\"fmt\":%d}", (unsigned)rva, candidates[i].format);
+        }
+        pos += _snprintf(resp + pos, sizeof(resp) - pos, "],\"count\":%d}\n", count);
+
+        DWORD written = 0;
+        WriteFile(g_active_pipe, resp, (DWORD)pos, &written, NULL);
+    }
+}
+
+// ── Full memory snapshot for format-agnostic diff ────────────────────
+// Copies ALL writable committed pages in the process, then compares
+// byte-by-byte after the user casts aura.  Finds the light address
+// regardless of storage format (u8, u32, float, etc.).
+
+#define FSNAP_MAX_REGIONS 16384
+#define FSNAP_MAX_BYTES   (256u * 1024u * 1024u)  // 256 MB cap
+
+struct FSnapRegion {
+    uintptr_t addr;
+    size_t    size;
+    size_t    offset;   // byte offset into g_fsnap_buf
+};
+
+static FSnapRegion g_fsnap_regions[FSNAP_MAX_REGIONS];
+static int         g_fsnap_nregions = 0;
+static size_t      g_fsnap_total = 0;
+
+static BOOL is_writable_committed(const MEMORY_BASIC_INFORMATION* mbi) {
+    if (mbi->State != MEM_COMMIT) return FALSE;
+    DWORD p = mbi->Protect & ~(PAGE_GUARD | PAGE_NOCACHE | PAGE_WRITECOMBINE);
+    return (p == PAGE_READWRITE || p == PAGE_EXECUTE_READWRITE);
+}
+
+static void do_full_snap() {
+    g_fsnap_nregions = 0;
+    g_fsnap_total = 0;
+
+    // Scan only WRITABLE PE sections (.data, .bss) — NOT the full module.
+    // The full module has 160MB+ of writable regions (heap mapped inside)
+    // which crashes the game when we try to copy it all.
+    HMODULE game = GetModuleHandle(NULL);
+    uintptr_t base = (uintptr_t)game;
+    IMAGE_DOS_HEADER* dos = (IMAGE_DOS_HEADER*)base;
+    if (!safe_readable(dos, sizeof(*dos)) || dos->e_magic != IMAGE_DOS_SIGNATURE) {
+        dbg("[FSNAP] bad DOS header"); return;
+    }
+    IMAGE_NT_HEADERS* nt = (IMAGE_NT_HEADERS*)(base + dos->e_lfanew);
+    if (!safe_readable(nt, sizeof(*nt)) || nt->Signature != IMAGE_NT_SIGNATURE) {
+        dbg("[FSNAP] bad NT header"); return;
+    }
+
+    IMAGE_SECTION_HEADER* sec = IMAGE_FIRST_SECTION(nt);
+    int nsec = nt->FileHeader.NumberOfSections;
+    dbg("[FSNAP] game base=0x%08X, %d PE sections", (unsigned)base, nsec);
+
+    // Open binary snapshot file
+    char path[MAX_PATH];
+    _snprintf(path, sizeof(path), "%s\\fsnap.bin", g_dll_dir);
+    FILE* fp = fopen(path, "wb");
+    if (!fp) { dbg("[FSNAP] can't open %s", path); return; }
+
+    // Write header: region count placeholder
+    int placeholder = 0;
+    fwrite(&placeholder, 4, 1, fp);
+
+    size_t total_bytes = 0;
+    uint8_t buf[4096];
+
+    for (int s = 0; s < nsec && g_fsnap_nregions < FSNAP_MAX_REGIONS; s++) {
+        // IMAGE_SCN_MEM_WRITE = 0x80000000
+        if (!(sec[s].Characteristics & 0x80000000u)) continue;
+
+        uintptr_t sec_start = base + sec[s].VirtualAddress;
+        size_t    sec_size  = sec[s].Misc.VirtualSize;
+        if (sec_size == 0) sec_size = sec[s].SizeOfRawData;
+        if (sec_size > 16u * 1024u * 1024u) sec_size = 16u * 1024u * 1024u;
+
+        char name[9] = {0};
+        memcpy(name, sec[s].Name, 8);
+        dbg("[FSNAP] section '%s': 0x%08X size=%zu KB (writable)",
+            name, (unsigned)sec_start, sec_size / 1024);
+
+        // Write region descriptor: addr(4) + size(4)
+        uint32_t ra = (uint32_t)sec_start;
+        uint32_t rs = (uint32_t)sec_size;
+        fwrite(&ra, 4, 1, fp);
+        fwrite(&rs, 4, 1, fp);
+
+        // Write section bytes in 4KB chunks
+        for (size_t pg = 0; pg < sec_size; pg += 4096) {
+            size_t csz = 4096;
+            if (pg + csz > sec_size) csz = sec_size - pg;
+            if (safe_memcpy(buf, (void*)(sec_start + pg), csz)) {
+                fwrite(buf, 1, csz, fp);
+            } else {
+                memset(buf, 0, csz);
+                fwrite(buf, 1, csz, fp);
+            }
+        }
+
+        g_fsnap_regions[g_fsnap_nregions].addr   = sec_start;
+        g_fsnap_regions[g_fsnap_nregions].size   = sec_size;
+        g_fsnap_regions[g_fsnap_nregions].offset = total_bytes;
+        g_fsnap_nregions++;
+        total_bytes += sec_size;
+    }
+
+    fseek(fp, 0, SEEK_SET);
+    fwrite(&g_fsnap_nregions, 4, 1, fp);
+    fclose(fp);
+
+    g_fsnap_total = total_bytes;
+    dbg("[FSNAP] wrote %d sections, %zu bytes to fsnap.bin", g_fsnap_nregions, g_fsnap_total);
+}
+
+static void do_full_diff() {
+    if (g_fsnap_nregions == 0) {
+        dbg("[FDIFF] no snapshot — run full_snap first");
+        return;
+    }
+
+    // Read snapshot back from file
+    char snap_path[MAX_PATH];
+    _snprintf(snap_path, sizeof(snap_path), "%s\\fsnap.bin", g_dll_dir);
+    FILE* snap_fp = fopen(snap_path, "rb");
+    if (!snap_fp) { dbg("[FDIFF] can't open %s", snap_path); return; }
+
+    // Skip header (region count)
+    fseek(snap_fp, 4, SEEK_SET);
+
+    // Open results file
+    char res_path[MAX_PATH];
+    _snprintf(res_path, sizeof(res_path), "%s\\full_diff_results.txt", g_dll_dir);
+    FILE* fp = fopen(res_path, "w");
+    if (!fp) { fclose(snap_fp); dbg("[FDIFF] can't open results"); return; }
+
+    HMODULE game = GetModuleHandle(NULL);
+    uintptr_t gbase = (uintptr_t)game;
+
+    fprintf(fp, "=== Full Memory Diff (game module only) ===\n");
+    fprintf(fp, "Snapshot: %d regions, %zu bytes\n", g_fsnap_nregions, g_fsnap_total);
+    fprintf(fp, "Game base: 0x%08X\n\n", (unsigned)gbase);
+
+    int total_changed = 0;
+    int byte_cands = 0;
+    int float_cands = 0;
+
+    fprintf(fp, "=== BYTE CANDIDATES (|delta| >= 80) ===\n");
+
+    uint8_t old_buf[4096];
+    uint8_t new_buf[4096];
+
+    // Process each region: read descriptor from file, read old bytes, compare with current
+    for (int r = 0; r < g_fsnap_nregions && byte_cands < 500; r++) {
+        uint32_t raddr_u32, rsize_u32;
+        if (fread(&raddr_u32, 4, 1, snap_fp) != 1) break;
+        if (fread(&rsize_u32, 4, 1, snap_fp) != 1) break;
+        uintptr_t raddr = (uintptr_t)raddr_u32;
+        size_t    rsize = (size_t)rsize_u32;
+
+        for (size_t pg = 0; pg < rsize && byte_cands < 500; pg += 4096) {
+            size_t csz = 4096;
+            if (pg + csz > rsize) csz = rsize - pg;
+
+            // Read old bytes from snapshot file
+            if (fread(old_buf, 1, csz, snap_fp) != csz) goto done;
+
+            // Read current bytes from memory
+            if (!safe_memcpy(new_buf, (void*)(raddr + pg), csz)) continue;
+
+            for (size_t i = 0; i < csz; i++) {
+                if (new_buf[i] != old_buf[i]) {
+                    total_changed++;
+                    int delta = (int)new_buf[i] - (int)old_buf[i];
+                    if (delta < 0) delta = -delta;
+                    if (delta >= 80 && byte_cands < 500) {
+                        uintptr_t va = raddr + pg + i;
+                        uintptr_t rva = va - gbase;
+                        uint8_t nb_old = (i + 1 < csz) ? old_buf[i+1] : 0;
+                        uint8_t nb_new = (i + 1 < csz) ? new_buf[i+1] : 0;
+                        fprintf(fp, "#%d VA=0x%08X RVA=0x%X old=%d new=%d delta=%+d nb_old=%d nb_new=%d\n",
+                            byte_cands, (unsigned)va, (unsigned)rva,
+                            old_buf[i], new_buf[i], (int)new_buf[i] - (int)old_buf[i],
+                            nb_old, nb_new);
+                        fprintf(fp, "  old:");
+                        for (int c = 0; c < 8 && i + c < csz; c++)
+                            fprintf(fp, " %02X", old_buf[i + c]);
+                        fprintf(fp, "\n  new:");
+                        for (int c = 0; c < 8 && i + c < csz; c++)
+                            fprintf(fp, " %02X", new_buf[i + c]);
+                        fprintf(fp, "\n\n");
+                        byte_cands++;
+                    }
+                }
+            }
+        }
+    }
+
+    // Second pass for floats: re-read file from start
+    fseek(snap_fp, 4, SEEK_SET);
+    fprintf(fp, "\n=== FLOAT CANDIDATES (4-byte aligned, |delta| > 50.0) ===\n");
+
+    for (int r = 0; r < g_fsnap_nregions && float_cands < 200; r++) {
+        uint32_t raddr_u32, rsize_u32;
+        if (fread(&raddr_u32, 4, 1, snap_fp) != 1) break;
+        if (fread(&rsize_u32, 4, 1, snap_fp) != 1) break;
+        uintptr_t raddr = (uintptr_t)raddr_u32;
+        size_t    rsize = (size_t)rsize_u32;
+
+        for (size_t pg = 0; pg < rsize && float_cands < 200; pg += 4096) {
+            size_t csz = 4096;
+            if (pg + csz > rsize) csz = rsize - pg;
+            if (fread(old_buf, 1, csz, snap_fp) != csz) goto done;
+            if (!safe_memcpy(new_buf, (void*)(raddr + pg), csz)) continue;
+
+            for (size_t i = 0; i + 3 < csz && float_cands < 200; i += 4) {
+                float fold, fnew;
+                memcpy(&fold, &old_buf[i], 4);
+                memcpy(&fnew, &new_buf[i], 4);
+                if (fold != fold || fnew != fnew) continue;
+                if (fold < -1000.0f || fold > 1000.0f) continue;
+                if (fnew < -1000.0f || fnew > 1000.0f) continue;
+                float fdelta = fnew - fold;
+                if (fdelta < 0) fdelta = -fdelta;
+                if (fdelta > 50.0f) {
+                    uintptr_t va = raddr + pg + i;
+                    uintptr_t rva = va - gbase;
+                    fprintf(fp, "#%d VA=0x%08X RVA=0x%X old=%.2f new=%.2f delta=%+.2f\n",
+                        float_cands, (unsigned)va, (unsigned)rva,
+                        fold, fnew, fnew - fold);
+                    fprintf(fp, "  old_hex:");
+                    for (int c = 0; c < 8 && i + c < csz; c++)
+                        fprintf(fp, " %02X", old_buf[i + c]);
+                    fprintf(fp, "\n  new_hex:");
+                    for (int c = 0; c < 8 && i + c < csz; c++)
+                        fprintf(fp, " %02X", new_buf[i + c]);
+                    fprintf(fp, "\n\n");
+                    float_cands++;
+                }
+            }
+        }
+    }
+
+done:
+    fprintf(fp, "\n=== SUMMARY ===\n");
+    fprintf(fp, "Total changed bytes: %d\n", total_changed);
+    fprintf(fp, "Byte candidates (|delta|>=80): %d\n", byte_cands);
+    fprintf(fp, "Float candidates (|delta|>50): %d\n", float_cands);
+    fclose(fp);
+    fclose(snap_fp);
+
+    dbg("[FDIFF] done: %d changed, %d byte-cands, %d float-cands — see full_diff_results.txt",
+        total_changed, byte_cands, float_cands);
+
+    if (g_active_pipe != INVALID_HANDLE_VALUE) {
+        char resp[256];
+        int len = _snprintf(resp, sizeof(resp),
+            "{\"full_diff\":{\"total_changed\":%d,\"byte_candidates\":%d,\"float_candidates\":%d}}\n",
+            total_changed, byte_cands, float_cands);
+        DWORD written = 0;
+        WriteFile(g_active_pipe, resp, (DWORD)len, &written, NULL);
+    }
+}
+
 // ── Command parser ──────────────────────────────────────────────────
 
 static void parse_command(const char* line) {
@@ -2211,6 +2610,602 @@ static void parse_command(const char* line) {
     } else if (strstr(line, "\"hook_wndproc\"")) {
         dbg("CMD hook_wndproc");
         install_wndproc_hook();
+    } else if (strstr(line, "\"scan_light\"")) {
+        // {"cmd":"scan_light","level":250,"color":215}
+        const char* lv = strstr(line, "\"level\"");
+        const char* cl = strstr(line, "\"color\"");
+        if (lv && cl) {
+            lv = strchr(lv + 7, ':');
+            cl = strchr(cl + 7, ':');
+            if (lv && cl) {
+                uint8_t level = (uint8_t)atoi(lv + 1);
+                uint8_t color = (uint8_t)atoi(cl + 1);
+                dbg("CMD scan_light: level=%d color=%d", level, color);
+                scan_light_memory(level, color);
+            }
+        }
+    } else if (strstr(line, "\"snap_light\"")) {
+        // {"cmd":"snap_light","level":40,"color":215}
+        // Scan and save candidates internally for later diff
+        const char* lv = strstr(line, "\"level\"");
+        const char* cl = strstr(line, "\"color\"");
+        if (lv && cl) {
+            lv = strchr(lv + 7, ':');
+            cl = strchr(cl + 7, ':');
+            if (lv && cl) {
+                uint8_t level = (uint8_t)atoi(lv + 1);
+                uint8_t color = (uint8_t)atoi(cl + 1);
+                dbg("CMD snap_light: level=%d color=%d", level, color);
+                scan_light_memory(level, color);
+                // Copy results to snapshot (scan_light_memory logged them already)
+                // Re-scan into snapshot arrays
+                HMODULE game = GetModuleHandle(NULL);
+                uintptr_t base = (uintptr_t)game;
+                IMAGE_DOS_HEADER* dos = (IMAGE_DOS_HEADER*)base;
+                IMAGE_NT_HEADERS* nt = (IMAGE_NT_HEADERS*)(base + dos->e_lfanew);
+                uintptr_t end = base + nt->OptionalHeader.SizeOfImage;
+                g_snap_count = 0;
+                MEMORY_BASIC_INFORMATION mbi;
+                uintptr_t addr = base;
+                while (addr < end && g_snap_count < MAX_LIGHT_CANDIDATES) {
+                    if (VirtualQuery((void*)addr, &mbi, sizeof(mbi)) == 0) break;
+                    uintptr_t rstart = (uintptr_t)mbi.BaseAddress;
+                    uintptr_t rend = rstart + mbi.RegionSize;
+                    if (rend > end) rend = end;
+                    DWORD prot = mbi.Protect & ~(PAGE_GUARD | PAGE_NOCACHE | PAGE_WRITECOMBINE);
+                    BOOL writable = (prot == PAGE_READWRITE || prot == PAGE_EXECUTE_READWRITE ||
+                                     prot == PAGE_WRITECOPY || prot == PAGE_EXECUTE_WRITECOPY);
+                    if (mbi.State == MEM_COMMIT && writable) {
+                        uint8_t buf[4096];
+                        for (uintptr_t page = rstart; page < rend && g_snap_count < MAX_LIGHT_CANDIDATES; page += 4096) {
+                            size_t chunk = 4096;
+                            if (page + chunk > rend) chunk = rend - page;
+                            if (chunk < 2) continue;
+                            if (!safe_memcpy(buf, (void*)page, chunk)) continue;
+                            for (size_t i = 0; i + 1 < chunk && g_snap_count < MAX_LIGHT_CANDIDATES; i++) {
+                                if (buf[i] == level && buf[i+1] == color) {
+                                    g_snap_addrs[g_snap_count] = page + i;
+                                    g_snap_fmts[g_snap_count] = 0;
+                                    g_snap_count++;
+                                }
+                            }
+                            for (size_t i = 0; i + 1 < chunk && g_snap_count < MAX_LIGHT_CANDIDATES; i++) {
+                                if (buf[i] == color && buf[i+1] == level) {
+                                    g_snap_addrs[g_snap_count] = page + i;
+                                    g_snap_fmts[g_snap_count] = 1;
+                                    g_snap_count++;
+                                }
+                            }
+                        }
+                    }
+                    addr = rend;
+                }
+                dbg("[SNAP] saved %d candidates", g_snap_count);
+            }
+        }
+    } else if (strstr(line, "\"diff_light\"")) {
+        // {"cmd":"diff_light","level":250,"color":215}
+        // Rescan, intersect with snapshot, report addresses present in both
+        const char* lv = strstr(line, "\"level\"");
+        const char* cl = strstr(line, "\"color\"");
+        if (lv && cl) {
+            lv = strchr(lv + 7, ':');
+            cl = strchr(cl + 7, ':');
+            if (lv && cl) {
+                uint8_t level = (uint8_t)atoi(lv + 1);
+                uint8_t color = (uint8_t)atoi(cl + 1);
+                dbg("CMD diff_light: level=%d color=%d (snap has %d)", level, color, g_snap_count);
+                if (g_snap_count == 0) {
+                    dbg("[DIFF] no snapshot — run snap_light first");
+                } else {
+                    HMODULE game = GetModuleHandle(NULL);
+                    uintptr_t base = (uintptr_t)game;
+                    // Check each snapped address: does it now contain new values?
+                    int match_count = 0;
+                    for (int i = 0; i < g_snap_count; i++) {
+                        uintptr_t a = g_snap_addrs[i];
+                        int fmt = g_snap_fmts[i];
+                        uint8_t cur[2];
+                        if (!safe_memcpy(cur, (void*)a, 2)) continue;
+                        BOOL matches = FALSE;
+                        if (fmt == 0 && cur[0] == level && cur[1] == color) matches = TRUE;
+                        if (fmt == 1 && cur[0] == color && cur[1] == level) matches = TRUE;
+                        if (matches) {
+                            uintptr_t rva = a - base;
+                            uint8_t ctx[8] = {0};
+                            safe_memcpy(ctx, (void*)a, 8);
+                            dbg("[DIFF] MATCH #%d: RVA=0x%X fmt=%d bytes=[%02X %02X %02X %02X %02X %02X %02X %02X]",
+                                match_count, (unsigned)rva, fmt,
+                                ctx[0], ctx[1], ctx[2], ctx[3], ctx[4], ctx[5], ctx[6], ctx[7]);
+                            match_count++;
+                        }
+                    }
+                    dbg("[DIFF] %d of %d snap addresses now contain level=%d color=%d",
+                        match_count, g_snap_count, level, color);
+                }
+            }
+        }
+    } else if (strstr(line, "\"check_snap\"")) {
+        // {"cmd":"check_snap"} — reads all snapped addresses, reports which changed
+        dbg("CMD check_snap (snap has %d)", g_snap_count);
+        if (g_snap_count == 0) {
+            dbg("[CHECK] no snapshot — run snap_light first");
+        } else {
+            HMODULE game = GetModuleHandle(NULL);
+            uintptr_t base = (uintptr_t)game;
+            int changed = 0;
+            for (int i = 0; i < g_snap_count; i++) {
+                uintptr_t a = g_snap_addrs[i];
+                int fmt = g_snap_fmts[i];
+                uint8_t cur[8] = {0};
+                if (!safe_memcpy(cur, (void*)a, 8)) continue;
+                // Check if value CHANGED from what we snapped (250/215 in some order)
+                BOOL still_same = FALSE;
+                if (fmt == 0 && cur[0] == 250 && cur[1] == 215) still_same = TRUE;  // u8:lc
+                if (fmt == 1 && cur[0] == 215 && cur[1] == 250) still_same = TRUE;  // u8:cl
+                uintptr_t rva = a - base;
+                if (!still_same) {
+                    dbg("[CHECK] CHANGED #%d: RVA=0x%X fmt=%d now=[%02X %02X %02X %02X %02X %02X %02X %02X]",
+                        changed, (unsigned)rva, fmt,
+                        cur[0], cur[1], cur[2], cur[3], cur[4], cur[5], cur[6], cur[7]);
+                    changed++;
+                } else {
+                    dbg("[CHECK] same   : RVA=0x%X fmt=%d still=[%02X %02X]",
+                        (unsigned)rva, fmt, cur[0], cur[1]);
+                }
+            }
+            dbg("[CHECK] %d of %d addresses changed", changed, g_snap_count);
+        }
+    } else if (strstr(line, "\"set_light_addr\"")) {
+        // {"cmd":"set_light_addr","addr":"0xB2ECF8","render_addr":"0xB2ECFC"}
+        const char* ad = strstr(line, "\"addr\"");
+        const char* ra = strstr(line, "\"render_addr\"");
+        HMODULE game = GetModuleHandle(NULL);
+        uintptr_t base = (uintptr_t)game;
+        if (ad) {
+            ad = strchr(ad + 6, ':');
+            if (ad) {
+                uintptr_t rva = (uintptr_t)parse_hex_or_dec(ad + 1);
+                g_light_addr = base + rva;
+                // Auto-calculate render base: level at +0x08, render at +0x0C in struct
+                g_light_render_base = g_light_addr + 4;
+                dbg("CMD set_light_addr: level VA=0x%08X (RVA +0x%X) auto render=0x%08X",
+                    (unsigned)g_light_addr, (unsigned)rva,
+                    (unsigned)g_light_render_base);
+            }
+        }
+        if (ra) {
+            ra = strchr(ra + 13, ':');
+            if (ra) {
+                uintptr_t rva = (uintptr_t)parse_hex_or_dec(ra + 1);
+                g_light_render_base = base + rva;
+                dbg("CMD set_light_addr: explicit render VA=0x%08X (RVA +0x%X)",
+                    (unsigned)g_light_render_base, (unsigned)rva);
+            }
+        }
+    } else if (strstr(line, "\"probe_light\"")) {
+        // {"cmd":"probe_light","addr":"0xRVA","format":"u8"}
+        // Reads current value, writes max, reads back, restores original
+        const char* ad = strstr(line, "\"addr\"");
+        const char* fm = strstr(line, "\"format\"");
+        if (ad) {
+            ad = strchr(ad + 6, ':');
+            if (ad) {
+                HMODULE game = GetModuleHandle(NULL);
+                uintptr_t rva = (uintptr_t)parse_hex_or_dec(ad + 1);
+                uintptr_t va = (uintptr_t)game + rva;
+                int fmt = 0;
+                if (fm) {
+                    fm = strchr(fm + 8, ':');
+                    if (fm) {
+                        const char* s = fm + 1;
+                        while (*s == ' ' || *s == '"') s++;
+                        if (s[0] == 'u' && s[1] == '3') fmt = 1;
+                    }
+                }
+                int sz = fmt ? 8 : 2;
+                if (safe_readable((void*)va, sz)) {
+                    uint8_t before[8];
+                    safe_memcpy(before, (void*)va, sz);
+                    // Write max light
+                    if (fmt == 0) {
+                        *(uint8_t*)va = 0xFF;
+                        *(uint8_t*)(va + 1) = 0xD7;
+                    } else {
+                        *(uint32_t*)va = 0xFF;
+                        *(uint32_t*)(va + 4) = 0xD7;
+                    }
+                    uint8_t after[8];
+                    safe_memcpy(after, (void*)va, sz);
+                    dbg("CMD probe_light: RVA=0x%X VA=0x%08X fmt=%s",
+                        (unsigned)rva, (unsigned)va, fmt ? "u32" : "u8");
+                    dbg("  before: [%02X %02X %02X %02X %02X %02X %02X %02X]",
+                        before[0], before[1], before[2], before[3],
+                        before[4], before[5], before[6], before[7]);
+                    dbg("  after:  [%02X %02X %02X %02X %02X %02X %02X %02X]",
+                        after[0], after[1], after[2], after[3],
+                        after[4], after[5], after[6], after[7]);
+                    // Note: does NOT restore — caller can check if screen changed
+                } else {
+                    dbg("CMD probe_light: RVA=0x%X — NOT READABLE", (unsigned)rva);
+                }
+            }
+        }
+    } else if (strstr(line, "\"full_light\"")) {
+        // {"cmd":"full_light","enabled":true}
+        const char* en = strstr(line, "\"enabled\"");
+        BOOL enable = TRUE;
+        if (en) {
+            en = strchr(en + 9, ':');
+            if (en) {
+                while (*++en == ' ');
+                enable = (*en == 't' || *en == '1') ? TRUE : FALSE;
+            }
+        }
+        g_full_light = enable;
+        dbg("CMD full_light: %s (addr=0x%08X fmt=%s)",
+            enable ? "ENABLED" : "DISABLED",
+            (unsigned)g_light_addr,
+            g_light_format ? "u32" : "u8");
+    } else if (strstr(line, "\"full_snap\"")) {
+        dbg("CMD full_snap");
+        do_full_snap();
+        // Acknowledge via pipe
+        if (g_active_pipe != INVALID_HANDLE_VALUE) {
+            char resp[128];
+            int len = _snprintf(resp, sizeof(resp),
+                "{\"full_snap\":{\"regions\":%d,\"bytes\":%zu}}\n",
+                g_fsnap_nregions, g_fsnap_total);
+            DWORD written = 0;
+            WriteFile(g_active_pipe, resp, (DWORD)len, &written, NULL);
+        }
+    } else if (strstr(line, "\"full_diff\"")) {
+        dbg("CMD full_diff");
+        do_full_diff();
+    } else if (strstr(line, "\"find_xrefs\"")) {
+        // {"cmd":"find_xrefs","rva":"0xB2ECF8"}
+        // Scan ALL code sections for any instruction referencing this absolute VA.
+        const char* rv = strstr(line, "\"rva\"");
+        if (rv) {
+            rv = strchr(rv + 5, ':');
+            if (rv) {
+                HMODULE game = GetModuleHandle(NULL);
+                uintptr_t base = (uintptr_t)game;
+                uintptr_t rva = (uintptr_t)parse_hex_or_dec(rv + 1);
+                uintptr_t va = base + rva;
+
+                IMAGE_DOS_HEADER* dos = (IMAGE_DOS_HEADER*)base;
+                IMAGE_NT_HEADERS* nt = (IMAGE_NT_HEADERS*)(base + dos->e_lfanew);
+                IMAGE_SECTION_HEADER* sec = IMAGE_FIRST_SECTION(nt);
+                int nsec = nt->FileHeader.NumberOfSections;
+
+                dbg("[XREF] searching for VA=0x%08X (RVA +0x%X) in %d sections",
+                    (unsigned)va, (unsigned)rva, nsec);
+
+                int total_count = 0;
+                // Also write results to file for easy reading
+                FILE* xf = fopen("dll/xref_results.txt", "w");
+                if (xf) fprintf(xf, "=== XREF scan for RVA 0x%X (VA 0x%08X) ===\n\n",
+                    (unsigned)rva, (unsigned)va);
+
+                for (int s = 0; s < nsec; s++) {
+                    if (!(sec[s].Characteristics & 0x20)) continue; // skip non-code
+                    uintptr_t text_start = base + sec[s].VirtualAddress;
+                    uintptr_t text_end = text_start + sec[s].Misc.VirtualSize;
+                    char nm[9] = {0};
+                    memcpy(nm, sec[s].Name, 8);
+                    dbg("[XREF] scanning code section '%s': 0x%08X - 0x%08X (%u bytes)",
+                        nm, (unsigned)text_start, (unsigned)text_end,
+                        (unsigned)(text_end - text_start));
+                    if (xf) fprintf(xf, "Section '%s': 0x%08X - 0x%08X\n",
+                        nm, (unsigned)text_start, (unsigned)text_end);
+
+                    for (uintptr_t p = text_start; p + 3 < text_end; p++) {
+                        if (*(uint32_t*)p == (uint32_t)va) {
+                            uintptr_t ref_rva = p - base;
+                            // Context: 10 bytes before + 4 match + 10 after
+                            uintptr_t ctx_start = (p >= text_start + 10) ? p - 10 : text_start;
+                            uintptr_t ctx_end = p + 14;
+                            if (ctx_end > text_end) ctx_end = text_end;
+                            size_t ctx_len = ctx_end - ctx_start;
+                            uint8_t ctx[40];
+                            memcpy(ctx, (void*)ctx_start, ctx_len);
+                            int off = (int)(p - ctx_start);
+
+                            // Detect instruction type from byte before the VA
+                            const char* itype = "unknown";
+                            if (p > text_start) {
+                                uint8_t prev = *(uint8_t*)(p - 1);
+                                uint8_t prev2 = (p > text_start + 1) ? *(uint8_t*)(p - 2) : 0;
+                                if (prev == 0xA1) itype = "MOV EAX,[addr]";
+                                else if (prev == 0xA3) itype = "MOV [addr],EAX";
+                                else if (prev == 0x05) itype = "ADD EAX,imm (or MOV reg,[addr])";
+                                else if (prev == 0x0D) itype = "OR EAX,imm";
+                                else if (prev == 0x15) itype = "ADC/MOV reg,[addr]";
+                                else if (prev == 0x25) itype = "AND EAX,imm";
+                                else if (prev == 0x35) itype = "XOR EAX,imm";
+                                else if (prev == 0x3D) itype = "CMP EAX,imm";
+                                else if (prev == 0xB8 || prev == 0xB9 || prev == 0xBA ||
+                                         prev == 0xBB || prev == 0xBC || prev == 0xBD ||
+                                         prev == 0xBE || prev == 0xBF)
+                                    itype = "MOV reg,imm32";
+                                else if (prev == 0x68) itype = "PUSH imm32";
+                                else if (prev2 == 0x8B) itype = "MOV reg,[addr]";
+                                else if (prev2 == 0x89) itype = "MOV [addr],reg";
+                                else if (prev2 == 0xC7) itype = "MOV [addr],imm";
+                                else if (prev2 == 0x83) itype = "CMP/ADD/SUB [addr],imm8";
+                                else if (prev2 == 0x80) itype = "CMP/ADD byte [addr],imm8";
+                                else if (prev2 == 0x8A) itype = "MOV reg8,[addr]";
+                                else if (prev2 == 0x88) itype = "MOV [addr],reg8";
+                                else if (prev2 == 0xFE) itype = "INC/DEC byte [addr]";
+                                else if (prev2 == 0xFF) itype = "INC/DEC/CALL/JMP [addr]";
+                                else if (prev2 == 0x0F) itype = "0F-prefixed (MOVZX/CMOV/etc)";
+                                else if (prev2 == 0xA2) itype = "MOV [addr],AL (or prev instr)";
+                            }
+
+                            char hex[300];
+                            int hpos = 0;
+                            for (size_t i = 0; i < ctx_len && hpos < 260; i++) {
+                                if ((int)i == off) hpos += sprintf(hex + hpos, "[");
+                                hpos += sprintf(hex + hpos, "%02X", ctx[i]);
+                                if ((int)i == off + 3) hpos += sprintf(hex + hpos, "]");
+                                if (i + 1 < ctx_len) hpos += sprintf(hex + hpos, " ");
+                            }
+                            dbg("[XREF] #%d RVA +0x%X (%s): %s",
+                                total_count, (unsigned)ref_rva, itype, hex);
+                            if (xf) fprintf(xf, "#%d RVA +0x%06X  %-30s  %s\n",
+                                total_count, (unsigned)ref_rva, itype, hex);
+                            total_count++;
+                            if (total_count >= 100) break;
+                        }
+                    }
+                    if (total_count >= 100) break;
+                }
+                dbg("[XREF] total: %d references to VA 0x%08X", total_count, (unsigned)va);
+                if (xf) {
+                    fprintf(xf, "\nTotal: %d references\n", total_count);
+                    fclose(xf);
+                }
+            }
+        }
+    } else if (strstr(line, "\"dump_code\"")) {
+        // {"cmd":"dump_code","rva":"0x16A805","before":64,"after":128}
+        // Dump raw bytes around a code RVA for manual disassembly
+        const char* rv = strstr(line, "\"rva\"");
+        int before = 64, after = 128;
+        const char* bv = strstr(line, "\"before\"");
+        const char* av = strstr(line, "\"after\"");
+        if (bv) { bv = strchr(bv, ':'); if (bv) before = (int)parse_hex_or_dec(bv+1); }
+        if (av) { av = strchr(av, ':'); if (av) after = (int)parse_hex_or_dec(av+1); }
+        if (before > 512) before = 512;
+        if (after > 512) after = 512;
+        if (rv) {
+            rv = strchr(rv + 4, ':');
+            if (rv) {
+                HMODULE game = GetModuleHandle(NULL);
+                uintptr_t base = (uintptr_t)game;
+                uintptr_t rva = (uintptr_t)parse_hex_or_dec(rv + 1);
+                uintptr_t target = base + rva;
+                uintptr_t start = target - before;
+                uintptr_t end = target + after;
+                dbg("[DUMP] RVA +0x%X (VA 0x%08X), range -%d to +%d",
+                    (unsigned)rva, (unsigned)target, before, after);
+
+                FILE* df = fopen("dll/code_dump.txt", "a");
+                if (df) fprintf(df, "\n=== Code dump RVA +0x%X (VA 0x%08X) -%d/+%d ===\n",
+                    (unsigned)rva, (unsigned)target, before, after);
+
+                // Dump in 16-byte rows
+                for (uintptr_t row = start; row < end; row += 16) {
+                    char hex[200];
+                    int hpos = 0;
+                    hpos += sprintf(hex + hpos, "+0x%06X: ", (unsigned)(row - base));
+                    for (int i = 0; i < 16 && row + i < end; i++) {
+                        if (row + i == target)
+                            hpos += sprintf(hex + hpos, ">>%02X ", *(uint8_t*)(row + i));
+                        else
+                            hpos += sprintf(hex + hpos, "%02X ", *(uint8_t*)(row + i));
+                    }
+                    dbg("%s", hex);
+                    if (df) fprintf(df, "%s\n", hex);
+                }
+                if (df) fclose(df);
+            }
+        }
+    } else if (strstr(line, "\"read_mem\"")) {
+        // {"cmd":"read_mem","rva":"0xB2ECF0","size":32}
+        // Read N bytes at RVA and log as hex dump
+        const char* rv = strstr(line, "\"rva\"");
+        int size = 32;
+        const char* sv = strstr(line, "\"size\"");
+        if (sv) { sv = strchr(sv, ':'); if (sv) size = (int)parse_hex_or_dec(sv+1); }
+        if (size > 256) size = 256;
+        if (rv) {
+            rv = strchr(rv + 4, ':');
+            if (rv) {
+                HMODULE game = GetModuleHandle(NULL);
+                uintptr_t base = (uintptr_t)game;
+                uintptr_t rva = (uintptr_t)parse_hex_or_dec(rv + 1);
+                uintptr_t addr = base + rva;
+                if (safe_readable((void*)addr, size)) {
+                    char hex[600];
+                    int hpos = 0;
+                    hpos += sprintf(hex, "[RMEM] RVA +0x%X (%d bytes):", (unsigned)rva, size);
+                    for (int i = 0; i < size && hpos < 580; i++) {
+                        if (i % 16 == 0 && i > 0) {
+                            dbg("%s", hex);
+                            hpos = sprintf(hex, "  +%02X:", i);
+                        }
+                        hpos += sprintf(hex + hpos, " %02X", *(uint8_t*)(addr + i));
+                    }
+                    dbg("%s", hex);
+                } else {
+                    dbg("[RMEM] RVA +0x%X not readable", (unsigned)rva);
+                }
+            }
+        }
+    } else if (strstr(line, "\"deref\"")) {
+        // {"cmd":"deref","rva":"0xB2ECE4","offset":0,"size":256}
+        // Read pointer at RVA, then dump 'size' bytes from the pointed-to address + offset
+        const char* rv = strstr(line, "\"rva\"");
+        int offset = 0, size = 256;
+        const char* ov = strstr(line, "\"offset\"");
+        const char* sv = strstr(line, "\"size\"");
+        if (ov) { ov = strchr(ov, ':'); if (ov) offset = (int)parse_hex_or_dec(ov+1); }
+        if (sv) { sv = strchr(sv, ':'); if (sv) size = (int)parse_hex_or_dec(sv+1); }
+        if (size > 1024) size = 1024;
+        if (rv) {
+            rv = strchr(rv + 4, ':');
+            if (rv) {
+                HMODULE game = GetModuleHandle(NULL);
+                uintptr_t base = (uintptr_t)game;
+                uintptr_t rva = (uintptr_t)parse_hex_or_dec(rv + 1);
+                uintptr_t ptr_addr = base + rva;
+                if (safe_readable((void*)ptr_addr, 4)) {
+                    uintptr_t target = *(uintptr_t*)ptr_addr;
+                    uintptr_t read_addr = target + offset;
+                    dbg("[DEREF] ptr at RVA +0x%X = 0x%08X, reading %d bytes at 0x%08X (+%d)",
+                        (unsigned)rva, (unsigned)target, size, (unsigned)read_addr, offset);
+                    if (target && safe_readable((void*)read_addr, size)) {
+                        for (int row = 0; row < size; row += 16) {
+                            char hex[200];
+                            int hpos = sprintf(hex, "[DEREF] +%04X:", row + offset);
+                            int cols = (size - row < 16) ? (size - row) : 16;
+                            for (int c = 0; c < cols; c++) {
+                                uint8_t b = *(uint8_t*)(read_addr + row + c);
+                                hpos += sprintf(hex + hpos, " %02X", b);
+                            }
+                            // Also show as floats if 4-byte aligned
+                            if (cols >= 4) {
+                                hpos += sprintf(hex + hpos, "  |");
+                                for (int f = 0; f + 3 < cols; f += 4) {
+                                    float fv;
+                                    memcpy(&fv, (void*)(read_addr + row + f), 4);
+                                    if (fv > -1e6 && fv < 1e6 && fv != 0.0f)
+                                        hpos += sprintf(hex + hpos, " %.4f", fv);
+                                    else
+                                        hpos += sprintf(hex + hpos, " ---");
+                                }
+                            }
+                            dbg("%s", hex);
+                        }
+                    } else {
+                        dbg("[DEREF] target 0x%08X (+%d) not readable", (unsigned)target, offset);
+                    }
+                } else {
+                    dbg("[DEREF] ptr at RVA +0x%X not readable", (unsigned)rva);
+                }
+            }
+        }
+    } else if (strstr(line, "\"write_mem\"")) {
+        // {"cmd":"write_mem","rva":"0xB2ECF8","bytes":"FF D7"}
+        // Write raw bytes at RVA (hex string, space-separated)
+        const char* rv = strstr(line, "\"rva\"");
+        const char* bv = strstr(line, "\"bytes\"");
+        if (rv && bv) {
+            rv = strchr(rv + 4, ':');
+            bv = strchr(bv + 7, ':');
+            if (rv && bv) {
+                HMODULE game = GetModuleHandle(NULL);
+                uintptr_t base = (uintptr_t)game;
+                uintptr_t rva = (uintptr_t)parse_hex_or_dec(rv + 1);
+                uintptr_t addr = base + rva;
+                // Parse hex bytes from the "bytes" value
+                // Find the opening quote
+                const char* p = strchr(bv + 1, '"');
+                if (p) {
+                    p++;
+                    uint8_t buf[128];
+                    int nbytes = 0;
+                    while (*p && *p != '"' && nbytes < 128) {
+                        while (*p == ' ') p++;
+                        if (*p == '"' || !*p) break;
+                        unsigned val = 0;
+                        for (int d = 0; d < 2 && *p && *p != '"' && *p != ' '; d++, p++) {
+                            val <<= 4;
+                            if (*p >= '0' && *p <= '9') val |= (*p - '0');
+                            else if (*p >= 'A' && *p <= 'F') val |= (*p - 'A' + 10);
+                            else if (*p >= 'a' && *p <= 'f') val |= (*p - 'a' + 10);
+                        }
+                        buf[nbytes++] = (uint8_t)val;
+                    }
+                    if (nbytes > 0 && safe_readable((void*)addr, nbytes)) {
+                        // Try direct write first; if page is read-only, use VirtualProtect
+                        DWORD oldProt = 0;
+                        if (VirtualProtect((void*)addr, nbytes, PAGE_EXECUTE_READWRITE, &oldProt)) {
+                            memcpy((void*)addr, buf, nbytes);
+                            VirtualProtect((void*)addr, nbytes, oldProt, &oldProt);
+                            dbg("[WMEM] wrote %d bytes at RVA +0x%X (prot=%X)", nbytes, (unsigned)rva, oldProt);
+                        } else {
+                            dbg("[WMEM] VirtualProtect failed at RVA +0x%X err=%lu", (unsigned)rva, GetLastError());
+                        }
+                    } else {
+                        dbg("[WMEM] cannot read %d bytes at RVA +0x%X", nbytes, (unsigned)rva);
+                    }
+                }
+            }
+        }
+    } else if (strstr(line, "\"light_diag\"")) {
+        // {"cmd":"light_diag"}
+        // Read ALL known light-related addresses and log their current values
+        HMODULE game = GetModuleHandle(NULL);
+        uintptr_t base = (uintptr_t)game;
+        struct { const char* name; uintptr_t rva; int size; } addrs[] = {
+            {"light_struct_base", 0xB2ECE4, 4},
+            {"cleared_1",        0xB2ECF0, 4},
+            {"cleared_2",        0xB2ECF4, 4},
+            {"world_level",      0xB2ECF8, 1},
+            {"world_color",      0xB2ECF9, 1},
+            {"pad_FA_FB",        0xB2ECFA, 2},
+            {"render_param1",    0xB2ECFC, 4},
+            {"render_param2",    0xB2ED00, 4},
+            {"render_param3",    0xB2ED04, 2},
+            {"pad_06_07",        0xB2ED06, 2},
+            {"field_08",         0xB2ED08, 4},
+            {"field_0C",         0xB2ED0C, 4},
+            {"field_10",         0xB2ED10, 4},
+            {"field_14",         0xB2ED14, 4},
+            {"field_18",         0xB2ED18, 4},
+            {"field_1C",         0xB2ED1C, 1},
+        };
+        dbg("[LDIAG] === Light diagnostic ===");
+        for (int i = 0; i < (int)(sizeof(addrs)/sizeof(addrs[0])); i++) {
+            uintptr_t a = base + addrs[i].rva;
+            if (safe_readable((void*)a, addrs[i].size)) {
+                if (addrs[i].size == 1)
+                    dbg("[LDIAG] %s (+0x%X) = 0x%02X (%d)",
+                        addrs[i].name, (unsigned)addrs[i].rva,
+                        *(uint8_t*)a, *(uint8_t*)a);
+                else if (addrs[i].size == 2)
+                    dbg("[LDIAG] %s (+0x%X) = 0x%04X (%d)",
+                        addrs[i].name, (unsigned)addrs[i].rva,
+                        *(uint16_t*)a, *(uint16_t*)a);
+                else
+                    dbg("[LDIAG] %s (+0x%X) = 0x%08X (%d)",
+                        addrs[i].name, (unsigned)addrs[i].rva,
+                        *(uint32_t*)a, *(uint32_t*)a);
+            } else {
+                dbg("[LDIAG] %s (+0x%X) = NOT READABLE", addrs[i].name, (unsigned)addrs[i].rva);
+            }
+        }
+        // Also read the diff candidate at 0xB2F03C
+        uintptr_t dc = base + 0xB2F03C;
+        if (safe_readable((void*)dc, 8)) {
+            dbg("[LDIAG] diff_candidate (+0xB2F03C) = 0x%08X (%d) next=0x%08X",
+                *(uint32_t*)dc, *(uint32_t*)dc, *(uint32_t*)(dc+4));
+        }
+        dbg("[LDIAG] g_full_light=%d g_light_addr=0x%08X g_light_render_base=0x%08X",
+            (int)g_full_light, (unsigned)g_light_addr, (unsigned)g_light_render_base);
+    } else if (strstr(line, "\"write_loop\"")) {
+        // {"cmd":"write_loop","slots":[{"rva":"0xB2ECF8","bytes":"FF D7"},{"rva":"0xB2ECFC","bytes":"FF FF 00 00"}]}
+        // Configure up to 8 address/value pairs to write continuously in the pipe loop
+        // Replaces the hardcoded full_light write
+        const char* sl = strstr(line, "\"slots\"");
+        if (sl) {
+            // Simple: parse each rva+bytes pair
+            // For now, just enable g_full_light — actual multi-slot is done via write_mem + full_light
+            dbg("[WLOOP] write_loop command received (use write_mem + full_light for now)");
+        }
     } else if (strstr(line, "\"stop\"")) {
         dbg("CMD stop");
         g_running = FALSE;
@@ -2243,6 +3238,7 @@ static DWORD WINAPI pipe_thread(LPVOID param) {
             continue;
         }
         dbg("Client connected");
+        g_active_pipe = pipe;
 
         DWORD mode = PIPE_READMODE_BYTE | PIPE_NOWAIT;
         SetNamedPipeHandleState(pipe, &mode, NULL, NULL);
@@ -2311,6 +3307,21 @@ static DWORD WINAPI pipe_thread(LPVOID param) {
                 // Flush XTEA captures from ring buffer to log file
                 if (g_xtea_hook_active) flush_xtea_captures();
 
+                // Continuous full light write
+                if (g_full_light) {
+                    // Write to packet handler input (0xB2ECF8/F9)
+                    if (g_light_addr && safe_readable((void*)g_light_addr, 2)) {
+                        *(uint8_t*)g_light_addr = 0xFF;       // max level
+                        *(uint8_t*)(g_light_addr + 1) = 0xD7; // white color
+                    }
+                    // Write to rendering output params (0xB2ECFC, 0xB2ED00, 0xB2ED04)
+                    if (g_light_render_base && safe_readable((void*)g_light_render_base, 12)) {
+                        *(uint32_t*)(g_light_render_base)     = 0x0000FFFF; // render param 1
+                        *(uint32_t*)(g_light_render_base + 4) = 0x0000FFFF; // render param 2
+                        *(uint16_t*)(g_light_render_base + 8) = 0x00FF;     // render param 3
+                    }
+                }
+
                 DWORD after = GetTickCount();
                 if (after - last_send > SEND_INTERVAL) {
                     char json[PIPE_BUF_SIZE];
@@ -2328,6 +3339,8 @@ static DWORD WINAPI pipe_thread(LPVOID param) {
             Sleep(50);
         }
 
+        g_active_pipe = INVALID_HANDLE_VALUE;
+        g_full_light = FALSE;
         DisconnectNamedPipe(pipe);
         CloseHandle(pipe);
         g_player_id = 0;
