@@ -1,113 +1,30 @@
 # DBVictory Bot
 
-A man-in-the-middle proxy bot for the DBVictory game, controlled through Claude Code via MCP (Model Context Protocol).
+A man-in-the-middle proxy bot for the DBVictory game, controlled through Claude Code via MCP (Model Context Protocol). Features DLL injection for real-time creature tracking, in-game targeting, automated healing/buffing, and a live Electron dashboard.
+
+![Dashboard Screenshot](docs/dashboard.png)
+
+## Features
+
+- **MITM Proxy** — intercepts and decrypts all game traffic using XTEA encryption keys
+- **DLL Injection** — reads creature battle list directly from game memory via `std::map` tree walk
+- **In-Game Targeting** — calls `Game::attack()` internally so the red targeting square appears in-game
+- **Real-Time Dashboard** — Electron + Next.js app with WebSocket updates every 100ms, showing player stats, creatures, packet counts, and action controls
+- **Automated Actions** — pluggable Python scripts that run in the background (healing, buffing, eating, targeting)
+- **Full Game State** — parses server packets for HP, mana, level, position, creatures, and text messages
+- **Claude Code Control** — natural language commands via MCP tools (walk, attack, say, use items)
+- **HP Reading from DLL** — reads player health directly from game memory for fast, reliable healing triggers
+- **Dead Creature Filtering** — automatically filters out 0% HP creatures from game state
 
 ## How It Works
 
 1. The game client (`dbvStart.exe`) normally connects to `87.98.220.215`
 2. The bot patches the client's memory to redirect traffic through `127.0.0.1`
 3. A local proxy intercepts login/game traffic, extracts XTEA encryption keys, and injects packets on demand
-4. Claude Code sends commands to the MCP server, which translates them into game packets
+4. A DLL is injected into the game process to read creature data and enable in-game targeting
+5. Claude Code sends commands to the MCP server, which translates them into game packets
 
-## Project Structure
-
-```
-dbv_exp/
-│
-├── ===== CORE BOT (the engine) =====
-│
-├── mcp_server.py          ★ THE MAIN ENTRY POINT
-│                          MCP server that Claude Code talks to.
-│                          Registers all tools (walk, attack, say, use_item...).
-│                          Starts the proxy, manages actions, runs everything.
-│
-├── proxy.py               Network MITM proxy. Sits between client and server.
-│                          Forwards packets, decrypts/encrypts with XTEA,
-│                          parses opcodes, allows packet injection.
-│
-├── protocol.py            Packet parser. Knows the OT protocol format —
-│                          reads opcodes, decodes creature data, chat messages,
-│                          movement packets, etc.
-│
-├── crypto.py              XTEA encrypt/decrypt implementation in Python.
-│                          Used by the proxy to handle encrypted traffic.
-│
-├── bot.py                 BotContext class — the `bot` object that actions use.
-│                          Provides bot.walk(), bot.say(), bot.attack(),
-│                          bot.use_item(), bot.sleep(), etc.
-│
-├── game_state.py          Tracks the full game state: player position, health,
-│                          creature list, containers, etc. Updated by proxy
-│                          as packets flow through.
-│
-├── patcher.py             Patches the running game client's memory to redirect
-│                          the server IP to 127.0.0.1 (our proxy).
-│
-├── start.py               Alternative standalone launcher (starts everything
-│                          without MCP).
-│
-├── ===== DLL INJECTION SYSTEM =====
-│
-├── inject.py              DLL injector. Uses OpenProcess + VirtualAllocEx +
-│                          CreateRemoteThread + LoadLibrary to inject our DLL
-│                          into the game process.
-│
-├── dll_bridge.py          Python ↔ DLL communication via named pipe.
-│                          Reads creature data and XTEA keys from the DLL,
-│                          feeds them into game_state.
-│
-├── dll/
-│   ├── dbvbot.cpp         ★ THE DLL SOURCE CODE (C++)
-│   │                      Hooks XTEA encrypt function to steal keys.
-│   │                      Scans memory for creature battle list.
-│   │                      Sends data to Python via \\.\pipe\dbvbot.
-│   │
-│   ├── dbvbot.dll         Current compiled DLL (the one we inject)
-│   └── Makefile           Build script for g++ compilation
-│
-├── ===== ACTIONS (automation scripts) =====
-│
-├── actions/
-│   ├── dll_bridge.py      Action wrapper — starts the DLL bridge as a
-│   │                      background action so it runs continuously.
-│   ├── auto_targeting.py  Auto-targets and attacks nearest creature.
-│   ├── eat_food.py        Periodically eats food (red ham, item 3583).
-│   ├── packet_sniffer.py  Logs all packets flowing through proxy.
-│   ├── power_up.py        Uses power-up healing ability.
-│   └── power_down.py      Cancels power-up.
-│
-├── ===== DASHBOARD (web UI) =====
-│
-├── dashboard/
-│   ├── app/               Next.js pages (React UI)
-│   ├── lib/               Shared utilities
-│   └── electron/          Electron wrapper (desktop app)
-│
-├── dashboard_api.py       REST API that serves game state to the dashboard.
-│                          WebSocket for real-time creature/player updates.
-│
-├── ===== RESEARCH & REVERSE ENGINEERING TOOLS =====
-│
-├── xtea_finder.py         Scans game binary to find the XTEA function address.
-├── memory_reader.py       Reads game process memory via ReadProcessMemory.
-├── memory_explorer.py     Interactive tool to explore memory regions.
-├── find_game_singleton.py Searches for g_game / g_map globals in memory.
-├── find_creature_ptrs.py  Finds creature pointer chains.
-├── find_attack_func.py    Locates the attack function in the binary.
-│
-├── ===== DOCS =====
-│
-├── docs/
-│   ├── otclient_source_analysis.md   OTCv8 source code analysis
-│   └── creature_tracking_research.md Research on creature memory layout
-│
-├── README.md              This file
-├── .mcp.json              MCP server config (tells Claude Code how to launch)
-├── bot_settings.json      Persisted settings (enabled actions, fight modes)
-└── venv/                  Python virtual environment
-```
-
-### How Everything Connects
+### Architecture
 
 ```
 You (Claude Code)
@@ -131,55 +48,100 @@ mcp_server.py ──────────────────────
     ├── dll_bridge.py ◄────┤ named pipe ◄── dbvbot.dll (injected)
     │                      │                    │
     ├── actions/*.py       │                    ├── hooks XTEA encrypt
-    │   (eat, attack,      │                    ├── reads creature list
-    │    sniff, heal)      │                    └── sends to Python
+    │   (eat, attack,      │                    ├── walks creature map tree
+    │    sniff, heal)      │                    ├── calls Game::attack()
+    │                      │                    └── sends data to Python
     │                      │
-    └── dashboard_api.py ──┤──► dashboard/ (web UI)
+    └── dashboard_api.py ──┤──► dashboard/ (Electron + Next.js)
                            │
                         bot.py (BotContext — what actions use)
 ```
 
-## Setup
+## Automated Actions
 
-### Requirements
+The bot supports pluggable background actions — Python scripts in the `actions/` folder that run continuously while connected. Each action has an `async def run(bot)` entry point.
 
-- Python 3.10+
-- Windows (required for memory patching)
-- DBVictory game client (`dbvStart.exe`)
+| Action | Description |
+|--------|-------------|
+| **auto_targeting** | Targets the nearest alive monster using DLL internal `Game::attack()` call (100ms loop) |
+| **eat_food** | Eats food (red ham) every 10 seconds using hotkey-style packets — works from any backpack/slot |
+| **power_up** | Says "power up" every 1 second for healing, only when HP is below 99% |
+| **speed_up** | Casts "speed up" when not hasted — detects haste via player icons bitmask |
+| **power_down** | Says "power down" every 1 second to cancel healing buff |
+| **packet_sniffer** | Captures all client-to-server packets to `sniff_log.txt` for protocol analysis |
+| **item_id_spy** | Debug tool: shows "Item Id: XXXXX" in the game status bar when you use or look at an item |
 
-### Install Dependencies
+Actions can be toggled on/off from the dashboard UI or via MCP tools. Enabled actions auto-start when the bot connects.
 
-```bash
-pip install pymem mcp websockets
+### Writing Custom Actions
+
+Create a `.py` file in `actions/` with an `async def run(bot)` function:
+
+```python
+"""Eat food every 10 seconds. Uses hotkey-style packet — works from any backpack/slot."""
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from protocol import build_use_item_packet
+
+FOOD_ID = 3583    # red ham on DBVictory
+INTERVAL = 10
+
+async def run(bot):
+    while True:
+        if bot.is_connected:
+            pkt = build_use_item_packet(0xFFFF, 0, 0, FOOD_ID, 0, 0)
+            await bot.inject_to_server(pkt)
+        await bot.sleep(INTERVAL)
 ```
 
-## Usage
+The `bot` object provides:
 
-> **Important:** Claude Code must be running as Administrator for memory patching to work.
+```python
+bot.use_item_in_container(item_id, container, slot)  # use item from backpack
+bot.use_item_on_map(x, y, z, item_id, stack_pos)     # use item on ground
+bot.say(text)                                          # send chat message
+bot.walk(direction, steps, delay)                      # walk in a direction
+bot.inject_to_server(packet)                           # send raw packet
+bot.sleep(seconds)                                     # async sleep
+bot.is_connected                                       # connection status
+bot.hp / bot.max_hp / bot.mana                         # player stats
+bot.position                                           # (x, y, z)
+bot.creatures                                          # nearby creatures
+bot.log(msg)                                           # log to stderr
+```
 
-Follow these steps in order:
+## Dashboard
 
-### Step 1: Start Claude Code as Administrator
+The Electron dashboard provides real-time visibility into the bot's state:
 
-Right-click your terminal and select "Run as Administrator", then launch Claude Code from the project directory. The MCP server (`.mcp.json`) starts automatically as a subprocess — it inherits admin privileges from the terminal.
+- **Status badges** — MCP, Game Login, DLL Injected, DLL Bridge connection status
+- **Player stats** — Level, HP/Mana bars, position coordinates
+- **Creatures list** — Nearby creatures with HP percentage
+- **Packet counters** — Server and client packet counts
+- **Action controls** — Toggle, view logs, and remove actions directly from the UI
 
-### Step 2: Launch the game client
+The dashboard connects via WebSocket (`ws://127.0.0.1:8090`) for 100ms update intervals, with an HTTP API (`http://127.0.0.1:8089`) for action mutations.
 
-Open `dbvStart.exe` and wait at the **login screen**. Do **not** log in yet — the bot needs to patch the client's memory before you authenticate.
+## DLL Injection System
 
-### Step 3: Ask Claude to `start_bot`
+The injected DLL (`dll/dbvbot.dll`) provides capabilities that can't be achieved through the proxy alone:
 
-This patches the client's memory (redirects server IP to `127.0.0.1`) and starts the local login + game proxies. Claude Code will be unresponsive for up to 2 minutes while it waits for you to log in.
+- **Creature map tree walk** — reads the `std::map<uint32, Creature*>` red-black tree directly from memory every 100ms for O(log n) creature lookup
+- **In-game targeting** — calls `Game::attack()` from the game thread via WndProc hook, making the red targeting square appear natively
+- **XTEA key extraction** — hooks the XTEA encrypt function to capture session encryption keys
+- **HP reading** — reads player health directly from game memory
 
-### Step 4: Log in through the game client
+Communication between the DLL and Python happens over a named pipe (`\\.\pipe\dbvbot`). The `dll_bridge` action runs as an always-on internal service.
 
-Enter your credentials in the game client as normal. The proxy intercepts the connection, extracts encryption keys, and establishes the session. Once login succeeds, Claude returns control.
+### Build
 
-### Step 5: Control your character
+Requires MinGW-w64 (32-bit) since dbvStart.exe is 32-bit:
 
-You can now give Claude natural language commands like "walk north 5 steps", "say hello", or "attack creature 12345".
+```bash
+cd dll && make
+```
 
-## Available Commands
+## Available MCP Commands
 
 ### Movement
 - **walk** — Move in a direction (n/s/e/w/ne/se/sw/nw)
@@ -198,183 +160,86 @@ You can now give Claude natural language commands like "walk north 5 steps", "sa
 - **move_item** — Move an item between positions
 - **look_at** — Inspect a tile or item
 
+### Actions
+- **list_actions** — Show all actions with ON/OFF/running status and source preview
+- **toggle_action** — Enable/disable an action
+- **remove_action** — Delete an action script
+- **restart_action** — Reload and restart a running action
+
 ### Utility
 - **get_status** — Check connection state and packet stats
 - **send_ping** — Ping the game server
 - **logout** — Disconnect from the server
 
-## Automated Actions
+## Setup
 
-The bot supports automated background actions — small Python scripts that run continuously while the bot is connected. Each action is a `.py` file in the `actions/` folder with an `async def run(bot)` entry point.
+### Requirements
 
-### How it works
+- Python 3.10+
+- Windows (required for memory patching and DLL injection)
+- DBVictory game client (`dbvStart.exe`)
+- MinGW-w64 32-bit (for DLL compilation)
 
-1. **Create** an action by writing a `.py` file to `actions/` (Claude can do this for you via natural language)
-2. **Enable** it with `toggle_action` — it starts running as a background task
-3. **Disable** it with `toggle_action` — it stops immediately
-4. **Edit** the `.py` file and call `restart_action` to reload changes at runtime
-5. Enabled actions **auto-start** when `start_bot` connects to the game
-
-Settings (which actions are enabled) persist in `bot_settings.json` across sessions.
-
-### Action API
-
-Each action receives a `bot` object with:
-
-```python
-bot.use_item_in_container(item_id, container, slot)  # use item from backpack
-bot.use_item_on_map(x, y, z, item_id, stack_pos)     # use item on ground
-bot.say(text)                                          # send chat message
-bot.walk(direction, steps, delay)                      # walk in a direction
-bot.inject_to_server(packet)                           # send raw packet
-bot.sleep(seconds)                                     # async sleep
-bot.is_connected                                       # connection status
-bot.log(msg)                                           # log to stderr
-```
-
-### Example: Auto-eat food
-
-`actions/eat_food.py` — uses a hotkey-style packet so the server finds the food in any backpack/slot:
-
-```python
-"""Eat food every 10 seconds. Uses hotkey-style packet — works from any backpack/slot."""
-import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from protocol import build_use_item_packet
-
-FOOD_ID = 3583    # red ham on DBVictory
-INTERVAL = 10
-
-async def run(bot):
-    while True:
-        if bot.is_connected:
-            # Hotkey-style: pos=(0xFFFF, 0, 0) — server finds the item automatically
-            pkt = build_use_item_packet(0xFFFF, 0, 0, FOOD_ID, 0, 0)
-            await bot.inject_to_server(pkt)
-        await bot.sleep(INTERVAL)
-```
-
-### Discovering item IDs
-
-Use the built-in `packet_sniffer` action to capture packets from the game client:
-
-1. Enable the sniffer: `toggle_action("packet_sniffer")`
-2. Right-click/use the item in-game (or press a hotkey)
-3. Read `sniff_log.txt` to see captured opcodes, positions, item IDs
-4. Disable the sniffer when done
-
-### MCP tools for actions
-
-| Tool | Purpose |
-|---|---|
-| `list_actions` | Show all `.py` files with ON/OFF/running status and source preview |
-| `toggle_action(name)` | Enable/disable an action + start/stop its background task |
-| `remove_action(name)` | Delete an action script and its settings |
-| `restart_action(name)` | Stop, reload `.py` from disk, and restart |
-
-## DLL Injection — Live Battle List
-
-The bot can inject a DLL into the game client to read the battle list (creature data) directly from process memory. This gives accurate, real-time creature tracking that matches the in-game battle list exactly.
-
-### Architecture
-
-```
-dbvStart.exe (with injected DLL)  <-->  Real Game Server
-         |
-    DLL scans process memory
-    for creature structs
-         |
-    Named Pipe (\\.\pipe\dbvbot)
-         |
-    Python dll_bridge.py
-         |
-    game_state.creatures  -->  Dashboard UI
-```
-
-The proxy remains for sending commands (walk, attack, say). The DLL supplements it with authoritative creature reading.
-
-### Build Prerequisites
-
-**MinGW-w64 (32-bit)** is required to compile the DLL:
+### Install Dependencies
 
 ```bash
-winget install -e --id MingW-w64.MinGW-w64
+pip install pymem mcp websockets
 ```
-
-Or download the `i686-*-posix-dwarf` build from [mingw-builds-binaries](https://github.com/niXman/mingw-builds-binaries/releases), extract to `C:\mingw32\`, and add `C:\mingw32\bin` to PATH.
-
-Verify with `g++ --version` — must be i686 (32-bit) since dbvStart.exe is 32-bit.
-
-### Build
-
-```bash
-cd dll && make
-```
-
-This produces `dll/dbvbot.dll` (~20-50KB).
 
 ### Usage
 
-1. Start the game client and connect via `start_bot` as usual
-2. Enable the DLL bridge action: `toggle_action("dll_bridge")`
-3. The action will automatically:
-   - Inject `dll/dbvbot.dll` into dbvStart.exe
-   - Connect to the named pipe
-   - Poll creature data every 100ms
-   - Update `game_state.creatures` with authoritative data
+> **Important:** Claude Code must be running as Administrator for memory patching to work.
 
-Check with `list_actions` — should show "dll_bridge >>> RUNNING".
+1. **Start Claude Code as Administrator** — right-click terminal, "Run as Administrator"
+2. **Launch the game client** — open `dbvStart.exe`, wait at the login screen (do NOT log in yet)
+3. **Ask Claude to `start_bot`** — patches memory, starts the proxy (blocks up to 2 min waiting for login)
+4. **Log in through the game client** — the proxy intercepts the connection and extracts encryption keys
+5. **Control your character** — give Claude natural language commands or enable automated actions
 
-## Real-Time Dashboard (WebSocket)
-
-The Electron dashboard receives game state updates via WebSocket for low-latency display.
-
-### Architecture
+## Project Structure
 
 ```
-DLL (100ms poll) → Python game_state → WebSocket push (100ms) → Electron Dashboard
-```
-
-- **WebSocket server** runs on `ws://127.0.0.1:8090` and pushes state to all connected clients every 100ms
-- **HTTP API** on `http://127.0.0.1:8089` handles action mutations (toggle, restart, delete)
-- The dashboard auto-connects to WebSocket and falls back to HTTP polling if unavailable
-
-### Component Status
-
-`start_bot` and `get_status` report health of all components:
-
-```
-[OK] MCP Server: running
-[OK] Game Client: dbvStart.exe detected
-[OK] Proxy: connected (server=1234 client=567 packets)
-[OK] DLL Pipe: dbvbot pipe available
-[OK] Dashboard: Electron running on port 4747
-[OK] Player: id=0x10000001 pos=(123,456,7) HP=100/100 creatures=3
+dbv_exp/
+├── mcp_server.py          ★ Main entry point — MCP server for Claude Code
+├── proxy.py               Network MITM proxy (XTEA decrypt/encrypt)
+├── protocol.py            OT protocol packet parser
+├── crypto.py              XTEA encryption implementation
+├── bot.py                 BotContext class for actions
+├── game_state.py          Live game state (HP, creatures, position)
+├── patcher.py             Patches game client memory
+├── inject.py              DLL injector (LoadLibrary via CreateRemoteThread)
+├── dll_bridge.py          Python ↔ DLL named pipe communication
+├── dashboard_api.py       REST + WebSocket API for dashboard
+│
+├── dll/
+│   ├── dbvbot.cpp         Injected DLL (creature scan, Game::attack, XTEA hook)
+│   └── dbvbot.dll         Compiled DLL
+│
+├── actions/
+│   ├── dll_bridge.py      Always-on DLL bridge service
+│   ├── auto_targeting.py  Auto-target nearest monster via Game::attack()
+│   ├── eat_food.py        Periodic food consumption
+│   ├── power_up.py        Healing when HP < 99%
+│   ├── speed_up.py        Haste buff with icon bitmask detection
+│   ├── power_down.py      Cancel healing buff
+│   ├── packet_sniffer.py  Packet capture to file
+│   └── item_id_spy.py     Item ID debug display
+│
+├── dashboard/
+│   ├── app/               Next.js pages (React UI)
+│   ├── lib/               Shared utilities
+│   └── electron/          Electron wrapper (desktop app)
+│
+├── docs/                  Research notes and analysis
+├── offsets.json           Centralized game offsets (DLL reads via pipe)
+└── bot_settings.json      Persisted action settings
 ```
 
 ## Roadmap
 
-Planned features, roughly in order of priority:
-
-### Server packet parsing — game state awareness
-Parse server-to-client packets to give actions access to real-time game state. The server opcodes are already defined in `protocol.py`. DBV uses a custom format with u32 HP/mana and u64 experience (see `game_state.py`).
-
-- [x] **Player stats** (`PLAYER_STATS` 0xA0) — HP, max HP, mana, max mana, level, XP, cap, magic level, soul
-- [x] **Player position** — extracted from `MAP_DESCRIPTION` (0x64) and map slice packets (0x65-0x68)
-- [x] **Creatures on screen** — from `CREATURE_MOVE` (0x6D), `CREATURE_HEALTH` (0x8C)
-- [x] **Text messages** (`TEXT_MESSAGE` 0xB4) — capture server messages, loot drops, damage
-
-This unlocks the BotContext API: `bot.hp`, `bot.max_hp`, `bot.mana`, `bot.position`, `bot.creatures`, `bot.messages`, etc.
-
-### Auto-healing
-- [x] **Power Up** — `actions/power_up.py` says "power up" every 1 second for healing
-
 ### Waypoint recording & playback (auto-hunting)
-Record player movement and replay it in a loop for AFK experience grinding:
-
 - [ ] **Record waypoints** — capture walk packets + player position into a route file
 - [ ] **Playback loop** — walk the recorded route continuously
-- [ ] **Auto-attack** — target nearest creature from `bot.creatures` and send `ATTACK` packet
 - [ ] **Spell rotation** — cast attack spells on cooldown during combat
-- [ ] **Loot pickup** — open corpses and move loot to backpack via `MOVE_THING` (0x78)
+- [ ] **Loot pickup** — open corpses and move loot to backpack
 - [ ] **Death handling** — detect death, pause actions, resume after respawn
