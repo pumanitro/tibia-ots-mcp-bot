@@ -46,6 +46,10 @@ class GameState:
         # Player condition icons bitmask (from 0xA2 PLAYER_ICONS)
         self.player_icons: int = 0
 
+        # World light (from 0x82 WORLD_LIGHT)
+        self.world_light_level: int = 0
+        self.world_light_color: int = 0
+
         # Position (x, y, z)
         self.position: tuple[int, int, int] = (0, 0, 0)
 
@@ -384,6 +388,18 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
     # PLAYER_CANCEL_ATTACK — 0 bytes
     if opcode == ServerOpcode.PLAYER_CANCEL_ATTACK:
         return pos
+
+    # WORLD_LIGHT (0x82) — 2 bytes: u8 level + u8 color
+    if opcode == 0x82:
+        if pos + 2 > len(data):
+            return -1
+        gs.world_light_level = data[pos]
+        gs.world_light_color = data[pos + 1]
+        return pos + 2
+
+    # DBVictory custom opcode 0xCB — 5 bytes payload (empirically observed)
+    if opcode == 0xCB:
+        return pos + 5 if pos + 5 <= len(data) else -1
 
     # Unknown opcode — stop
     return -1

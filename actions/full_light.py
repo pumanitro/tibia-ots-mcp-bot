@@ -13,14 +13,11 @@ import os
 import time
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, PROJECT_ROOT)
+from constants import LIGHT_JZ_RVA, LIGHT_ORIGINAL_BYTES, LIGHT_PATCHED_BYTES
 
-# The JZ instruction in the light renderer:
-#   RVA 0x16A7EF: 0F 84 89 01 00 00  = JZ +0x189 (skip light draw if draw_lights==0)
-# Patched to:
-#   RVA 0x16A7EF: E9 8A 01 00 00 90  = JMP +0x18A; NOP (ALWAYS skip light draw)
-LIGHT_JZ_RVA = "0x16A7EF"
-ORIGINAL_BYTES = "0F 84 89 01 00 00"
-PATCHED_BYTES = "E9 8A 01 00 00 90"
+ORIGINAL_BYTES = LIGHT_ORIGINAL_BYTES
+PATCHED_BYTES = LIGHT_PATCHED_BYTES
 
 
 def _get_game_state():

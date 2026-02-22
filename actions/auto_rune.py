@@ -4,8 +4,9 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from protocol import ClientOpcode, build_use_on_creature_packet
+from constants import ITEM_RUNE_3165
 
-RUNE_ID = 3165
+RUNE_ID = ITEM_RUNE_3165
 INTERVAL = 1.0  # seconds between casts
 
 

@@ -27,16 +27,14 @@ from protocol import (
 )
 from crypto import get_default_rsa_key
 
+from constants import SERVER_HOST, LOGIN_PORT, GAME_PORT
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
     stream=sys.stderr
 )
 log = logging.getLogger("launcher")
-
-SERVER_HOST = "87.98.220.215"
-LOGIN_PORT = 7171
-GAME_PORT = 7172
 
 
 class BotController:

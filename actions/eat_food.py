@@ -2,8 +2,9 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from protocol import build_use_item_packet
+from constants import ITEM_RED_HAM
 
-FOOD_ID = 3583    # red ham on DBVictory
+FOOD_ID = ITEM_RED_HAM
 INTERVAL = 10     # seconds between eats
 
 

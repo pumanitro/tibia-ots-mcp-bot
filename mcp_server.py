@@ -53,11 +53,9 @@ from protocol import (
     ServerOpcode,
     PacketReader,
 )
+from constants import SERVER_HOST, LOGIN_PORT, GAME_PORT
 
 # ── Constants ───────────────────────────────────────────────────────
-SERVER_HOST = os.environ.get("DBV_SERVER_HOST", "87.98.220.215")
-LOGIN_PORT = 7171
-GAME_PORT = 7172
 SETTINGS_FILE = Path(__file__).parent / "bot_settings.json"
 ACTIONS_DIR = Path(__file__).parent / "actions"
 INTERNAL_ACTIONS = {"dll_bridge"}
@@ -480,10 +478,11 @@ def _build_status_report() -> str:
 
 
 def _launch_dashboard() -> None:
-    """Fire-and-forget launch of the Electron dashboard. Only launches once."""
+    """Fire-and-forget launch of the Electron dashboard.
+
+    Re-launches Electron if it has exited; skips Next.js if already on port.
+    """
     global _dashboard_launched
-    if _dashboard_launched:
-        return
     import shutil
     dashboard_dir = Path(__file__).parent / "dashboard"
     if not (dashboard_dir / "package.json").exists():
@@ -495,27 +494,37 @@ def _launch_dashboard() -> None:
         log.warning("npm not found on PATH — cannot launch dashboard.")
         return
 
-    # Kill anything already on the dashboard port
-    _kill_port(DASHBOARD_PORT)
+    nextjs_running = _check_port_listening(DASHBOARD_PORT)
+    electron_running = _check_process_running("electron.exe")
+
+    if nextjs_running and electron_running:
+        log.info("Dashboard already fully running — skipping launch.")
+        _dashboard_launched = True
+        return
 
     try:
-        # Start Next.js dev server
-        subprocess.Popen(
-            f'"{npm}" run dev',
-            cwd=str(dashboard_dir),
-            shell=True,
-            creationflags=subprocess.CREATE_NEW_CONSOLE,
-        )
-        log.info(f"Next.js dev server launching on port {DASHBOARD_PORT}")
-        # Start Electron (waits for Next.js via wait-on)
-        subprocess.Popen(
-            f'"{npm}" run electron:only',
-            cwd=str(dashboard_dir),
-            shell=True,
-            creationflags=subprocess.CREATE_NEW_CONSOLE,
-        )
+        # Start Next.js dev server only if not already listening
+        if not nextjs_running:
+            _kill_port(DASHBOARD_PORT)
+            subprocess.Popen(
+                f'"{npm}" run dev',
+                cwd=str(dashboard_dir),
+                shell=True,
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+            )
+            log.info(f"Next.js dev server launching on port {DASHBOARD_PORT}")
+
+        # Start Electron only if not already running
+        if not electron_running:
+            subprocess.Popen(
+                f'"{npm}" run electron:only',
+                cwd=str(dashboard_dir),
+                shell=True,
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+            )
+            log.info("Electron launching (waiting for Next.js).")
+
         _dashboard_launched = True
-        log.info(f"Electron launching (waiting for port {DASHBOARD_PORT}).")
     except Exception as e:
         log.warning(f"Failed to launch dashboard: {e}")
 

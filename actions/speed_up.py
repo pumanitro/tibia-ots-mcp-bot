@@ -1,8 +1,11 @@
 """Cast 'speed up' when not hasted (checks player icons bitmask)."""
 import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from constants import HASTE_ICON_BIT
 
 INTERVAL = 1  # seconds between checks
-HASTE_ICON_BIT = 0x0002  # bit 1 — empirically verified on DBVictory
 
 
 def _get_game_state():

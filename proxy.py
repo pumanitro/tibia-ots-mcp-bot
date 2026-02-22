@@ -16,6 +16,7 @@ from crypto import (
     DEFAULT_RSA_N, DEFAULT_RSA_E
 )
 from protocol import PacketReader, PacketWriter, ServerOpcode, ClientOpcode
+from constants import SERVER_IP_BYTES, SERVER_IP_STR
 
 log = logging.getLogger("proxy")
 
@@ -264,12 +265,12 @@ class OTProxy:
             # Replace server IP in the response
             # The character list contains IP addresses as 4-byte values (packed IP)
             # and also as strings in some protocol versions
-            server_ip_bytes = bytes([87, 98, 220, 215])  # 87.98.220.215
+            server_ip_bytes = SERVER_IP_BYTES
             localhost_bytes = bytes([127, 0, 0, 1])
 
             # Also try string replacement
-            server_ip_str = b"87.98.220.215"
-            localhost_str = b"127.0.0.1\x00\x00\x00\x00"  # pad to same length
+            server_ip_str = SERVER_IP_STR
+            localhost_str = b"127.0.0.1" + b"\x00" * max(0, len(SERVER_IP_STR) - 9)
 
             modified_payload = bytearray(payload)
             replaced = False

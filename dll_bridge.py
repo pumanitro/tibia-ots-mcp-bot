@@ -30,6 +30,7 @@ class DllBridge:
     def __init__(self):
         self._handle = None
         self._buffer = ""
+        self._extras = []   # non-creature JSON responses (scan results, etc.)
 
     @property
     def connected(self) -> bool:
@@ -127,10 +128,21 @@ class DllBridge:
                 data = json.loads(line)
                 if "creatures" in data:
                     creatures = data["creatures"]
+                else:
+                    log.warning(f"DLL extra response: {list(data.keys())}")
+                    self._extras.append(data)
             except json.JSONDecodeError:
+                if "scan_light" in line:
+                    log.error(f"JSON parse failed for scan_light line: {line[:200]}")
                 pass
 
         return creatures
+
+    def pop_extras(self) -> list[dict]:
+        """Return and clear any non-creature JSON responses (scan results, etc.)."""
+        extras = self._extras
+        self._extras = []
+        return extras
 
     def disconnect(self):
         """Close the pipe handle."""

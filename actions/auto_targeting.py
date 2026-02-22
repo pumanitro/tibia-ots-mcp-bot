@@ -5,9 +5,10 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from constants import MONSTER_ID_MIN
 
 INTERVAL = 0.1  # 100ms loop (map scan provides data every 100ms)
-MONSTER_MIN = 0x40000000  # OT creature ID range: monsters start at 0x40000000
+MONSTER_MIN = MONSTER_ID_MIN
 MAX_AGE = 60
 
 
