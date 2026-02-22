@@ -338,6 +338,17 @@ def build_move_item_packet(from_pos: tuple, item_id: int, from_stack: int, to_po
     return pw.data
 
 
+def build_use_on_creature_packet(x: int, y: int, z: int, item_id: int, stack_pos: int, creature_id: int) -> bytes:
+    """Build a use item on creature packet (0x84). E.g. attack rune on enemy, heal rune on self."""
+    pw = PacketWriter()
+    pw.write_u8(ClientOpcode.USE_ON_CREATURE)
+    pw.write_position(x, y, z)
+    pw.write_u16(item_id)
+    pw.write_u8(stack_pos)
+    pw.write_u32(creature_id)
+    return pw.data
+
+
 def build_look_packet(x: int, y: int, z: int, item_id: int, stack_pos: int) -> bytes:
     """Build a look at packet."""
     pw = PacketWriter()
