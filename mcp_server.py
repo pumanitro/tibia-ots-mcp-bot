@@ -710,6 +710,101 @@ async def _reset_bot() -> str:
     return "Bot reset. Call start_bot to reconnect."
 
 
+# ── Force-close game TCP connections ─────────────────────────────────
+
+def _close_game_connections(pid: int) -> int:
+    """Force-close active TCP connections belonging to the game process.
+
+    Uses the Windows SetTcpEntry API to reset TCP connections, causing the
+    game client to disconnect and return to the login screen.  Requires
+    admin privileges (which we already have since pymem works).
+
+    Returns the number of connections closed.
+    """
+    import ctypes
+    import ctypes.wintypes
+    import struct as _struct
+    import socket
+
+    # MIB_TCPROW_OWNER_PID for GetExtendedTcpTable
+    class MIB_TCPROW_OWNER_PID(ctypes.Structure):
+        _fields_ = [
+            ("dwState", ctypes.wintypes.DWORD),
+            ("dwLocalAddr", ctypes.wintypes.DWORD),
+            ("dwLocalPort", ctypes.wintypes.DWORD),
+            ("dwRemoteAddr", ctypes.wintypes.DWORD),
+            ("dwRemotePort", ctypes.wintypes.DWORD),
+            ("dwOwningPid", ctypes.wintypes.DWORD),
+        ]
+
+    # MIB_TCPROW for SetTcpEntry (no PID field)
+    class MIB_TCPROW(ctypes.Structure):
+        _fields_ = [
+            ("dwState", ctypes.wintypes.DWORD),
+            ("dwLocalAddr", ctypes.wintypes.DWORD),
+            ("dwLocalPort", ctypes.wintypes.DWORD),
+            ("dwRemoteAddr", ctypes.wintypes.DWORD),
+            ("dwRemotePort", ctypes.wintypes.DWORD),
+        ]
+
+    TCP_TABLE_OWNER_PID_ALL = 5
+    AF_INET = 2
+    MIB_TCP_STATE_DELETE_TCB = 12
+
+    iphlpapi = ctypes.windll.iphlpapi
+
+    # First call to get buffer size
+    buf_size = ctypes.wintypes.DWORD(0)
+    iphlpapi.GetExtendedTcpTable(None, ctypes.byref(buf_size), False,
+                                  AF_INET, TCP_TABLE_OWNER_PID_ALL, 0)
+
+    buf = ctypes.create_string_buffer(buf_size.value)
+    ret = iphlpapi.GetExtendedTcpTable(buf, ctypes.byref(buf_size), False,
+                                        AF_INET, TCP_TABLE_OWNER_PID_ALL, 0)
+    if ret != 0:
+        log.warning(f"GetExtendedTcpTable failed: {ret}")
+        return 0
+
+    # Parse the table
+    num_entries = _struct.unpack_from('<I', buf.raw, 0)[0]
+    row_size = ctypes.sizeof(MIB_TCPROW_OWNER_PID)
+    closed = 0
+
+    for i in range(num_entries):
+        offset = 4 + i * row_size
+        row_data = buf.raw[offset:offset + row_size]
+        if len(row_data) < row_size:
+            break
+
+        row = MIB_TCPROW_OWNER_PID.from_buffer_copy(row_data)
+
+        if row.dwOwningPid != pid:
+            continue
+
+        # Convert port from network byte order
+        remote_port = socket.ntohs(row.dwRemotePort & 0xFFFF)
+        local_port = socket.ntohs(row.dwLocalPort & 0xFFFF)
+        remote_ip = socket.inet_ntoa(_struct.pack('<I', row.dwRemoteAddr))
+
+        # Close connections to game/login server ports (not localhost proxy)
+        if remote_port in (GAME_PORT, LOGIN_PORT) and remote_ip != "127.0.0.1":
+            log.info(f"Closing game connection: {remote_ip}:{remote_port} (state={row.dwState})")
+            close_row = MIB_TCPROW()
+            close_row.dwState = MIB_TCP_STATE_DELETE_TCB
+            close_row.dwLocalAddr = row.dwLocalAddr
+            close_row.dwLocalPort = row.dwLocalPort
+            close_row.dwRemoteAddr = row.dwRemoteAddr
+            close_row.dwRemotePort = row.dwRemotePort
+            result = iphlpapi.SetTcpEntry(ctypes.byref(close_row))
+            if result == 0:
+                closed += 1
+                log.info(f"  -> Closed successfully")
+            else:
+                log.warning(f"  -> SetTcpEntry failed: {result}")
+
+    return closed
+
+
 # ── Tools ───────────────────────────────────────────────────────────
 
 @mcp.tool()
@@ -737,7 +832,16 @@ async def start_bot() -> str:
     except Exception as e:
         return f"ERROR: Could not attach to dbvStart.exe — is the game running? ({e})"
 
-    log.info(f"Attached to client (PID: {pm.process_id})")
+    game_pid = pm.process_id
+    log.info(f"Attached to client (PID: {game_pid})")
+
+    # ── Force-close existing game connections ──────────────────────
+    # If the client is already logged in, close its TCP connections so it
+    # drops back to the login screen and reconnects through our proxy.
+    closed = _close_game_connections(game_pid)
+    if closed > 0:
+        log.info(f"Closed {closed} existing game connection(s) — client should return to login screen")
+        await asyncio.sleep(2)  # Give the client time to process the disconnect
 
     from patcher import find_server_address_in_memory, patch_memory
 
