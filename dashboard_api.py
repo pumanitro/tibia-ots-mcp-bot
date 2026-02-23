@@ -98,6 +98,8 @@ class _Handler(BaseHTTPRequestHandler):
             return self._handle_cavebot_play()
         if self.path == "/api/cavebot/play/stop":
             return self._handle_cavebot_play_stop()
+        if self.path == "/api/cavebot/logs/spacer":
+            return self._handle_cavebot_logs_spacer()
 
         self._json_response({"error": "not found"}, 404)
 
@@ -261,6 +263,17 @@ class _Handler(BaseHTTPRequestHandler):
         except Exception as e:
             self._json_response({"error": str(e)}, 500)
 
+    def _handle_cavebot_logs_spacer(self):
+        if _state is None:
+            self._json_response({"error": "bot not started"}, 503)
+            return
+        if "cavebot" not in _state.action_logs:
+            import collections
+            _state.action_logs["cavebot"] = collections.deque(maxlen=500)
+        for _ in range(20):
+            _state.action_logs["cavebot"].append("")
+        self._json_response({"ok": True, "message": "Spacer added"})
+
     def _handle_list_recordings(self):
         import cavebot
         recs = cavebot.list_recordings()
@@ -345,6 +358,18 @@ def _build_state_json() -> str:
     pkt_server = st.game_proxy.packets_from_server if st.game_proxy else 0
     pkt_client = st.game_proxy.packets_from_client if st.game_proxy else 0
 
+    # Proxy connection sequence (for debugging)
+    gp = st.game_proxy
+    proxy_sequence = {
+        "proxy_created": gp is not None,
+        "listening": gp is not None and getattr(gp, '_server', None) is not None,
+        "client_connected": gp is not None and getattr(gp, 'client_writer', None) is not None,
+        "server_connected": gp is not None and getattr(gp, 'server_writer', None) is not None,
+        "xtea_captured": gp is not None and getattr(gp, 'xtea_keys', None) is not None,
+        "logged_in": gp is not None and getattr(gp, 'logged_in', False),
+        "packets_flowing": pkt_server > 0 or pkt_client > 0,
+    }
+
     gs = st.game_state
     stats_age = time.time() - gs.stats_updated_at if gs.stats_updated_at else -1
     player = {
@@ -422,6 +447,7 @@ def _build_state_json() -> str:
         "dll_injected": dll_injected,
         "dll_bridge_connected": dll_bridge_running and dll_injected,
         "cavebot": cavebot_state,
+        "proxy_sequence": proxy_sequence,
     })
 
 

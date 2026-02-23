@@ -20,6 +20,7 @@ import type {
   CavebotState,
   WaypointInfo,
   MinimapData,
+  ProxySequence,
 } from "@/lib/api";
 
 function StatusBadge({ label, connected }: { label: string; connected: boolean }) {
@@ -137,7 +138,7 @@ function ActionCard({
         <div className="mt-3 rounded-md bg-gray-900 border border-gray-700 p-3 max-h-48 overflow-y-auto">
           <div className="space-y-0.5 font-mono text-xs text-gray-300">
             {action.logs!.map((line, i) => (
-              <div key={i} className="whitespace-pre-wrap">{line}</div>
+              <div key={i} className={`whitespace-pre-wrap ${line?.includes("[SUCCESS]") ? "text-emerald-400" : line?.includes("[FAILURE]") ? "text-red-400" : ""}`}>{line}</div>
             ))}
           </div>
         </div>
@@ -194,6 +195,59 @@ function StatBar({
           className={`h-full rounded-full transition-all duration-300 ${color}`}
           style={{ width: `${pct}%` }}
         />
+      </div>
+    </div>
+  );
+}
+
+function ConnectionSequence({ seq }: { seq: ProxySequence }) {
+  const steps = [
+    { key: "proxy_created", label: "Proxy Created" },
+    { key: "listening", label: "Listening" },
+    { key: "client_connected", label: "Client Connected" },
+    { key: "server_connected", label: "Server Connected" },
+    { key: "xtea_captured", label: "XTEA Keys Captured" },
+    { key: "logged_in", label: "Logged In" },
+    { key: "packets_flowing", label: "Packets Flowing" },
+  ] as const;
+
+  // Find the first failed step
+  const firstFail = steps.findIndex((s) => !seq[s.key]);
+  const allGood = firstFail === -1;
+
+  return (
+    <div className={`rounded-lg border p-3 mb-4 ${
+      allGood ? "border-emerald-700 bg-emerald-950/20" : "border-yellow-700 bg-yellow-950/20"
+    }`}>
+      <p className="text-xs text-gray-400 uppercase tracking-wider mb-2">
+        Proxy Connection Sequence
+      </p>
+      <div className="flex items-center gap-1">
+        {steps.map((s, i) => {
+          const ok = seq[s.key];
+          const isBlocker = i === firstFail;
+          return (
+            <div key={s.key} className="flex items-center gap-1">
+              {i > 0 && (
+                <span className={`text-xs ${ok ? "text-emerald-600" : "text-gray-600"}`}>
+                  &rarr;
+                </span>
+              )}
+              <div
+                className={`rounded px-2 py-1 text-xs font-medium ${
+                  ok
+                    ? "bg-emerald-900/50 text-emerald-300"
+                    : isBlocker
+                    ? "bg-red-900/50 text-red-300 animate-pulse"
+                    : "bg-gray-800 text-gray-500"
+                }`}
+                title={s.label}
+              >
+                {s.label}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -257,11 +311,23 @@ function CreatureList({ creatures }: { creatures: CreatureInfo[] }) {
   );
 }
 
+const WALK_OFFSETS: Record<string, [number, number]> = {
+  north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0],
+  northeast: [1, -1], northwest: [-1, -1], southeast: [1, 1], southwest: [-1, 1],
+};
+
 function WaypointLine({ wp, index }: { wp: WaypointInfo; index: number }) {
   let desc = "";
   if (wp.type === "walk") {
     const pos = wp.pos;
-    desc = `Walk ${wp.direction ?? "?"} \u2192 (${pos[0]}, ${pos[1]}, ${pos[2]})`;
+    const dir = wp.direction ?? "?";
+    const off = WALK_OFFSETS[dir];
+    // Keyboard walks: pos is BEFORE walk, compute destination
+    // Autowalks: pos is already the destination
+    const dest = dir === "autowalk" || !off
+      ? pos
+      : [pos[0] + off[0], pos[1] + off[1], pos[2]];
+    desc = `Walk ${dir} | cur: (${pos[0]},${pos[1]},${pos[2]}) \u2192 dest: (${dest[0]},${dest[1]},${dest[2]})`;
   } else if (wp.type === "use_item") {
     const label = wp.label ?? `item ${wp.item_id}`;
     const pos = wp.pos;
@@ -283,12 +349,14 @@ function WaypointLine({ wp, index }: { wp: WaypointInfo; index: number }) {
 
 function MinimapChar({ ch }: { ch: string }) {
   const colorMap: Record<string, string> = {
-    "@": "text-yellow-300",
+    "@": "text-blue-400",
     ">": "text-cyan-400",
     "#": "text-emerald-500",
     "o": "text-gray-400",
     "*": "text-emerald-500",
     "+": "text-red-400",
+    "!": "text-yellow-300",
+    "1": "text-yellow-600",
     "X": "text-red-500",
     "-": "text-gray-600",
     "|": "text-gray-600",
@@ -361,7 +429,7 @@ function Minimap({ minimaps, nodeIndex, total }: {
           <div key={y}>
             {[...row].map((ch, x) => {
               if (ch === "@" && !blink) {
-                return <span key={x} className="text-yellow-300"> </span>;
+                return <span key={x} className="text-blue-400"> </span>;
               }
               if (ch === ">" && !blink) {
                 return <span key={x} className="text-cyan-400"> </span>;
@@ -577,8 +645,12 @@ function CavebotPanel({
                   {/* Actions map preview */}
                   {mapPreviewName === r.name && mapPreviewText && (
                     <div className="rounded-b-md bg-gray-950 border border-t-0 border-gray-700 p-2 max-h-48 overflow-y-auto">
-                      <pre className="font-mono text-xs text-purple-300 whitespace-pre-wrap">
-                        {mapPreviewText}
+                      <pre className="font-mono text-xs whitespace-pre-wrap">
+                        {mapPreviewText.split("\n").map((line, li) => (
+                          <div key={li} className={line.includes("[exact]") ? "text-yellow-300" : "text-purple-300"}>
+                            {line}
+                          </div>
+                        ))}
                       </pre>
                     </div>
                   )}
@@ -698,10 +770,10 @@ function CavebotPanel({
               />
             )}
             {hasPlaybackLogs && (
-              <div ref={logsContainerRef} className="rounded-md bg-gray-900 border border-gray-700 p-2 max-h-40 overflow-y-auto">
+              <div ref={logsContainerRef} className="rounded-md bg-gray-900 border border-gray-700 p-2 overflow-y-auto" style={{ resize: "vertical", minHeight: "4rem", height: "10rem", maxHeight: "80vh" }}>
                 <div className="space-y-0.5 font-mono text-xs text-gray-300">
                   {playback.logs.map((line, i) => (
-                    <div key={i} className="whitespace-pre-wrap">{line}</div>
+                    <div key={i} className={`whitespace-pre-wrap ${line?.includes("[SUCCESS]") ? "text-emerald-400" : line?.includes("[FAILURE]") ? "text-red-400" : ""}`}>{line || "\u00A0"}</div>
                   ))}
                 </div>
               </div>
@@ -712,21 +784,23 @@ function CavebotPanel({
         {/* Playback Logs (when not actively playing) */}
         {!playback.active && hasPlaybackLogs && (
           <div>
-            <button
-              onClick={() => setShowPlaybackLogs(!showPlaybackLogs)}
-              className={`rounded px-2 py-1 text-xs transition-colors ${
-                showPlaybackLogs
-                  ? "text-blue-300 bg-blue-900/30"
-                  : "text-gray-300 hover:bg-gray-700"
-              }`}
-            >
-              Last Playback Logs
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowPlaybackLogs(!showPlaybackLogs)}
+                className={`rounded px-2 py-1 text-xs transition-colors ${
+                  showPlaybackLogs
+                    ? "text-blue-300 bg-blue-900/30"
+                    : "text-gray-300 hover:bg-gray-700"
+                }`}
+              >
+                Last Playback Logs
+              </button>
+            </div>
             {showPlaybackLogs && (
-              <div ref={lastLogsContainerRef} className="mt-2 rounded-md bg-gray-900 border border-gray-700 p-2 max-h-48 overflow-y-auto">
+              <div ref={lastLogsContainerRef} className="mt-2 rounded-md bg-gray-900 border border-gray-700 p-2 overflow-y-auto" style={{ resize: "vertical", minHeight: "4rem", height: "12rem", maxHeight: "80vh" }}>
                 <div className="space-y-0.5 font-mono text-xs text-gray-300">
                   {playback.logs.map((line, i) => (
-                    <div key={i} className="whitespace-pre-wrap">{line}</div>
+                    <div key={i} className={`whitespace-pre-wrap ${line?.includes("[SUCCESS]") ? "text-emerald-400" : line?.includes("[FAILURE]") ? "text-red-400" : ""}`}>{line || "\u00A0"}</div>
                   ))}
                 </div>
               </div>
@@ -755,6 +829,45 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Packet Stats */}
+      {state && (
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <div className={`rounded-lg border p-3 ${
+            (state.packets_from_server ?? 0) > 0
+              ? "border-emerald-700 bg-emerald-950/30"
+              : "border-red-700 bg-red-950/30"
+          }`}>
+            <p className="text-xs text-gray-400 uppercase tracking-wider">
+              Server Packets
+            </p>
+            <p className={`text-xl font-bold mt-1 tabular-nums ${
+              (state.packets_from_server ?? 0) > 0 ? "text-emerald-300" : "text-red-400"
+            }`}>
+              {(state.packets_from_server ?? 0).toLocaleString()}
+            </p>
+          </div>
+          <div className={`rounded-lg border p-3 ${
+            (state.packets_from_client ?? 0) > 0
+              ? "border-emerald-700 bg-emerald-950/30"
+              : "border-red-700 bg-red-950/30"
+          }`}>
+            <p className="text-xs text-gray-400 uppercase tracking-wider">
+              Client Packets
+            </p>
+            <p className={`text-xl font-bold mt-1 tabular-nums ${
+              (state.packets_from_client ?? 0) > 0 ? "text-emerald-300" : "text-red-400"
+            }`}>
+              {(state.packets_from_client ?? 0).toLocaleString()}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Proxy Connection Sequence */}
+      {state?.proxy_sequence && (
+        <ConnectionSequence seq={state.proxy_sequence} />
+      )}
+
       {/* Player Stats */}
       {state?.connected && state.player && (
         <PlayerStats player={state.player} />
@@ -768,40 +881,6 @@ export default function Dashboard() {
       {/* Cavebot */}
       {state?.connected && state.cavebot && (
         <CavebotPanel cavebot={state.cavebot} onRefresh={refresh} />
-      )}
-
-      {/* Packet Stats */}
-      {state && (
-        <div className="grid grid-cols-2 gap-4 mb-8">
-          <div className={`rounded-lg border p-4 ${
-            (state.packets_from_server ?? 0) > 0
-              ? "border-emerald-700 bg-emerald-950/30"
-              : "border-red-700 bg-red-950/30"
-          }`}>
-            <p className="text-xs text-gray-400 uppercase tracking-wider">
-              Server Packets
-            </p>
-            <p className={`text-2xl font-bold mt-1 tabular-nums ${
-              (state.packets_from_server ?? 0) > 0 ? "text-emerald-300" : "text-red-400"
-            }`}>
-              {(state.packets_from_server ?? 0).toLocaleString()}
-            </p>
-          </div>
-          <div className={`rounded-lg border p-4 ${
-            (state.packets_from_client ?? 0) > 0
-              ? "border-emerald-700 bg-emerald-950/30"
-              : "border-red-700 bg-red-950/30"
-          }`}>
-            <p className="text-xs text-gray-400 uppercase tracking-wider">
-              Client Packets
-            </p>
-            <p className={`text-2xl font-bold mt-1 tabular-nums ${
-              (state.packets_from_client ?? 0) > 0 ? "text-emerald-300" : "text-red-400"
-            }`}>
-              {(state.packets_from_client ?? 0).toLocaleString()}
-            </p>
-          </div>
-        </div>
       )}
 
       {/* Actions */}

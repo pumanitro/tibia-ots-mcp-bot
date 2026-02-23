@@ -268,5 +268,6 @@ The cavebot is a first working version but not yet fully functional:
 - [ ] **Loot pickup** — open corpses and move loot to backpack
 - [ ] **Death handling** — detect death, pause actions, resume after respawn
 
-### Future
+### Nice to Have
+- [ ] **Smart waypoint-to-action-map optimizer** — algorithm that transforms a raw recorded path into an optimized action map based on monster spawn locations. Analyzes which tiles have the highest monster density, removes redundant backtracking, and generates an efficient patrol route that maximizes kills-per-minute by prioritizing high-spawn areas and minimizing idle walking through empty corridors
 - [ ] **Anti-bot / Intelligent responder** — automated system to detect and respond to anti-bot checks or GM interactions

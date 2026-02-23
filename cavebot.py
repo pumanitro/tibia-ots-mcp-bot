@@ -39,6 +39,31 @@ DIR_OFFSET = {
     "southwest": (-1, 1), "northwest": (-1, -1),
 }
 
+# Autowalk path direction bytes use 1-8 encoding (different from Direction enum 0-7)
+AUTOWALK_DIR_OFFSET = {
+    1: (1, 0),    # East
+    2: (1, -1),   # Northeast
+    3: (0, -1),   # North
+    4: (-1, -1),  # Northwest
+    5: (-1, 0),   # West
+    6: (-1, 1),   # Southwest
+    7: (0, 1),    # South
+    8: (1, 1),    # Southeast
+}
+
+# Keyboard walk direction name → (dx, dy) offset
+# pos records where the player WAS; destination = pos + offset
+KEYBOARD_WALK_OFFSET = {
+    "north": (0, -1),
+    "south": (0, 1),
+    "east": (1, 0),
+    "west": (-1, 0),
+    "northeast": (1, -1),
+    "northwest": (-1, -1),
+    "southeast": (1, 1),
+    "southwest": (-1, 1),
+}
+
 # Item ID → label (common navigation items)
 ITEM_LABELS = {
     # Ladders / stairs / holes — these vary by server, add as discovered
@@ -92,6 +117,32 @@ def start_recording(state, name: str) -> str | None:
             }
             state.recording_waypoints.append(wp)
             log.info(f"[REC] walk {direction} ({current_pos[0]},{current_pos[1]}) -> ({expected_pos[0]},{expected_pos[1]})")
+
+        elif opcode == ClientOpcode.AUTO_WALK:
+            # Left-click map movement — parse direction list, compute final pos
+            try:
+                count = reader.read_u8()
+                if count == 0 or count > 50:
+                    return
+                x, y, z = current_pos
+                for _ in range(count):
+                    d = reader.read_u8()
+                    offset = AUTOWALK_DIR_OFFSET.get(d)
+                    if offset is None:
+                        continue
+                    x += offset[0]
+                    y += offset[1]
+                final_pos = [x, y, z]
+            except Exception:
+                return
+            wp = {
+                "type": "walk",
+                "direction": "autowalk",
+                "pos": final_pos,
+                "t": t_elapsed,
+            }
+            state.recording_waypoints.append(wp)
+            log.info(f"[REC] autowalk {count} steps ({current_pos[0]},{current_pos[1]}) -> ({final_pos[0]},{final_pos[1]})")
 
         elif opcode == ClientOpcode.USE_ITEM:
             try:
@@ -256,7 +307,7 @@ def _is_map_click_walk(wp: dict) -> bool:
     return _manhattan(item_pos, player_pos) > 1
 
 
-def _simplify_path(points: list[tuple], max_gap: int = 8) -> list[tuple]:
+def _simplify_path(points: list[tuple], max_gap: int = 3) -> list[tuple]:
     """Keep enough points so no two consecutive are more than max_gap apart.
 
     Each point is (x, y, z, item_id, stack_pos).
@@ -363,51 +414,33 @@ def build_actions_map(recording: dict) -> list[dict]:
                         return swp["item_id"]
                 return gid
 
-            # Check for floor transitions (z-change between consecutive walks)
-            floor_change_idx = None
-            for k in range(1, len(walks)):
-                if walks[k]["pos"][2] != walks[k - 1]["pos"][2]:
-                    floor_change_idx = k
-                    break
+            # Convert walk positions to walk_to nodes (server pathfinding)
+            # For keyboard walks, pos is the position BEFORE the walk.
+            # Compute destination (pos + direction offset) so we capture
+            # the actual tile the player reaches — critical for stairs/ramps
+            # where the last same-floor tile is the transition point.
+            # Autowalks already have pos = final destination.
+            ground_id = _find_ground_id()
+            path = []  # (x, y, z, item_id, stack_pos)
+            for w in walks:
+                direction = w.get("direction", "")
+                if direction == "autowalk":
+                    # Autowalk pos is already the computed final destination
+                    pt = (w["pos"][0], w["pos"][1], w["pos"][2], ground_id, 1)
+                else:
+                    # Keyboard walk: apply direction offset to get destination
+                    dx, dy = KEYBOARD_WALK_OFFSET.get(direction, (0, 0))
+                    pt = (w["pos"][0] + dx, w["pos"][1] + dy, w["pos"][2], ground_id, 1)
+                if not path or (pt[0], pt[1], pt[2]) != (path[-1][0], path[-1][1], path[-1][2]):
+                    path.append(pt)
 
-            if floor_change_idx is None:
-                # No floor change — normal walk_to at final position
-                final_pos = list(walks[-1]["pos"])
+            simplified = _simplify_path(path)
+            for pt in simplified:
                 nodes.append({
                     "type": "walk_to",
-                    "target": final_pos,
-                    "item_id": _find_ground_id(),
-                    "stack_pos": 1,
-                })
-            else:
-                # Floor change detected — all walks become walk_steps
-                # Include entire walk sequence so directional approach is exact
-                old_z = walks[floor_change_idx - 1]["pos"][2]
-                new_z = walks[floor_change_idx]["pos"][2]
-
-                steps = [{"direction": w["direction"]} for w in walks]
-                final_pos = list(walks[-1]["pos"])
-
-                # Calculate start position (where player must be before first walk)
-                first_dir = walks[0]["direction"]
-                dx, dy = DIR_OFFSET[first_dir]
-                first_pos = walks[0]["pos"]
-                start_pos = [first_pos[0] - dx, first_pos[1] - dy, first_pos[2]]
-
-                # Add precise walk_to for start position before walk_steps
-                nodes.append({
-                    "type": "walk_to",
-                    "target": start_pos,
-                    "item_id": first_ground_item_id or 4449,
-                    "stack_pos": 1,
-                })
-
-                nodes.append({
-                    "type": "walk_steps",
-                    "target": final_pos,
-                    "start": start_pos,
-                    "steps": steps,
-                    "label": f"Walk floor {old_z}\u2192{new_z}",
+                    "target": [pt[0], pt[1], pt[2]],
+                    "item_id": pt[3],
+                    "stack_pos": pt[4],
                 })
 
             i = j
@@ -444,6 +477,18 @@ def build_actions_map(recording: dict) -> list[dict]:
             deduped.append(n)
         nodes = deduped
 
+    # Mark walk_to nodes as exact when followed by a floor change
+    for idx in range(len(nodes) - 1):
+        if nodes[idx]["type"] != "walk_to":
+            continue
+        nxt = nodes[idx + 1]
+        # Next node is use_item (stairs/door)
+        if nxt["type"] in ("use_item", "use_item_ex"):
+            nodes[idx]["exact"] = True
+        # Next node is walk_to on a different floor
+        elif nxt["type"] == "walk_to" and nxt["target"][2] != nodes[idx]["target"][2]:
+            nodes[idx]["exact"] = True
+
     return nodes
 
 
@@ -456,7 +501,8 @@ def actions_map_to_text(actions_map: list[dict]) -> str:
         ntype = node["type"]
 
         if ntype == "walk_to":
-            lines.append(f"{i+1}. walk_to {pos_str}")
+            exact = " [exact]" if node.get("exact") else ""
+            lines.append(f"{i+1}. walk_to {pos_str}{exact}")
         elif ntype == "use_item":
             label = node.get("label", f"item {node['item_id']}")
             # Detect floor change: if target z != player z
@@ -481,13 +527,11 @@ def build_minimap(
     current_index: int,
     player_pos: tuple | list,
     floor: int,
-    width: int = 40,
-    height: int = 25,
     failed_nodes: set | None = None,
 ) -> dict:
     """Build an ASCII minimap of the actions map.
 
-    Returns a dict with grid (list of strings), dimensions, metadata.
+    The grid auto-sizes to fit all nodes on the floor (plus a 1-tile margin).
     Characters: @ = player, > = current target, # = visited walk_to,
                 o = unvisited walk_to, * = visited use_item/stairs,
                 + = unvisited use_item/stairs, X = failed node, space = empty.
@@ -510,7 +554,7 @@ def build_minimap(
         # No nodes on this floor — return minimal grid
         return {
             "grid": ["  @ (no nodes on this floor)"],
-            "width": width,
+            "width": 1,
             "height": 1,
             "origin": [int(player_pos[0]), int(player_pos[1])],
             "floor": floor,
@@ -519,7 +563,7 @@ def build_minimap(
             "player_node_index": current_index,
         }
 
-    # Compute bounding box of nodes + player
+    # Compute bounding box of ALL nodes + player on this floor
     xs = [n["target"][0] for _, n in floor_nodes]
     ys = [n["target"][1] for _, n in floor_nodes]
     if player_pos[2] == floor:
@@ -530,18 +574,6 @@ def build_minimap(
     max_x = max(xs) + 1
     min_y = min(ys) - 1
     max_y = max(ys) + 1
-
-    # If bounding box is larger than viewport, center on player
-    bbox_w = max_x - min_x + 1
-    bbox_h = max_y - min_y + 1
-
-    if bbox_w > width or bbox_h > height:
-        cx = int(player_pos[0]) if player_pos[2] == floor else (min_x + max_x) // 2
-        cy = int(player_pos[1]) if player_pos[2] == floor else (min_y + max_y) // 2
-        min_x = cx - width // 2
-        min_y = cy - height // 2
-        max_x = min_x + width - 1
-        max_y = min_y + height - 1
 
     actual_w = max_x - min_x + 1
     actual_h = max_y - min_y + 1
@@ -582,12 +614,16 @@ def build_minimap(
             is_current = idx == current_index
             is_failed = idx in failed_nodes
             ntype = node["type"]
+            is_exact = node.get("exact", False)
             if is_current:
                 ch = ">"
             elif is_failed:
                 ch = "X"
             elif ntype == "walk_to":
-                ch = "#" if visited else "o"
+                if is_exact:
+                    ch = "!" if not visited else "1"
+                else:
+                    ch = "#" if visited else "o"
             else:  # use_item, use_item_ex, walk_steps
                 ch = "*" if visited else "+"
             grid[ty][tx] = ch

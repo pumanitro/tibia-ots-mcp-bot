@@ -113,6 +113,16 @@ export interface CavebotState {
   recordings: RecordingInfo[];
 }
 
+export interface ProxySequence {
+  proxy_created: boolean;
+  listening: boolean;
+  client_connected: boolean;
+  server_connected: boolean;
+  xtea_captured: boolean;
+  logged_in: boolean;
+  packets_flowing: boolean;
+}
+
 export interface BotState {
   connected: boolean;
   actions: ActionInfo[];
@@ -123,6 +133,7 @@ export interface BotState {
   dll_injected: boolean;
   dll_bridge_connected: boolean;
   cavebot?: CavebotState;
+  proxy_sequence?: ProxySequence;
 }
 
 export async function fetchState(): Promise<BotState> {
@@ -205,6 +216,16 @@ export async function stopPlayback(): Promise<void> {
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     console.error("Stop playback failed:", res.status, err);
+  }
+}
+
+export async function clearCavebotLogs(): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/cavebot/logs/spacer`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    console.error("Spacer failed:", res.status, err);
   }
 }
 

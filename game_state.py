@@ -69,6 +69,9 @@ class GameState:
         # When True, MAP_SLICE position updates are skipped (DLL provides position)
         self.dll_position_active: bool = False
 
+        # Tile updates ring buffer — (timestamp, x, y, z) for use_item verification
+        self.tile_updates: deque = deque(maxlen=50)
+
 
 def parse_server_packet(opcode: int, reader, gs: GameState) -> None:
     """Parse the first opcode (called by the old single-opcode callback)."""
@@ -109,6 +112,11 @@ def scan_packet(data: bytes, gs: GameState) -> None:
             found_icons = True
         pos = new_pos
 
+    # Search full packet for tile update opcodes (0x6A/0x6B/0x6C)
+    # Done on full data (not just remainder) because tile updates can appear
+    # anywhere, including after map data that stopped sequential parsing.
+    _search_for_tile_updates(data, 0, gs)
+
     # Fallback: search remaining data for PLAYER_STATS if not found yet
     if not found_stats and pos < len(data):
         _search_for_stats(data, pos, gs)
@@ -128,6 +136,39 @@ def scan_packet(data: bytes, gs: GameState) -> None:
             if info.get("source") == "dll" or now - info.get("t", 0) <= MAX_CREATURE_AGE
         }
 
+
+
+def _search_for_tile_updates(data: bytes, start: int, gs: GameState) -> None:
+    """Brute-force search for tile update opcodes (0x6A, 0x6B, 0x6C).
+
+    Extracts position (u16 x, u16 y, u8 z = 5 bytes after opcode) and appends
+    to gs.tile_updates.  Also prunes entries older than 5 seconds.
+    """
+    now = time.time()
+
+    # Prune old entries
+    while gs.tile_updates and now - gs.tile_updates[0][0] > 5.0:
+        gs.tile_updates.popleft()
+
+    TILE_OPCODES = (
+        ServerOpcode.TILE_ADD_THING,       # 0x6A
+        ServerOpcode.TILE_TRANSFORM_THING, # 0x6B
+        ServerOpcode.TILE_REMOVE_THING,    # 0x6C
+    )
+
+    for i in range(start, len(data) - 5):
+        if data[i] not in TILE_OPCODES:
+            continue
+        try:
+            x = struct.unpack_from('<H', data, i + 1)[0]
+            y = struct.unpack_from('<H', data, i + 3)[0]
+            z = data[i + 5]
+        except (struct.error, IndexError):
+            continue
+        # Sanity-check: valid map coordinates
+        if x < 100 or x > 65000 or y < 100 or y > 65000 or z > 15:
+            continue
+        gs.tile_updates.append((now, x, y, z))
 
 
 def _search_for_stats(data: bytes, start: int, gs: GameState) -> None:
