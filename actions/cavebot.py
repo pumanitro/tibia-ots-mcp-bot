@@ -12,7 +12,7 @@ from protocol import (
     build_use_item_ex_packet,
     build_walk_packet,
 )
-from cavebot import load_recording, build_actions_map, build_all_minimaps, actions_map_to_text
+from cavebot import load_recording, build_actions_map, build_all_minimaps, build_sequence_minimaps, actions_map_to_text
 
 USE_ITEM_TIMEOUT = 5.0
 WALK_TO_TOLERANCE = 2   # tiles — close enough for walk_to nodes
@@ -362,7 +362,7 @@ async def run(bot):
                 break
 
             state.playback_index = i
-            state.playback_minimap = build_all_minimaps(
+            state.playback_minimap = build_sequence_minimaps(
                 actions_map, i, bot.position,
                 failed_nodes=state.playback_failed_nodes,
             )
@@ -388,7 +388,7 @@ async def run(bot):
                 bot.log(f"{prefix} Node failed, continuing...")
 
         # Update minimap one final time
-        state.playback_minimap = build_all_minimaps(
+        state.playback_minimap = build_sequence_minimaps(
             actions_map, len(actions_map), bot.position,
             failed_nodes=state.playback_failed_nodes,
         )

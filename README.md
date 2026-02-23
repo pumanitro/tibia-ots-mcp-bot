@@ -261,6 +261,7 @@ The cavebot is a first working version but not yet fully functional:
 - [ ] **Stairs recording incorrect** — floor transitions via stairs/ramps are not always captured properly in recordings, causing playback to fail at floor changes
 
 ### Planned Features
+- [x] **Sequence-based minimap visualization** — instead of showing one map per floor (Z level), split the recording into sequential "frames" based on floor transitions. Each time the player enters a floor, a new sequence/frame starts with a fresh map. For example: sequence 1 at Z=6 shows the initial patrol, sequence 2 at Z=7 shows the underground segment, sequence 3 at Z=6 shows the return path on a clean map. This prevents overlapping backtrack lines that make debugging impossible — each frame only shows the waypoints and actions for that continuous segment on that floor
 - [ ] **Monster combat strategies** — move-and-attack behavior that keeps 1 square distance from the monster while fighting
 - [ ] **Real item usage support** — shovel, rope, and other usable items during cavebot navigation
 - [ ] **Terrain testing** — verify and fix playback on doors, ladders, and other interactive map objects

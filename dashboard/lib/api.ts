@@ -74,6 +74,14 @@ export interface MinimapData {
   player_node_index: number;
 }
 
+export interface MinimapSequence {
+  seq_index: number;
+  floor: number;
+  start: number;
+  end: number;
+  minimap: MinimapData;
+}
+
 export interface ActionsMapNode {
   type: string;
   target: [number, number, number];
@@ -107,7 +115,7 @@ export interface CavebotState {
     total: number;
     loop: boolean;
     logs: string[];
-    minimap: Record<string, MinimapData> | null;
+    minimap: MinimapSequence[] | Record<string, MinimapData> | null;
     actions_map_count: number;
   };
   recordings: RecordingInfo[];

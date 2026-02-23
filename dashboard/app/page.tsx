@@ -20,6 +20,7 @@ import type {
   CavebotState,
   WaypointInfo,
   MinimapData,
+  MinimapSequence,
   ProxySequence,
 } from "@/lib/api";
 
@@ -366,15 +367,28 @@ function MinimapChar({ ch }: { ch: string }) {
 }
 
 function Minimap({ minimaps, nodeIndex, total }: {
-  minimaps: Record<string, MinimapData>;
+  minimaps: MinimapSequence[] | Record<string, MinimapData>;
   nodeIndex: number;
   total: number;
 }) {
-  // Get sorted floor list and find the player's floor
-  const floors = Object.keys(minimaps).map(Number).sort((a, b) => a - b);
-  const playerFloor = floors.find((f) => minimaps[f].floor === f && minimaps[f].grid.some((r) => r.includes("@"))) ?? floors[0];
+  // Normalize: convert old floor-keyed format to sequence list
+  const sequences: MinimapSequence[] = Array.isArray(minimaps)
+    ? minimaps
+    : Object.entries(minimaps).map(([floor, data], i) => ({
+        seq_index: i,
+        floor: Number(floor),
+        start: 0,
+        end: (data.nodes?.length ?? 1) - 1,
+        minimap: data,
+      }));
 
-  const [viewFloor, setViewFloor] = useState(playerFloor);
+  // Find the active sequence (the one containing the current node index)
+  const activeSeqIdx = sequences.findIndex(
+    (s) => nodeIndex >= s.start && nodeIndex <= s.end + 1
+  );
+  const fallbackIdx = activeSeqIdx >= 0 ? activeSeqIdx : sequences.length - 1;
+
+  const [viewSeqIdx, setViewSeqIdx] = useState(fallbackIdx);
   const [blink, setBlink] = useState(true);
 
   // Blink the player @ and > characters
@@ -383,22 +397,32 @@ function Minimap({ minimaps, nodeIndex, total }: {
     return () => clearInterval(id);
   }, []);
 
-  // Sync to player floor when it changes
+  // Auto-follow the active sequence as playback progresses
   useEffect(() => {
-    setViewFloor(playerFloor);
-  }, [playerFloor]);
+    setViewSeqIdx(fallbackIdx);
+  }, [fallbackIdx]);
 
-  const floorIdx = floors.indexOf(viewFloor);
-  const currentMinimap = minimaps[viewFloor] ?? minimaps[floors[0]];
+  // Clamp viewSeqIdx to valid range
+  const safeIdx = Math.max(0, Math.min(viewSeqIdx, sequences.length - 1));
+  const currentSeq = sequences[safeIdx];
+  const currentMinimap = currentSeq?.minimap;
 
-  const handleFloorUp = () => {
-    if (floorIdx > 0) setViewFloor(floors[floorIdx - 1]);
+  if (!currentMinimap) {
+    return (
+      <div className="rounded-md bg-gray-950 border border-gray-700 p-3">
+        <span className="text-xs text-gray-500">No minimap data</span>
+      </div>
+    );
+  }
+
+  const handlePrev = () => {
+    if (safeIdx > 0) setViewSeqIdx(safeIdx - 1);
   };
-  const handleFloorDown = () => {
-    if (floorIdx < floors.length - 1) setViewFloor(floors[floorIdx + 1]);
+  const handleNext = () => {
+    if (safeIdx < sequences.length - 1) setViewSeqIdx(safeIdx + 1);
   };
 
-  const isLiveFloor = viewFloor === playerFloor;
+  const isLiveSeq = safeIdx === fallbackIdx;
 
   return (
     <div className="rounded-md bg-gray-950 border border-gray-700 p-3">
@@ -406,21 +430,21 @@ function Minimap({ minimaps, nodeIndex, total }: {
         <span className="text-xs font-medium text-gray-400">Minimap</span>
         <div className="flex items-center gap-2">
           <button
-            onClick={handleFloorUp}
-            disabled={floorIdx <= 0}
+            onClick={handlePrev}
+            disabled={safeIdx <= 0}
             className="rounded px-1.5 py-0.5 text-xs text-gray-300 hover:bg-gray-700 disabled:opacity-30 transition-colors"
           >
-            ^
+            &lt;
           </button>
-          <span className="text-xs text-gray-400 tabular-nums w-14 text-center">
-            Floor {viewFloor}
+          <span className="text-xs text-gray-400 tabular-nums text-center" style={{ minWidth: "5.5rem" }}>
+            Seq {safeIdx + 1}/{sequences.length} (Z={currentSeq.floor})
           </span>
           <button
-            onClick={handleFloorDown}
-            disabled={floorIdx >= floors.length - 1}
+            onClick={handleNext}
+            disabled={safeIdx >= sequences.length - 1}
             className="rounded px-1.5 py-0.5 text-xs text-gray-300 hover:bg-gray-700 disabled:opacity-30 transition-colors"
           >
-            v
+            &gt;
           </button>
         </div>
       </div>
@@ -443,8 +467,8 @@ function Minimap({ minimaps, nodeIndex, total }: {
         <span className="text-xs text-gray-500 tabular-nums">
           Node {nodeIndex + 1}/{total}
         </span>
-        {!isLiveFloor && (
-          <span className="text-xs text-yellow-600">(viewing floor {viewFloor})</span>
+        {!isLiveSeq && (
+          <span className="text-xs text-yellow-600">(viewing seq {safeIdx + 1})</span>
         )}
       </div>
     </div>

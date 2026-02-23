@@ -689,3 +689,192 @@ def build_all_minimaps(
             failed_nodes=failed_nodes,
         )
     return result
+
+
+def _split_into_sequences(actions_map: list[dict]) -> list[dict]:
+    """Split an actions map into sequences by floor transitions.
+
+    Each sequence is a contiguous run of nodes on the same floor.
+    Returns a list of dicts: {floor, start, end, indices}.
+    """
+    if not actions_map:
+        return []
+
+    sequences = []
+    cur_floor = actions_map[0]["target"][2]
+    cur_start = 0
+    cur_indices = [0]
+
+    for i in range(1, len(actions_map)):
+        node_floor = actions_map[i]["target"][2]
+        if node_floor != cur_floor:
+            sequences.append({
+                "floor": cur_floor,
+                "start": cur_start,
+                "end": i - 1,
+                "indices": cur_indices,
+            })
+            cur_floor = node_floor
+            cur_start = i
+            cur_indices = [i]
+        else:
+            cur_indices.append(i)
+
+    # Final sequence
+    sequences.append({
+        "floor": cur_floor,
+        "start": cur_start,
+        "end": len(actions_map) - 1,
+        "indices": cur_indices,
+    })
+    return sequences
+
+
+def build_sequence_minimaps(
+    actions_map: list[dict],
+    current_index: int,
+    player_pos: tuple | list,
+    failed_nodes: set | None = None,
+) -> list[dict]:
+    """Build one minimap per floor-sequence instead of per floor.
+
+    Splits the actions map into sequences at every floor (Z) change.
+    Each visit to a floor gets its own fresh minimap, preventing
+    overlapping backtrack lines when the path revisits the same floor.
+
+    Returns a list of dicts, each with:
+      seq_index, floor, start, end, minimap (the minimap dict)
+    """
+    if failed_nodes is None:
+        failed_nodes = set()
+
+    sequences = _split_into_sequences(actions_map)
+    if not sequences:
+        return []
+
+    result = []
+    for seq_idx, seq in enumerate(sequences):
+        floor = seq["floor"]
+        indices = seq["indices"]
+
+        # Build a sub-actions-map containing only this sequence's nodes,
+        # but keep original indices for visited/current/failed tracking.
+        seq_nodes = [(i, actions_map[i]) for i in indices]
+
+        # Determine which nodes in this sequence are relevant
+        floor_nodes = seq_nodes  # all of them are on the same floor
+
+        if not floor_nodes:
+            continue
+
+        # Compute bounding box
+        xs = [n["target"][0] for _, n in floor_nodes]
+        ys = [n["target"][1] for _, n in floor_nodes]
+
+        # Include player position if they're on this floor AND
+        # the current_index falls within this sequence
+        player_in_seq = (
+            int(player_pos[2]) == floor
+            and seq["start"] <= current_index <= seq["end"] + 1
+        )
+        if player_in_seq:
+            xs.append(int(player_pos[0]))
+            ys.append(int(player_pos[1]))
+
+        min_x = min(xs) - 1
+        max_x = max(xs) + 1
+        min_y = min(ys) - 1
+        max_y = max(ys) + 1
+        w = max_x - min_x + 1
+        h = max_y - min_y + 1
+
+        # Build grid
+        grid = [[" "] * w for _ in range(h)]
+
+        # Draw path lines between consecutive nodes in THIS sequence
+        prev_pos = None
+        for idx, node in floor_nodes:
+            cx, cy = node["target"][0], node["target"][1]
+            if prev_pos is not None:
+                px, py = prev_pos
+                step_x = 1 if cx >= px else -1
+                for lx in range(px, cx, step_x):
+                    gy = py - min_y
+                    gx = lx - min_x
+                    if 0 <= gy < h and 0 <= gx < w and grid[gy][gx] == " ":
+                        grid[gy][gx] = "-"
+                step_y = 1 if cy >= py else -1
+                for ly in range(py, cy, step_y):
+                    gy = ly - min_y
+                    gx = cx - min_x
+                    if 0 <= gy < h and 0 <= gx < w and grid[gy][gx] == " ":
+                        grid[gy][gx] = "|"
+            prev_pos = (cx, cy)
+
+        # Place nodes
+        node_info = []
+        for idx, node in floor_nodes:
+            tx = node["target"][0] - min_x
+            ty = node["target"][1] - min_y
+            if 0 <= ty < h and 0 <= tx < w:
+                visited = idx < current_index
+                is_current = idx == current_index
+                is_failed = idx in failed_nodes
+                ntype = node["type"]
+                is_exact = node.get("exact", False)
+                if is_current:
+                    ch = ">"
+                elif is_failed:
+                    ch = "X"
+                elif ntype == "walk_to":
+                    if is_exact:
+                        ch = "!" if not visited else "1"
+                    else:
+                        ch = "#" if visited else "o"
+                else:
+                    ch = "*" if visited else "+"
+                grid[ty][tx] = ch
+            node_info.append({
+                "index": idx,
+                "type": node["type"],
+                "target": node["target"],
+                "visited": idx < current_index,
+                "failed": idx in failed_nodes,
+            })
+
+        # Ensure current target ">" wins
+        for idx, node in floor_nodes:
+            if idx == current_index:
+                tx = node["target"][0] - min_x
+                ty = node["target"][1] - min_y
+                if 0 <= ty < h and 0 <= tx < w:
+                    grid[ty][tx] = ">"
+                break
+
+        # Place player
+        if player_in_seq:
+            px = int(player_pos[0]) - min_x
+            py = int(player_pos[1]) - min_y
+            if 0 <= py < h and 0 <= px < w:
+                grid[py][px] = "@"
+
+        grid_lines = ["".join(row) for row in grid]
+
+        result.append({
+            "seq_index": seq_idx,
+            "floor": floor,
+            "start": seq["start"],
+            "end": seq["end"],
+            "minimap": {
+                "grid": grid_lines,
+                "width": w,
+                "height": h,
+                "origin": [min_x, min_y],
+                "floor": floor,
+                "floors": [floor],
+                "nodes": node_info,
+                "player_node_index": current_index,
+            },
+        })
+
+    return result
