@@ -29,6 +29,90 @@ export interface CreatureInfo {
   z: number;
 }
 
+export interface WaypointInfo {
+  type: string;
+  direction?: string;
+  x?: number;
+  y?: number;
+  z?: number;
+  item_id?: number;
+  stack_pos?: number;
+  index?: number;
+  from_x?: number;
+  from_y?: number;
+  from_z?: number;
+  to_x?: number;
+  to_y?: number;
+  to_z?: number;
+  to_stack_pos?: number;
+  label?: string;
+  pos: number[];
+  t: number;
+}
+
+export interface RecordingInfo {
+  name: string;
+  count: number;
+  created_at: string;
+}
+
+export interface MinimapNodeInfo {
+  index: number;
+  type: string;
+  target: [number, number, number];
+  visited: boolean;
+}
+
+export interface MinimapData {
+  grid: string[];
+  width: number;
+  height: number;
+  origin: [number, number];
+  floor: number;
+  floors: number[];
+  nodes: MinimapNodeInfo[];
+  player_node_index: number;
+}
+
+export interface ActionsMapNode {
+  type: string;
+  target: [number, number, number];
+  item_id?: number;
+  stack_pos?: number;
+  index?: number;
+  label?: string;
+  x?: number;
+  y?: number;
+  z?: number;
+}
+
+export interface ActionsMapResponse {
+  name: string;
+  actions_map: ActionsMapNode[];
+  text_preview: string;
+  node_count: number;
+}
+
+export interface CavebotState {
+  recording: {
+    active: boolean;
+    name: string;
+    waypoint_count: number;
+    waypoints: WaypointInfo[];
+  };
+  playback: {
+    active: boolean;
+    recording_name: string;
+    index: number;
+    total: number;
+    loop: boolean;
+    logs: string[];
+    minimap: Record<string, MinimapData> | null;
+    actions_map_count: number;
+  };
+  recordings: RecordingInfo[];
+}
+
 export interface BotState {
   connected: boolean;
   actions: ActionInfo[];
@@ -38,6 +122,7 @@ export interface BotState {
   creatures: CreatureInfo[];
   dll_injected: boolean;
   dll_bridge_connected: boolean;
+  cavebot?: CavebotState;
 }
 
 export async function fetchState(): Promise<BotState> {
@@ -70,4 +155,83 @@ export async function deleteAction(name: string): Promise<void> {
     const err = await res.json().catch(() => ({}));
     console.error("Delete failed:", res.status, err);
   }
+}
+
+// ── Cavebot API ─────────────────────────────────────────────────
+
+export async function startRecording(name: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/cavebot/record/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    console.error("Start recording failed:", res.status, err);
+  }
+}
+
+export async function stopRecording(discard = false): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/cavebot/record/stop`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ discard }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    console.error("Stop recording failed:", res.status, err);
+  }
+}
+
+export async function playRecording(
+  name: string,
+  loop = false
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/cavebot/play`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, loop }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    console.error("Play recording failed:", res.status, err);
+  }
+}
+
+export async function stopPlayback(): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/cavebot/play/stop`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    console.error("Stop playback failed:", res.status, err);
+  }
+}
+
+export async function fetchRecording(
+  name: string
+): Promise<{ name: string; waypoints: WaypointInfo[] } | null> {
+  const res = await fetch(`${API_BASE}/api/recordings/${encodeURIComponent(name)}`);
+  if (!res.ok) return null;
+  return res.json();
+}
+
+export async function deleteRecording(name: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/recordings/${name}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    console.error("Delete recording failed:", res.status, err);
+  }
+}
+
+export async function fetchActionsMap(
+  name: string
+): Promise<ActionsMapResponse | null> {
+  const res = await fetch(
+    `${API_BASE}/api/cavebot/actions_map/${encodeURIComponent(name)}`
+  );
+  if (!res.ok) return null;
+  return res.json();
 }

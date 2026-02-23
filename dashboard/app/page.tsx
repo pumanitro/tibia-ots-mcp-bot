@@ -1,9 +1,26 @@
 "use client";
 
 import { useBot } from "@/lib/useBot";
-import { useState } from "react";
-import { toggleAction, deleteAction } from "@/lib/api";
-import type { ActionInfo, PlayerInfo, CreatureInfo } from "@/lib/api";
+import { useState, useEffect, useRef } from "react";
+import {
+  toggleAction,
+  deleteAction,
+  startRecording,
+  stopRecording,
+  playRecording,
+  stopPlayback,
+  deleteRecording,
+  fetchRecording,
+  fetchActionsMap,
+} from "@/lib/api";
+import type {
+  ActionInfo,
+  PlayerInfo,
+  CreatureInfo,
+  CavebotState,
+  WaypointInfo,
+  MinimapData,
+} from "@/lib/api";
 
 function StatusBadge({ label, connected }: { label: string; connected: boolean }) {
   return (
@@ -240,6 +257,488 @@ function CreatureList({ creatures }: { creatures: CreatureInfo[] }) {
   );
 }
 
+function WaypointLine({ wp, index }: { wp: WaypointInfo; index: number }) {
+  let desc = "";
+  if (wp.type === "walk") {
+    const pos = wp.pos;
+    desc = `Walk ${wp.direction ?? "?"} \u2192 (${pos[0]}, ${pos[1]}, ${pos[2]})`;
+  } else if (wp.type === "use_item") {
+    const label = wp.label ?? `item ${wp.item_id}`;
+    const pos = wp.pos;
+    desc = `${label} at (${wp.x}, ${wp.y}, ${wp.z}) \u2192 (${pos[0]}, ${pos[1]}, ${pos[2]})`;
+  } else if (wp.type === "use_item_ex") {
+    const label = wp.label ?? `item ${wp.item_id}`;
+    const pos = wp.pos;
+    desc = `${label} \u2192 (${pos[0]}, ${pos[1]}, ${pos[2]})`;
+  } else {
+    desc = wp.type;
+  }
+  return (
+    <div className="text-xs text-gray-300 font-mono whitespace-nowrap">
+      <span className="text-gray-500 mr-2">{index + 1}.</span>
+      {desc}
+    </div>
+  );
+}
+
+function MinimapChar({ ch }: { ch: string }) {
+  const colorMap: Record<string, string> = {
+    "@": "text-yellow-300",
+    ">": "text-cyan-400",
+    "#": "text-emerald-500",
+    "o": "text-gray-400",
+    "*": "text-emerald-500",
+    "+": "text-red-400",
+    "X": "text-red-500",
+    "-": "text-gray-600",
+    "|": "text-gray-600",
+  };
+  const color = colorMap[ch] ?? "text-gray-800";
+  return <span className={color}>{ch}</span>;
+}
+
+function Minimap({ minimaps, nodeIndex, total }: {
+  minimaps: Record<string, MinimapData>;
+  nodeIndex: number;
+  total: number;
+}) {
+  // Get sorted floor list and find the player's floor
+  const floors = Object.keys(minimaps).map(Number).sort((a, b) => a - b);
+  const playerFloor = floors.find((f) => minimaps[f].floor === f && minimaps[f].grid.some((r) => r.includes("@"))) ?? floors[0];
+
+  const [viewFloor, setViewFloor] = useState(playerFloor);
+  const [blink, setBlink] = useState(true);
+
+  // Blink the player @ and > characters
+  useEffect(() => {
+    const id = setInterval(() => setBlink((b) => !b), 500);
+    return () => clearInterval(id);
+  }, []);
+
+  // Sync to player floor when it changes
+  useEffect(() => {
+    setViewFloor(playerFloor);
+  }, [playerFloor]);
+
+  const floorIdx = floors.indexOf(viewFloor);
+  const currentMinimap = minimaps[viewFloor] ?? minimaps[floors[0]];
+
+  const handleFloorUp = () => {
+    if (floorIdx > 0) setViewFloor(floors[floorIdx - 1]);
+  };
+  const handleFloorDown = () => {
+    if (floorIdx < floors.length - 1) setViewFloor(floors[floorIdx + 1]);
+  };
+
+  const isLiveFloor = viewFloor === playerFloor;
+
+  return (
+    <div className="rounded-md bg-gray-950 border border-gray-700 p-3">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-medium text-gray-400">Minimap</span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleFloorUp}
+            disabled={floorIdx <= 0}
+            className="rounded px-1.5 py-0.5 text-xs text-gray-300 hover:bg-gray-700 disabled:opacity-30 transition-colors"
+          >
+            ^
+          </button>
+          <span className="text-xs text-gray-400 tabular-nums w-14 text-center">
+            Floor {viewFloor}
+          </span>
+          <button
+            onClick={handleFloorDown}
+            disabled={floorIdx >= floors.length - 1}
+            className="rounded px-1.5 py-0.5 text-xs text-gray-300 hover:bg-gray-700 disabled:opacity-30 transition-colors"
+          >
+            v
+          </button>
+        </div>
+      </div>
+      <pre className="font-mono text-xs select-none overflow-x-auto" style={{ lineHeight: "1", letterSpacing: "0.25em" }}>
+        {currentMinimap.grid.map((row, y) => (
+          <div key={y}>
+            {[...row].map((ch, x) => {
+              if (ch === "@" && !blink) {
+                return <span key={x} className="text-yellow-300"> </span>;
+              }
+              if (ch === ">" && !blink) {
+                return <span key={x} className="text-cyan-400"> </span>;
+              }
+              return <MinimapChar key={x} ch={ch} />;
+            })}
+          </div>
+        ))}
+      </pre>
+      <div className="flex items-center justify-between mt-2">
+        <span className="text-xs text-gray-500 tabular-nums">
+          Node {nodeIndex + 1}/{total}
+        </span>
+        {!isLiveFloor && (
+          <span className="text-xs text-yellow-600">(viewing floor {viewFloor})</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CavebotPanel({
+  cavebot,
+  onRefresh,
+}: {
+  cavebot: CavebotState;
+  onRefresh: () => void;
+}) {
+  const [recName, setRecName] = useState("");
+  const [loopEnabled, setLoopEnabled] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [previewName, setPreviewName] = useState<string | null>(null);
+  const [previewWaypoints, setPreviewWaypoints] = useState<WaypointInfo[]>([]);
+  const [mapPreviewName, setMapPreviewName] = useState<string | null>(null);
+  const [mapPreviewText, setMapPreviewText] = useState<string>("");
+  const [showPlaybackLogs, setShowPlaybackLogs] = useState(false);
+  const logsContainerRef = useRef<HTMLDivElement>(null);
+  const lastLogsContainerRef = useRef<HTMLDivElement>(null);
+
+  const { recording, playback, recordings } = cavebot;
+
+  // Smart auto-scroll: only scroll if user is near the bottom
+  useEffect(() => {
+    const el = logsContainerRef.current;
+    if (!el) return;
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+    if (isNearBottom) el.scrollTop = el.scrollHeight;
+  }, [playback.logs]);
+  useEffect(() => {
+    const el = lastLogsContainerRef.current;
+    if (!el) return;
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+    if (isNearBottom) el.scrollTop = el.scrollHeight;
+  }, [playback.logs, showPlaybackLogs]);
+
+  const handleStartRecording = async () => {
+    if (!recName.trim()) return;
+    await startRecording(recName.trim());
+    setRecName("");
+    onRefresh();
+  };
+
+  const handleStopRecording = async () => {
+    await stopRecording();
+    onRefresh();
+  };
+
+  const handleDiscard = async () => {
+    await stopRecording(true);
+    onRefresh();
+  };
+
+  const handlePlay = async (name: string) => {
+    await playRecording(name, loopEnabled);
+    onRefresh();
+  };
+
+  const handleStopPlayback = async () => {
+    await stopPlayback();
+    onRefresh();
+  };
+
+  const handleDelete = async (name: string) => {
+    await deleteRecording(name);
+    setConfirmDelete(null);
+    if (previewName === name) {
+      setPreviewName(null);
+      setPreviewWaypoints([]);
+    }
+    onRefresh();
+  };
+
+  const handlePreview = async (name: string) => {
+    if (previewName === name) {
+      setPreviewName(null);
+      setPreviewWaypoints([]);
+      return;
+    }
+    setMapPreviewName(null);
+    setMapPreviewText("");
+    const rec = await fetchRecording(name);
+    if (rec) {
+      setPreviewName(name);
+      setPreviewWaypoints(rec.waypoints ?? []);
+    }
+  };
+
+  const handleMapPreview = async (name: string) => {
+    if (mapPreviewName === name) {
+      setMapPreviewName(null);
+      setMapPreviewText("");
+      return;
+    }
+    setPreviewName(null);
+    setPreviewWaypoints([]);
+    const resp = await fetchActionsMap(name);
+    if (resp) {
+      setMapPreviewName(name);
+      setMapPreviewText(resp.text_preview);
+    }
+  };
+
+  const hasPlaybackLogs = playback.logs && playback.logs.length > 0;
+
+  return (
+    <div className="mb-8">
+      <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
+        Cavebot
+      </h2>
+      <div className="rounded-lg border border-gray-700 bg-gray-800 p-4 space-y-4">
+        {/* Saved Recordings */}
+        {recordings.length > 0 && (
+          <div>
+            <h3 className="text-xs font-medium text-gray-400 mb-2">
+              Saved Recordings
+            </h3>
+            <div className="space-y-1">
+              {recordings.map((r) => (
+                <div key={r.name}>
+                  <div className="flex items-center justify-between rounded-md bg-gray-900 px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-200">{r.name}</span>
+                      <span className="text-xs text-gray-500">
+                        ({r.count} wp)
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {confirmDelete === r.name ? (
+                        <>
+                          <button
+                            onClick={() => setConfirmDelete(null)}
+                            className="rounded px-2 py-1 text-xs text-gray-300 hover:bg-gray-700 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={() => handleDelete(r.name)}
+                            className="rounded px-2 py-1 text-xs text-white bg-red-600 hover:bg-red-500 transition-colors"
+                          >
+                            Confirm
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => handlePreview(r.name)}
+                            className={`rounded px-2 py-1 text-xs transition-colors ${
+                              previewName === r.name
+                                ? "text-blue-300 bg-blue-900/30"
+                                : "text-gray-300 hover:bg-gray-700"
+                            }`}
+                          >
+                            Preview
+                          </button>
+                          <button
+                            onClick={() => handleMapPreview(r.name)}
+                            className={`rounded px-2 py-1 text-xs transition-colors ${
+                              mapPreviewName === r.name
+                                ? "text-purple-300 bg-purple-900/30"
+                                : "text-gray-300 hover:bg-gray-700"
+                            }`}
+                          >
+                            Map
+                          </button>
+                          <button
+                            onClick={() => handlePlay(r.name)}
+                            disabled={playback.active || recording.active}
+                            className="rounded px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-900/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            Play
+                          </button>
+                          <button
+                            onClick={() => setConfirmDelete(r.name)}
+                            disabled={playback.active && playback.recording_name === r.name}
+                            className="rounded px-2 py-1 text-xs text-red-400 hover:bg-red-900/30 transition-colors disabled:opacity-40"
+                          >
+                            Del
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  {/* Recording waypoint preview */}
+                  {previewName === r.name && previewWaypoints.length > 0 && (
+                    <div className="rounded-b-md bg-gray-950 border border-t-0 border-gray-700 p-2 max-h-48 overflow-y-auto">
+                      <div className="space-y-0.5">
+                        {previewWaypoints.map((wp, i) => (
+                          <WaypointLine key={i} wp={wp} index={i} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {/* Actions map preview */}
+                  {mapPreviewName === r.name && mapPreviewText && (
+                    <div className="rounded-b-md bg-gray-950 border border-t-0 border-gray-700 p-2 max-h-48 overflow-y-auto">
+                      <pre className="font-mono text-xs text-purple-300 whitespace-pre-wrap">
+                        {mapPreviewText}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Recording Controls */}
+        {!recording.active ? (
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={recName}
+              onChange={(e) => setRecName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleStartRecording()}
+              placeholder="Recording name..."
+              className="flex-1 rounded-md bg-gray-900 border border-gray-600 px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 focus:border-red-500 focus:outline-none"
+            />
+            <button
+              onClick={handleStartRecording}
+              disabled={!recName.trim() || playback.active}
+              className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Record
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-sm text-red-300">
+                Recording &quot;{recording.name}&quot;
+              </span>
+              <span className="text-xs text-gray-500">
+                ({recording.waypoint_count} waypoints)
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleStopRecording}
+                className="rounded-md bg-gray-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-500 transition-colors"
+              >
+                Stop &amp; Save
+              </button>
+              <button
+                onClick={handleDiscard}
+                className="rounded-md border border-gray-600 px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-700 transition-colors"
+              >
+                Discard
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Loop checkbox */}
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={loopEnabled}
+            onChange={(e) => setLoopEnabled(e.target.checked)}
+            className="rounded border-gray-600 bg-gray-900 text-emerald-500 focus:ring-emerald-500"
+          />
+          <span className="text-xs text-gray-400">Loop playback</span>
+        </label>
+
+        {/* Live Preview (recording) */}
+        {recording.active && recording.waypoints.length > 0 && (
+          <div>
+            <h3 className="text-xs font-medium text-gray-400 mb-1">
+              Live Preview
+            </h3>
+            <div className="rounded-md bg-gray-900 border border-gray-700 p-2 max-h-40 overflow-y-auto">
+              <div className="space-y-0.5">
+                {recording.waypoints.map((wp, i) => (
+                  <WaypointLine
+                    key={i}
+                    wp={wp}
+                    index={recording.waypoint_count - recording.waypoints.length + i}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Playback Status */}
+        {playback.active && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between rounded-md bg-emerald-950/30 border border-emerald-800 px-3 py-2">
+              <div className="flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-sm text-emerald-300">
+                  Playing &quot;{playback.recording_name}&quot;
+                </span>
+                <span className="text-xs text-gray-400 tabular-nums">
+                  [{playback.index + 1}/{playback.total}]
+                </span>
+                {playback.loop && (
+                  <span className="text-xs text-emerald-500">Loop: ON</span>
+                )}
+              </div>
+              <button
+                onClick={handleStopPlayback}
+                className="rounded-md bg-gray-600 px-2 py-1 text-xs text-white hover:bg-gray-500 transition-colors"
+              >
+                Stop
+              </button>
+            </div>
+            {/* Live Minimap */}
+            {playback.minimap && (
+              <Minimap
+                minimaps={playback.minimap}
+                nodeIndex={playback.index}
+                total={playback.total}
+              />
+            )}
+            {hasPlaybackLogs && (
+              <div ref={logsContainerRef} className="rounded-md bg-gray-900 border border-gray-700 p-2 max-h-40 overflow-y-auto">
+                <div className="space-y-0.5 font-mono text-xs text-gray-300">
+                  {playback.logs.map((line, i) => (
+                    <div key={i} className="whitespace-pre-wrap">{line}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Playback Logs (when not actively playing) */}
+        {!playback.active && hasPlaybackLogs && (
+          <div>
+            <button
+              onClick={() => setShowPlaybackLogs(!showPlaybackLogs)}
+              className={`rounded px-2 py-1 text-xs transition-colors ${
+                showPlaybackLogs
+                  ? "text-blue-300 bg-blue-900/30"
+                  : "text-gray-300 hover:bg-gray-700"
+              }`}
+            >
+              Last Playback Logs
+            </button>
+            {showPlaybackLogs && (
+              <div ref={lastLogsContainerRef} className="mt-2 rounded-md bg-gray-900 border border-gray-700 p-2 max-h-48 overflow-y-auto">
+                <div className="space-y-0.5 font-mono text-xs text-gray-300">
+                  {playback.logs.map((line, i) => (
+                    <div key={i} className="whitespace-pre-wrap">{line}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const { state, mcpConnected, refresh } = useBot();
 
@@ -266,22 +765,39 @@ export default function Dashboard() {
         <CreatureList creatures={state.creatures ?? []} />
       )}
 
+      {/* Cavebot */}
+      {state?.connected && state.cavebot && (
+        <CavebotPanel cavebot={state.cavebot} onRefresh={refresh} />
+      )}
+
       {/* Packet Stats */}
       {state && (
         <div className="grid grid-cols-2 gap-4 mb-8">
-          <div className="rounded-lg border border-gray-700 bg-gray-800 p-4">
+          <div className={`rounded-lg border p-4 ${
+            (state.packets_from_server ?? 0) > 0
+              ? "border-emerald-700 bg-emerald-950/30"
+              : "border-red-700 bg-red-950/30"
+          }`}>
             <p className="text-xs text-gray-400 uppercase tracking-wider">
               Server Packets
             </p>
-            <p className="text-2xl font-bold mt-1 tabular-nums">
+            <p className={`text-2xl font-bold mt-1 tabular-nums ${
+              (state.packets_from_server ?? 0) > 0 ? "text-emerald-300" : "text-red-400"
+            }`}>
               {(state.packets_from_server ?? 0).toLocaleString()}
             </p>
           </div>
-          <div className="rounded-lg border border-gray-700 bg-gray-800 p-4">
+          <div className={`rounded-lg border p-4 ${
+            (state.packets_from_client ?? 0) > 0
+              ? "border-emerald-700 bg-emerald-950/30"
+              : "border-red-700 bg-red-950/30"
+          }`}>
             <p className="text-xs text-gray-400 uppercase tracking-wider">
               Client Packets
             </p>
-            <p className="text-2xl font-bold mt-1 tabular-nums">
+            <p className={`text-2xl font-bold mt-1 tabular-nums ${
+              (state.packets_from_client ?? 0) > 0 ? "text-emerald-300" : "text-red-400"
+            }`}>
               {(state.packets_from_client ?? 0).toLocaleString()}
             </p>
           </div>

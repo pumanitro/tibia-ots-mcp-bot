@@ -3374,9 +3374,16 @@ static void crash_log_open(const char* dir) {
 static LONG WINAPI crash_handler(EXCEPTION_POINTERS* ep) {
     if (!ep || !ep->ExceptionRecord || !ep->ContextRecord)
         return EXCEPTION_CONTINUE_SEARCH;
-    // Skip benign game-internal exceptions (Delphi/C++ runtime)
+    // Skip benign / OS-internal exceptions — logging during these can corrupt heap
     DWORD code = ep->ExceptionRecord->ExceptionCode;
     if (code == 0xE24C4A02 || code == 0xE0434352 || code == 0x406D1388)
+        return EXCEPTION_CONTINUE_SEARCH;
+    if (code == 0x80000001  // STATUS_GUARD_PAGE_VIOLATION (stack/heap growth)
+        || code == 0xC0000374  // STATUS_HEAP_CORRUPTION (already too late)
+        || code == 0x80000003  // STATUS_BREAKPOINT
+        || code == 0x80000004  // STATUS_SINGLE_STEP
+        || code == 0xE06D7363  // MSVC C++ exception (normal runtime throw/catch)
+        || (code & 0xF0000000) == 0xE0000000)  // All software exceptions (Delphi, .NET, etc)
         return EXCEPTION_CONTINUE_SEARCH;
     if (g_crash_log) {
         HMODULE game = GetModuleHandle(NULL);

@@ -21,6 +21,7 @@ class ClientOpcode(IntEnum):
     PONG = 0x1F
 
     # Movement
+    AUTO_WALK = 0x64
     WALK_NORTH = 0x65
     WALK_EAST = 0x66
     WALK_SOUTH = 0x67
@@ -281,6 +282,19 @@ class PacketWriter:
         self.write_u8(z)
 
 
+def build_autowalk_packet(directions: list[Direction]) -> bytes:
+    """Build an auto-walk packet (0x64) — the same as clicking the map.
+
+    The server queues up the path and moves the player step by step.
+    """
+    pw = PacketWriter()
+    pw.write_u8(ClientOpcode.AUTO_WALK)
+    pw.write_u8(len(directions))
+    for d in directions:
+        pw.write_u8(int(d))
+    return pw.data
+
+
 def build_walk_packet(direction: Direction) -> bytes:
     """Build a walk packet for the given direction."""
     pw = PacketWriter()
@@ -339,6 +353,22 @@ def build_move_item_packet(from_pos: tuple, item_id: int, from_stack: int, to_po
     pw.write_u8(from_stack)
     pw.write_position(*to_pos)
     pw.write_u8(count)
+    return pw.data
+
+
+def build_use_item_ex_packet(
+    from_x: int, from_y: int, from_z: int,
+    item_id: int, stack_pos: int,
+    to_x: int, to_y: int, to_z: int, to_stack_pos: int,
+) -> bytes:
+    """Build a use item extended packet (0x83). E.g. use rope on hole, use shovel on ground."""
+    pw = PacketWriter()
+    pw.write_u8(ClientOpcode.USE_ITEM_EX)
+    pw.write_position(from_x, from_y, from_z)
+    pw.write_u16(item_id)
+    pw.write_u8(stack_pos)
+    pw.write_position(to_x, to_y, to_z)
+    pw.write_u8(to_stack_pos)
     return pw.data
 
 

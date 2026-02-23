@@ -69,6 +69,7 @@ class OTProxy:
 
         # Track the active connection handler task for clean shutdown
         self._connection_task: asyncio.Task | None = None
+        self._server: asyncio.AbstractServer | None = None
 
     # ── Client packet callback registry ────────────────────────────
     def register_client_packet_callback(self, callback):
@@ -107,12 +108,22 @@ class OTProxy:
             '127.0.0.1',
             self.listen_port
         )
+        self._server = server
         addr = server.sockets[0].getsockname()
         mode = "LOGIN" if self.is_login_proxy else "GAME"
         log.info(f"[{mode}] Proxy listening on {addr[0]}:{addr[1]} -> {self.server_host}:{self.server_port}")
 
         async with server:
             await server.serve_forever()
+
+    def close_server(self):
+        """Explicitly close the listening server socket (for clean reset)."""
+        if self._server:
+            try:
+                self._server.close()
+            except Exception:
+                pass
+            self._server = None
 
     async def _handle_client_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         """Handle a new client connection."""
@@ -348,6 +359,10 @@ class OTProxy:
 
             self.packets_from_client += 1
 
+            if self.server_writer is None:
+                log.warning("Server writer gone, stopping client relay")
+                break
+
             if not self.logged_in:
                 processed = self._process_login_packet(raw)
                 if processed is not None:
@@ -398,6 +413,9 @@ class OTProxy:
                 except Exception:
                     pass
 
+            if self.client_writer is None:
+                log.warning("Client writer gone, stopping server relay")
+                break
             self.client_writer.write(self._wrap_packet(raw))
             await self.client_writer.drain()
 

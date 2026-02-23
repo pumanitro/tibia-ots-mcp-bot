@@ -54,6 +54,7 @@ from protocol import (
     PacketReader,
 )
 from constants import SERVER_HOST, LOGIN_PORT, GAME_PORT
+import cavebot
 
 # ── Constants ───────────────────────────────────────────────────────
 SETTINGS_FILE = Path(__file__).parent / "bot_settings.json"
@@ -78,7 +79,7 @@ def save_settings(settings: dict) -> None:
 
 # ── Global state ────────────────────────────────────────────────────
 
-MAX_ACTION_LOGS = 50
+MAX_ACTION_LOGS = 200
 
 
 class BotState:
@@ -94,6 +95,24 @@ class BotState:
         self._action_tasks: dict[str, asyncio.Task] = {}
         self.game_state: GameState = GameState()
         self.action_logs: dict[str, collections.deque] = {}
+
+        # Cavebot recording state
+        self.recording_active: bool = False
+        self.recording_name: str = ""
+        self.recording_waypoints: list[dict] = []
+        self.recording_start_pos: tuple = (0, 0, 0)
+        self.recording_start_time: float = 0
+        self._recording_callback = None
+
+        # Cavebot playback state
+        self.playback_active: bool = False
+        self.playback_recording_name: str = ""
+        self.playback_index: int = 0
+        self.playback_total: int = 0
+        self.playback_loop: bool = False
+        self.playback_actions_map: list[dict] = []
+        self.playback_minimap: dict | None = None
+        self.playback_failed_nodes: set[int] = set()
 
     @property
     def connected(self) -> bool:
@@ -582,24 +601,12 @@ async def _reset_bot() -> str:
         _stop_action(name)
     await asyncio.sleep(0.1)
 
-    # 2. Cancel active connection handler tasks FIRST (they hold the sockets)
+    # 2. Close listening servers FIRST (prevents old server accepting new clients)
     for proxy in (state.game_proxy, state.login_proxy):
         if proxy:
-            ct = getattr(proxy, '_connection_task', None)
-            if ct and not ct.done():
-                ct.cancel()
-
-    # 2b. Cancel proxy tasks (serve_forever)
-    for task in state._proxy_tasks:
-        if not task.done():
-            task.cancel()
-    state._proxy_tasks.clear()
-
-    await asyncio.sleep(0.5)  # Windows needs more time for socket cleanup
-
-    # 3. Force-close proxy connections
-    for proxy in (state.game_proxy, state.login_proxy):
-        if proxy:
+            if hasattr(proxy, 'close_server'):
+                proxy.close_server()
+            # Also close client/server sockets (unblocks relay reads)
             for writer_attr in ('client_writer', 'server_writer'):
                 w = getattr(proxy, writer_attr, None)
                 if w:
@@ -607,11 +614,38 @@ async def _reset_bot() -> str:
                         w.close()
                     except Exception:
                         pass
+
+    # 2b. Cancel active connection handler tasks (now unblocked by socket close)
+    tasks_to_await = []
+    for proxy in (state.game_proxy, state.login_proxy):
+        if proxy:
+            ct = getattr(proxy, '_connection_task', None)
+            if ct and not ct.done():
+                ct.cancel()
+                tasks_to_await.append(ct)
+
+    # 2c. Cancel proxy tasks (serve_forever)
+    for task in state._proxy_tasks:
+        if not task.done():
+            task.cancel()
+            tasks_to_await.append(task)
+    state._proxy_tasks.clear()
+
+    # 2d. Actually await all cancelled tasks to ensure they're fully stopped
+    for t in tasks_to_await:
+        try:
+            await asyncio.wait_for(t, timeout=2.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
+            pass
+
+    # 3. Nil out proxy references (sockets already closed above)
+    for proxy in (state.game_proxy, state.login_proxy):
+        if proxy:
             proxy.client_writer = None
             proxy.server_writer = None
             proxy.logged_in = False
 
-    await asyncio.sleep(0.3)  # Extra time for port release on Windows
+    await asyncio.sleep(0.5)  # Windows needs time for port release
 
     # 4. Kill dashboard (Electron + Next.js dev server)
     _kill_port(DASHBOARD_PORT)
@@ -635,6 +669,12 @@ async def _reset_bot() -> str:
         log.info("Reloaded dashboard_api.py")
     except Exception as e:
         log.warning(f"Failed to reload dashboard_api: {e}")
+    import cavebot as _cb_mod
+    try:
+        importlib.reload(_cb_mod)
+        log.info("Reloaded cavebot.py")
+    except Exception as e:
+        log.warning(f"Failed to reload cavebot: {e}")
 
     # Re-import after reload (use the already-reloaded module refs)
     globals()['scan_packet'] = _gs_mod.scan_packet
@@ -649,6 +689,22 @@ async def _reset_bot() -> str:
     state._action_tasks.clear()
     state.game_state = GameState()
     state.settings = load_settings()
+
+    # Reset cavebot state
+    state.recording_active = False
+    state.recording_name = ""
+    state.recording_waypoints = []
+    state.recording_start_pos = (0, 0, 0)
+    state.recording_start_time = 0
+    state._recording_callback = None
+    state.playback_active = False
+    state.playback_recording_name = ""
+    state.playback_index = 0
+    state.playback_total = 0
+    state.playback_loop = False
+    state.playback_actions_map = []
+    state.playback_minimap = None
+    state.playback_failed_nodes = set()
 
     log.info("Bot reset complete.")
     return "Bot reset. Call start_bot to reconnect."
@@ -1176,6 +1232,124 @@ async def logout() -> str:
     pw.write_u8(ClientOpcode.LOGOUT)
     await state.game_proxy.inject_to_server(pw.data)
     return "Logout packet sent."
+
+
+# ── Cavebot recording / playback tools ─────────────────────────────
+
+@mcp.tool()
+async def start_recording(name: str) -> str:
+    """Begin recording navigation waypoints (walk, use items, stairs, doors).
+
+    Args:
+        name: Name for the recording (alphanumeric, hyphens, underscores).
+    """
+    if not state.connected:
+        return "Bot is not connected. Call start_bot first."
+    err = cavebot.start_recording(state, name)
+    if err:
+        return f"Error: {err}"
+    return f"Recording '{name}' started. Walk around, use doors/stairs/ladders. Call stop_recording when done."
+
+
+@mcp.tool()
+async def stop_recording() -> str:
+    """Stop recording and save waypoints to disk."""
+    if not state.recording_active:
+        return "No recording in progress."
+    rec = cavebot.stop_recording(state)
+    if rec is None:
+        return "Recording stopped (no data saved)."
+    count = len(rec.get("waypoints", []))
+    return f"Recording '{rec['name']}' saved with {count} waypoint(s)."
+
+
+@mcp.tool()
+async def list_recordings() -> str:
+    """List all saved cavebot recordings."""
+    recs = cavebot.list_recordings()
+    if not recs:
+        return "No recordings found. Use start_recording to create one."
+    lines = []
+    for r in recs:
+        lines.append(f"  {r['name']}  ({r['count']} waypoints)  created: {r['created_at']}")
+    return "Saved recordings:\n" + "\n".join(lines)
+
+
+@mcp.tool()
+async def delete_recording(name: str) -> str:
+    """Delete a saved cavebot recording.
+
+    Args:
+        name: Name of the recording to delete.
+    """
+    if cavebot.delete_recording(name):
+        return f"Recording '{name}' deleted."
+    return f"Recording '{name}' not found."
+
+
+async def _async_play_recording(name: str, loop: bool = False) -> str:
+    """Start playback (shared by MCP tool and dashboard API)."""
+    if not state.connected:
+        return "Bot is not connected. Call start_bot first."
+    if state.playback_active:
+        return f"Already playing '{state.playback_recording_name}'. Stop it first."
+
+    rec = cavebot.load_recording(name)
+    if rec is None:
+        return f"Recording '{name}' not found."
+
+    waypoints = rec.get("waypoints", [])
+    if not waypoints:
+        return f"Recording '{name}' has no waypoints."
+
+    state.playback_active = True
+    state.playback_recording_name = name
+    state.playback_index = 0
+    state.playback_total = len(waypoints)
+    state.playback_loop = loop
+
+    # Start the cavebot action
+    err = _start_action("cavebot")
+    if err:
+        state.playback_active = False
+        return f"Failed to start playback: {err}"
+
+    loop_str = " (looping)" if loop else ""
+    return f"Playing recording '{name}' ({len(waypoints)} waypoints){loop_str}."
+
+
+async def _async_stop_playback() -> str:
+    """Stop playback (shared by MCP tool and dashboard API)."""
+    if not state.playback_active:
+        return "No playback in progress."
+    _stop_action("cavebot")
+    name = state.playback_recording_name
+    state.playback_active = False
+    state.playback_recording_name = ""
+    state.playback_index = 0
+    state.playback_total = 0
+    state.playback_loop = False
+    state.playback_actions_map = []
+    state.playback_minimap = None
+    state.playback_failed_nodes = set()
+    return f"Playback of '{name}' stopped."
+
+
+@mcp.tool()
+async def play_recording(name: str, loop: bool = False) -> str:
+    """Start playing back a saved cavebot recording.
+
+    Args:
+        name: Name of the recording to play.
+        loop: Whether to loop the recording (default False).
+    """
+    return await _async_play_recording(name, loop)
+
+
+@mcp.tool()
+async def stop_playback() -> str:
+    """Stop cavebot playback."""
+    return await _async_stop_playback()
 
 
 # ── Entry point ─────────────────────────────────────────────────────

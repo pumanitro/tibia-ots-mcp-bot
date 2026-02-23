@@ -62,6 +62,16 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/api/state":
             return self._handle_get_state()
+        if self.path == "/api/recordings":
+            return self._handle_list_recordings()
+        # GET /api/cavebot/actions_map/<name>
+        parts = self.path.strip("/").split("/")
+        if (len(parts) == 4 and parts[0] == "api" and parts[1] == "cavebot"
+                and parts[2] == "actions_map"):
+            return self._handle_get_actions_map(parts[3])
+        # GET /api/recordings/<name>
+        if len(parts) == 3 and parts[0] == "api" and parts[1] == "recordings":
+            return self._handle_get_recording(parts[2])
         self._json_response({"error": "not found"}, 404)
 
     def do_POST(self):
@@ -78,17 +88,32 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._handle_toggle(name)
             if verb == "restart":
                 return self._handle_restart(name)
+
+        # Cavebot endpoints
+        if self.path == "/api/cavebot/record/start":
+            return self._handle_cavebot_record_start()
+        if self.path == "/api/cavebot/record/stop":
+            return self._handle_cavebot_record_stop()
+        if self.path == "/api/cavebot/play":
+            return self._handle_cavebot_play()
+        if self.path == "/api/cavebot/play/stop":
+            return self._handle_cavebot_play_stop()
+
         self._json_response({"error": "not found"}, 404)
 
     def do_DELETE(self):
-        # DELETE /api/actions/{name}
         parts = self.path.strip("/").split("/")
+        # DELETE /api/actions/{name}
         if len(parts) == 3 and parts[0] == "api" and parts[1] == "actions":
             name = parts[2]
             if not all(c.isalnum() or c == '_' for c in name):
                 self._json_response({"error": "invalid action name"}, 400)
                 return
             return self._handle_delete(name)
+        # DELETE /api/recordings/{name}
+        if len(parts) == 3 and parts[0] == "api" and parts[1] == "recordings":
+            name = parts[2]
+            return self._handle_delete_recording(name)
         self._json_response({"error": "not found"}, 404)
 
     # ── GET /api/state ─────────────────────────────────────────────
@@ -166,6 +191,110 @@ class _Handler(BaseHTTPRequestHandler):
             self._json_response({"ok": True, "message": f"Deleted {name}"})
         except Exception as e:
             self._json_response({"error": str(e)}, 500)
+
+    # ── Cavebot endpoints ─────────────────────────────────────────
+
+    def _handle_cavebot_record_start(self):
+        body = self._read_body()
+        name = body.get("name", "").strip()
+        if not name:
+            self._json_response({"error": "name is required"}, 400)
+            return
+        if _main_loop is None or _state is None:
+            self._json_response({"error": "bot not started"}, 503)
+            return
+        import cavebot
+        err = cavebot.start_recording(_state, name)
+        if err:
+            self._json_response({"error": err}, 400)
+        else:
+            self._json_response({"ok": True, "message": f"Recording '{name}' started"})
+
+    def _handle_cavebot_record_stop(self):
+        if _state is None:
+            self._json_response({"error": "bot not started"}, 503)
+            return
+        body = self._read_body()
+        discard = body.get("discard", False)
+        import cavebot
+        rec = cavebot.stop_recording(_state, discard=discard)
+        if rec is None:
+            msg = "Recording discarded" if discard else "No recording in progress"
+            self._json_response({"ok": True, "message": msg})
+        else:
+            count = len(rec.get("waypoints", []))
+            self._json_response({"ok": True, "message": f"Saved '{rec['name']}' ({count} waypoints)"})
+
+    def _handle_cavebot_play(self):
+        body = self._read_body()
+        name = body.get("name", "").strip()
+        loop = body.get("loop", False)
+        if not name:
+            self._json_response({"error": "name is required"}, 400)
+            return
+        if _main_loop is None or _state is None:
+            self._json_response({"error": "bot not started"}, 503)
+            return
+
+        main_mod = sys.modules["__main__"]
+        future = asyncio.run_coroutine_threadsafe(
+            main_mod._async_play_recording(name, loop), _main_loop
+        )
+        try:
+            result = future.result(timeout=5)
+            self._json_response({"ok": True, "message": result})
+        except Exception as e:
+            self._json_response({"error": str(e)}, 500)
+
+    def _handle_cavebot_play_stop(self):
+        if _main_loop is None or _state is None:
+            self._json_response({"error": "bot not started"}, 503)
+            return
+
+        main_mod = sys.modules["__main__"]
+        future = asyncio.run_coroutine_threadsafe(
+            main_mod._async_stop_playback(), _main_loop
+        )
+        try:
+            result = future.result(timeout=5)
+            self._json_response({"ok": True, "message": result})
+        except Exception as e:
+            self._json_response({"error": str(e)}, 500)
+
+    def _handle_list_recordings(self):
+        import cavebot
+        recs = cavebot.list_recordings()
+        self._json_response({"recordings": recs})
+
+    def _handle_get_recording(self, name: str):
+        import cavebot
+        rec = cavebot.load_recording(name)
+        if rec is None:
+            self._json_response({"error": f"Recording '{name}' not found"}, 404)
+        else:
+            self._json_response(rec)
+
+    def _handle_get_actions_map(self, name: str):
+        import cavebot
+        rec = cavebot.load_recording(name)
+        if rec is None:
+            self._json_response({"error": f"Recording '{name}' not found"}, 404)
+            return
+        actions_map = cavebot.build_actions_map(rec)
+        text_preview = cavebot.actions_map_to_text(actions_map)
+        self._json_response({
+            "name": name,
+            "actions_map": actions_map,
+            "text_preview": text_preview,
+            "node_count": len(actions_map),
+        })
+
+    def _handle_delete_recording(self, name: str):
+        import cavebot
+        if cavebot.delete_recording(name):
+            self._json_response({"ok": True, "message": f"Deleted '{name}'"})
+        else:
+            self._json_response({"error": f"Recording '{name}' not found"}, 404)
 
 
 _started = False
@@ -259,6 +388,30 @@ def _build_state_json() -> str:
     except Exception:
         pass
 
+    # Cavebot state
+    import cavebot as _cb
+    rec_waypoints = list(st.recording_waypoints) if st.recording_active else []
+    cavebot_logs = list(st.action_logs.get("cavebot", []))
+    cavebot_state = {
+        "recording": {
+            "active": st.recording_active,
+            "name": st.recording_name,
+            "waypoint_count": len(rec_waypoints),
+            "waypoints": rec_waypoints[-20:],
+        },
+        "playback": {
+            "active": st.playback_active,
+            "recording_name": st.playback_recording_name,
+            "index": st.playback_index,
+            "total": st.playback_total,
+            "loop": st.playback_loop,
+            "logs": cavebot_logs[-100:],
+            "minimap": st.playback_minimap,
+            "actions_map_count": len(st.playback_actions_map),
+        },
+        "recordings": _cb.list_recordings(),
+    }
+
     return json.dumps({
         "connected": st.connected,
         "actions": actions,
@@ -268,6 +421,7 @@ def _build_state_json() -> str:
         "creatures": creatures,
         "dll_injected": dll_injected,
         "dll_bridge_connected": dll_bridge_running and dll_injected,
+        "cavebot": cavebot_state,
     })
 
 
