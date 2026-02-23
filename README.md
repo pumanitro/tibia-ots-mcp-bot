@@ -68,8 +68,11 @@ The bot supports pluggable background actions — Python scripts in the `actions
 | **power_up** | Says "power up" every 1 second for healing, only when HP is below 99% |
 | **speed_up** | Casts "speed up" when not hasted — detects haste via player icons bitmask |
 | **power_down** | Says "power down" every 1 second to cancel healing buff |
+| **auto_rune** | Uses rune 3165 on the currently targeted creature every 1 second |
+| **cavebot** | Records and replays navigation paths with live minimap visualization |
 | **packet_sniffer** | Captures all client-to-server packets to `sniff_log.txt` for protocol analysis |
 | **item_id_spy** | Debug tool: shows "Item Id: XXXXX" in the game status bar when you use or look at an item |
+| **full_light** | Patches the game client to skip the darkness overlay entirely |
 
 Actions can be toggled on/off from the dashboard UI or via MCP tools. Enabled actions auto-start when the bot connects.
 
@@ -166,6 +169,14 @@ cd dll && make
 - **remove_action** — Delete an action script
 - **restart_action** — Reload and restart a running action
 
+### Cavebot
+- **start_recording** — Begin recording navigation waypoints
+- **stop_recording** — Stop recording and save to disk
+- **list_recordings** — List all saved recordings
+- **play_recording** — Replay a saved recording (with optional loop)
+- **stop_playback** — Stop cavebot playback
+- **delete_recording** — Delete a saved recording
+
 ### Utility
 - **get_status** — Check connection state and packet stats
 - **send_ping** — Ping the game server
@@ -221,6 +232,9 @@ dbv_exp/
 │   ├── eat_food.py        Periodic food consumption
 │   ├── power_up.py        Healing when HP < 99%
 │   ├── speed_up.py        Haste buff with icon bitmask detection
+│   ├── auto_rune.py       Auto-rune on targeted creature
+│   ├── cavebot.py         Navigation recording and playback
+│   ├── full_light.py      Darkness overlay patch
 │   ├── power_down.py      Cancel healing buff
 │   ├── packet_sniffer.py  Packet capture to file
 │   └── item_id_spy.py     Item ID debug display
@@ -230,16 +244,27 @@ dbv_exp/
 │   ├── lib/               Shared utilities
 │   └── electron/          Electron wrapper (desktop app)
 │
+├── cavebot.py             Cavebot engine (recording, actions map, minimap)
+├── recordings/            Saved cavebot navigation recordings
 ├── docs/                  Research notes and analysis
 ├── offsets.json           Centralized game offsets (DLL reads via pipe)
 └── bot_settings.json      Persisted action settings
 ```
 
-## Roadmap
+## Cavebot TODO
 
-### Waypoint recording & playback (auto-hunting)
-- [ ] **Record waypoints** — capture walk packets + player position into a route file
-- [ ] **Playback loop** — walk the recorded route continuously
+The cavebot is a first working version but not yet fully functional:
+
+### Bugs
+- [ ] **Stairs recording incorrect** — floor transitions via stairs/ramps are not always captured properly in recordings, causing playback to fail at floor changes
+
+### Planned Features
+- [ ] **Monster combat strategies** — move-and-attack behavior that keeps 1 square distance from the monster while fighting
+- [ ] **Real item usage support** — shovel, rope, and other usable items during cavebot navigation
+- [ ] **Terrain testing** — verify and fix playback on doors, ladders, and other interactive map objects
 - [ ] **Spell rotation** — cast attack spells on cooldown during combat
 - [ ] **Loot pickup** — open corpses and move loot to backpack
 - [ ] **Death handling** — detect death, pause actions, resume after respawn
+
+### Future
+- [ ] **Anti-bot / Intelligent responder** — automated system to detect and respond to anti-bot checks or GM interactions
