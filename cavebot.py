@@ -7,6 +7,7 @@ client packets.  Saves/loads recordings as JSON in the recordings/ folder.
 
 import json
 import logging
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,19 +50,6 @@ AUTOWALK_DIR_OFFSET = {
     6: (-1, 1),   # Southwest
     7: (0, 1),    # South
     8: (1, 1),    # Southeast
-}
-
-# Keyboard walk direction name → (dx, dy) offset
-# pos records where the player WAS; destination = pos + offset
-KEYBOARD_WALK_OFFSET = {
-    "north": (0, -1),
-    "south": (0, 1),
-    "east": (1, 0),
-    "west": (-1, 0),
-    "northeast": (1, -1),
-    "northwest": (-1, -1),
-    "southeast": (1, 1),
-    "southwest": (-1, 1),
 }
 
 # Item ID → label (common navigation items)
@@ -113,6 +101,7 @@ def start_recording(state, name: str) -> str | None:
                 "type": "walk",
                 "direction": direction,
                 "pos": expected_pos,
+                "player_pos": current_pos,
                 "t": t_elapsed,
             }
             state.recording_waypoints.append(wp)
@@ -139,6 +128,7 @@ def start_recording(state, name: str) -> str | None:
                 "type": "walk",
                 "direction": "autowalk",
                 "pos": final_pos,
+                "player_pos": current_pos,
                 "t": t_elapsed,
             }
             state.recording_waypoints.append(wp)
@@ -162,6 +152,7 @@ def start_recording(state, name: str) -> str | None:
                 "index": index,
                 "label": _auto_label(item_id),
                 "pos": current_pos,
+                "player_pos": current_pos,
                 "t": t_elapsed,
             }
             state.recording_waypoints.append(wp)
@@ -189,6 +180,7 @@ def start_recording(state, name: str) -> str | None:
                 "to_stack_pos": to_stack_pos,
                 "label": _auto_label(item_id),
                 "pos": current_pos,
+                "player_pos": current_pos,
                 "t": t_elapsed,
             }
             state.recording_waypoints.append(wp)
@@ -197,6 +189,31 @@ def start_recording(state, name: str) -> str | None:
     # Store the callback reference so we can unregister later
     state._recording_callback = _on_client_packet
     proxy.register_client_packet_callback(_on_client_packet)
+
+    # Position tracking thread — polls game_state.position every 200ms
+    # and records a waypoint whenever it changes.
+    last_pos = list(pos)
+    stop_event = threading.Event()
+
+    def _poll_position():
+        nonlocal last_pos
+        while not stop_event.is_set():
+            stop_event.wait(0.05)
+            if not state.recording_active:
+                break
+            current = list(state.game_state.position)
+            if current != last_pos:
+                t_elapsed = round(time.time() - state.recording_start_time, 1)
+                state.recording_waypoints.append({
+                    "type": "position",
+                    "pos": current,
+                    "t": t_elapsed,
+                })
+                last_pos = current
+
+    state._recording_position_stop = stop_event
+    threading.Thread(target=_poll_position, daemon=True).start()
+
     log.info(f"Recording started: '{name}' at {pos}")
     return None
 
@@ -205,6 +222,12 @@ def stop_recording(state, *, discard: bool = False) -> dict | None:
     """Stop recording and optionally save.  Returns the recording dict or None."""
     if not state.recording_active:
         return None
+
+    # Stop position tracking thread
+    stop_event = getattr(state, "_recording_position_stop", None)
+    if stop_event:
+        stop_event.set()
+    state._recording_position_stop = None
 
     # Unregister callback
     cb = getattr(state, "_recording_callback", None)
@@ -285,6 +308,25 @@ def delete_recording(name: str) -> bool:
     return False
 
 
+def remove_waypoints(name: str, indices: list[int]) -> dict | None:
+    """Remove waypoints at given indices from a saved recording.
+
+    Returns the updated recording dict, or None if not found.
+    """
+    rec = load_recording(name)
+    if rec is None:
+        return None
+    waypoints = rec.get("waypoints", [])
+    # Remove in reverse order so earlier indices stay valid
+    for idx in sorted(set(indices), reverse=True):
+        if 0 <= idx < len(waypoints):
+            waypoints.pop(idx)
+    rec["waypoints"] = waypoints
+    save_recording(rec)
+    log.info(f"Removed {len(indices)} waypoint(s) from '{name}', {len(waypoints)} remaining")
+    return rec
+
+
 # ── Actions Map ──────────────────────────────────────────────────────
 
 def _manhattan(a, b) -> int:
@@ -311,15 +353,27 @@ def _simplify_path(points: list[tuple], max_gap: int = 3) -> list[tuple]:
     """Keep enough points so no two consecutive are more than max_gap apart.
 
     Each point is (x, y, z, item_id, stack_pos).
+
+    Floor boundaries are always preserved: the last point before a Z change
+    and the first point after are force-kept so stair/ramp tiles are never
+    dropped by the gap filter.
     """
     if len(points) <= 1:
         return points
+
+    # Pre-compute which indices sit at a floor boundary and must be kept.
+    floor_boundary = set()
+    for i in range(1, len(points)):
+        if points[i][2] != points[i - 1][2]:
+            floor_boundary.add(i - 1)  # last point before Z change
+            floor_boundary.add(i)      # first point after Z change
+
     result = [points[0]]
     for i in range(1, len(points)):
         p = points[i]
         is_last = i == len(points) - 1
         dist = _manhattan(p, result[-1])
-        if is_last or dist >= max_gap:
+        if is_last or dist >= max_gap or i in floor_boundary:
             result.append(p)
     return result
 
@@ -344,6 +398,11 @@ def build_actions_map(recording: dict) -> list[dict]:
     while i < len(waypoints):
         wp = waypoints[i]
         wp_type = wp.get("type", "")
+
+        if wp_type == "position":
+            # Position-tracking waypoints are informational only; skip them.
+            i += 1
+            continue
 
         if wp_type == "use_item" and _is_map_click_walk(wp):
             # Collect consecutive map-click walks
@@ -398,12 +457,18 @@ def build_actions_map(recording: dict) -> list[dict]:
             i += 1
 
         elif wp_type == "walk":
-            # Collect consecutive walks
+            # Collect consecutive walks, skipping position waypoints
             walks = [wp]
             j = i + 1
-            while j < len(waypoints) and waypoints[j].get("type") == "walk":
-                walks.append(waypoints[j])
-                j += 1
+            while j < len(waypoints):
+                jtype = waypoints[j].get("type", "")
+                if jtype == "walk":
+                    walks.append(waypoints[j])
+                    j += 1
+                elif jtype == "position":
+                    j += 1  # skip but keep collecting walks
+                else:
+                    break
 
             # Helper: find a ground tile item_id from nearby use_item waypoints
             def _find_ground_id():
@@ -414,23 +479,13 @@ def build_actions_map(recording: dict) -> list[dict]:
                         return swp["item_id"]
                 return gid
 
-            # Convert walk positions to walk_to nodes (server pathfinding)
-            # For keyboard walks, pos is the position BEFORE the walk.
-            # Compute destination (pos + direction offset) so we capture
-            # the actual tile the player reaches — critical for stairs/ramps
-            # where the last same-floor tile is the transition point.
-            # Autowalks already have pos = final destination.
+            # Convert walk positions to walk_to nodes (server pathfinding).
+            # For both keyboard walks and autowalks, pos is the destination
+            # (post-walk position).  Use it directly — no offset needed.
             ground_id = _find_ground_id()
             path = []  # (x, y, z, item_id, stack_pos)
             for w in walks:
-                direction = w.get("direction", "")
-                if direction == "autowalk":
-                    # Autowalk pos is already the computed final destination
-                    pt = (w["pos"][0], w["pos"][1], w["pos"][2], ground_id, 1)
-                else:
-                    # Keyboard walk: apply direction offset to get destination
-                    dx, dy = KEYBOARD_WALK_OFFSET.get(direction, (0, 0))
-                    pt = (w["pos"][0] + dx, w["pos"][1] + dy, w["pos"][2], ground_id, 1)
+                pt = (w["pos"][0], w["pos"][1], w["pos"][2], ground_id, 1)
                 if not path or (pt[0], pt[1], pt[2]) != (path[-1][0], path[-1][1], path[-1][2]):
                     path.append(pt)
 
@@ -487,6 +542,9 @@ def build_actions_map(recording: dict) -> list[dict]:
             nodes[idx]["exact"] = True
         # Next node is walk_to on a different floor
         elif nxt["type"] == "walk_to" and nxt["target"][2] != nodes[idx]["target"][2]:
+            nodes[idx]["exact"] = True
+        # Next node is walk_steps (floor transition)
+        elif nxt["type"] == "walk_steps":
             nodes[idx]["exact"] = True
 
     return nodes

@@ -9,17 +9,43 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cavebot import build_actions_map, _simplify_path, _is_map_click_walk
 
+# Direction → (dx, dy) for computing post-walk pos from player_pos
+_DIR_OFFSET = {
+    "north": (0, -1), "south": (0, 1),
+    "east": (1, 0), "west": (-1, 0),
+    "northeast": (1, -1), "southeast": (1, 1),
+    "southwest": (-1, 1), "northwest": (-1, -1),
+}
+
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
-def _walk(direction, pos, t=0.0):
-    """Create a keyboard walk waypoint."""
-    return {"type": "walk", "direction": direction, "pos": list(pos), "t": t}
+def _walk(direction, player_pos, t=0.0):
+    """Create a keyboard walk waypoint.
+
+    player_pos is where the player was BEFORE the walk.
+    pos (destination) is computed as player_pos + direction offset.
+    This matches the real recording format.
+    """
+    dx, dy = _DIR_OFFSET.get(direction, (0, 0))
+    pos = [player_pos[0] + dx, player_pos[1] + dy, player_pos[2]]
+    return {
+        "type": "walk", "direction": direction,
+        "pos": pos, "player_pos": list(player_pos), "t": t,
+    }
 
 
-def _autowalk(pos, t=0.0):
+def _autowalk(pos, player_pos=None, t=0.0):
     """Create an autowalk waypoint (pos = final destination)."""
-    return {"type": "walk", "direction": "autowalk", "pos": list(pos), "t": t}
+    wp = {"type": "walk", "direction": "autowalk", "pos": list(pos), "t": t}
+    if player_pos is not None:
+        wp["player_pos"] = list(player_pos)
+    return wp
+
+
+def _position(pos, t=0.0):
+    """Create a position waypoint (recorded by position tracking thread)."""
+    return {"type": "position", "pos": list(pos), "t": t}
 
 
 def _use_item(x, y, z, item_id, player_pos, stack_pos=0, index=0, label=None):
@@ -77,7 +103,7 @@ class TestEmptyAndTrivial:
         assert nodes[0]["target"] == [100, 200, 7]
 
     def test_single_keyboard_walk(self):
-        # Keyboard walk north: pos is BEFORE walk, dest = pos + (0, -1)
+        # Keyboard walk north: player_pos=(100,200,7), destination pos=(100,199,7)
         nodes = build_actions_map(_rec([_walk("north", (100, 200, 7))]))
         assert len(nodes) == 1
         assert nodes[0]["type"] == "walk_to"
@@ -219,7 +245,7 @@ class TestKeyboardWalks:
             assert n["type"] == "walk_to"
 
     def test_walk_computes_destination_correctly(self):
-        """Verify all 8 directions compute pos + offset correctly."""
+        """Verify all 8 directions produce correct destination pos."""
         directions_and_offsets = {
             "north": (0, -1), "south": (0, 1),
             "east": (1, 0), "west": (-1, 0),
@@ -233,10 +259,10 @@ class TestKeyboardWalks:
 
     def test_duplicate_positions_deduped_in_path(self):
         """Two walks resulting in the same destination tile shouldn't create two path points."""
-        # Both walks compute to (100, 199, 7) — duplicate
+        # Both walks have pos=(100, 199, 7) — duplicate destination
         wps = [
-            _walk("north", (100, 200, 7)),  # dest: (100, 199)
-            _walk("north", (100, 200, 7)),  # dest: (100, 199) — same pos recorded twice
+            _walk("north", (100, 200, 7)),  # pos: (100, 199)
+            _walk("north", (100, 200, 7)),  # pos: (100, 199) — same pos recorded twice
         ]
         nodes = build_actions_map(_rec(wps))
         # Should produce exactly 1 walk_to (deduped within path building)
@@ -271,7 +297,7 @@ class TestAutowalks:
         """Autowalks and keyboard walks in the same group should all be walk_to."""
         wps = [
             _autowalk((100, 200, 7)),
-            _walk("east", (101, 200, 7)),  # dest: (102, 200)
+            _walk("east", (101, 200, 7)),  # pos: (102, 200)
             _autowalk((103, 200, 7)),
         ]
         nodes = build_actions_map(_rec(wps))
@@ -452,8 +478,8 @@ class TestExactMarking:
     def test_walk_before_floor_change_is_exact(self):
         """walk_to followed by walk_to on a different floor → exact."""
         wps = [
-            _walk("west", (128, 564, 6)),   # dest: (127, 564, 6)
-            _walk("west", (126, 564, 7)),   # dest: (125, 564, 7) — floor changed!
+            _walk("west", (128, 564, 6)),   # pos: (127, 564, 6)
+            _walk("west", (126, 564, 7)),   # pos: (125, 564, 7) — floor changed!
         ]
         nodes = build_actions_map(_rec(wps))
         # The node on floor 6 (before the floor change) should be exact
@@ -540,9 +566,9 @@ class TestFloorTransitions:
     def test_walk_sequence_with_floor_change(self):
         """Walk west into a ramp: z changes mid-sequence."""
         wps = [
-            _walk("west", (128, 564, 6)),  # dest: (127, 564, 6)
-            _walk("west", (126, 564, 7)),  # dest: (125, 564, 7) — floor changed
-            _walk("west", (124, 564, 7)),  # dest: (123, 564, 7)
+            _walk("west", (128, 564, 6)),  # pos: (127, 564, 6)
+            _walk("west", (126, 564, 7)),  # pos: (125, 564, 7) — floor changed
+            _walk("west", (124, 564, 7)),  # pos: (123, 564, 7)
         ]
         nodes = build_actions_map(_rec(wps))
         # Should produce nodes on both floors
@@ -713,3 +739,315 @@ class TestEdgeCases:
             if nodes[j]["target"][2] != nodes[j + 1]["target"][2]:
                 assert nodes[j].get("exact") is True, \
                     f"Node {j} ({nodes[j]['target']}) before floor change should be exact"
+
+
+# ── Floor transitions: stair tile and exact marking ──────────────────
+
+class TestStairTransitionDestination:
+    """Tests for floor-crossing walks.
+
+    With the recording format, pos is the post-walk destination.  For keyboard
+    walks onto stairs, pos IS the stair tile.  The stair tile is the last
+    walk_to on that floor and should be marked [exact].
+    """
+
+    def test_stair_tile_is_last_floor_node(self):
+        """Walk west into stair at (128,564,6): stair tile should be the
+        last floor-6 node."""
+        wps = [
+            _walk("west", (136, 564, 6)),  # pos: (135, 564, 6)
+            _walk("west", (135, 564, 6)),  # pos: (134, 564, 6)
+            _walk("west", (134, 564, 6)),  # pos: (133, 564, 6)
+            _walk("west", (133, 564, 6)),  # pos: (132, 564, 6)
+            _walk("west", (131, 564, 6)),  # pos: (130, 564, 6)
+            _walk("west", (130, 564, 6)),  # pos: (129, 564, 6)
+            _walk("west", (129, 564, 6)),  # pos: (128, 564, 6) ← stair
+            # Floor changed — next walk is on floor 7
+            _walk("west", (126, 564, 7)),  # pos: (125, 564, 7)
+            _walk("west", (125, 564, 7)),  # pos: (124, 564, 7)
+            _walk("west", (123, 564, 7)),  # pos: (122, 564, 7)
+        ]
+        nodes = build_actions_map(_rec(wps))
+
+        # Stair tile (128,564,6) must be the last floor-6 node
+        floor6_nodes = [n for n in nodes if n["target"][2] == 6]
+        assert len(floor6_nodes) >= 1
+        last_f6 = floor6_nodes[-1]
+        assert last_f6["target"] == [128, 564, 6], (
+            f"Last floor 6 node should be stair tile (128,564,6), got {last_f6['target']}"
+        )
+
+    def test_stair_tile_is_exact(self):
+        """The stair tile (last on its floor before Z change) must be exact."""
+        wps = [
+            _walk("west", (131, 564, 6)),
+            _walk("west", (130, 564, 6)),
+            _walk("west", (129, 564, 6)),  # pos: (128, 564, 6) ← stair
+            _walk("west", (126, 564, 7)),  # floor 7
+            _walk("west", (125, 564, 7)),
+            _walk("west", (123, 564, 7)),
+        ]
+        nodes = build_actions_map(_rec(wps))
+
+        floor6_nodes = [n for n in nodes if n["target"][2] == 6]
+        assert len(floor6_nodes) >= 1
+        last_f6 = floor6_nodes[-1]
+        assert last_f6["target"] == [128, 564, 6]
+        assert last_f6.get("exact") is True, "Stair tile must be marked exact"
+
+    def test_first_tile_after_floor_change_preserved(self):
+        """The first tile on the new floor must survive simplification."""
+        wps = [
+            _walk("west", (131, 564, 6)),
+            _walk("west", (130, 564, 6)),
+            _walk("west", (129, 564, 6)),  # pos: (128, 564, 6) ← stair
+            _walk("west", (126, 564, 7)),  # pos: (125,564,7) — first on floor 7
+            _walk("west", (125, 564, 7)),
+            _walk("west", (123, 564, 7)),
+            _walk("west", (122, 564, 7)),
+            _walk("west", (120, 564, 7)),
+        ]
+        nodes = build_actions_map(_rec(wps))
+
+        floor7_targets = [tuple(n["target"]) for n in nodes if n["target"][2] == 7]
+        assert len(floor7_targets) >= 1
+        assert floor7_targets[0] == (125, 564, 7), (
+            f"First floor 7 target should be (125,564,7), got {floor7_targets[0]}"
+        )
+
+    def test_long_walk_into_stairs_real_data(self):
+        """Reproduce baltra_v2 scenario: walk west to stair at x=128."""
+        wps = [
+            _walk("west", (136, 564, 6)),
+            _walk("west", (136, 564, 6)),  # dup
+            _walk("west", (134, 564, 6)),
+            _walk("west", (134, 564, 6)),  # dup
+            _walk("west", (133, 564, 6)),
+            _walk("west", (133, 564, 6)),  # dup
+            _walk("west", (131, 564, 6)),
+            _walk("west", (130, 564, 6)),
+            _walk("west", (129, 564, 6)),  # pos: (128, 564, 6) ← stair
+            _walk("west", (126, 564, 7)),
+            _walk("west", (126, 564, 7)),  # dup
+            _walk("west", (125, 564, 7)),
+            _walk("west", (123, 564, 7)),
+            _walk("west", (122, 564, 7)),
+            _walk("west", (122, 564, 7)),  # dup
+            _walk("west", (122, 564, 7)),  # dup
+            _walk("west", (120, 564, 7)),
+        ]
+        nodes = build_actions_map(_rec(wps))
+
+        # Stair tile (128,564,6) must be the last floor-6 node, exact
+        floor6_nodes = [n for n in nodes if n["target"][2] == 6]
+        last_f6 = floor6_nodes[-1]
+        assert last_f6["target"] == [128, 564, 6]
+        assert last_f6.get("exact") is True
+
+    def test_simplify_path_preserves_floor_boundary(self):
+        """Direct test of _simplify_path: Z changes must force-keep boundary points."""
+        path = [
+            (135, 564, 6, 486, 1),
+            (132, 564, 6, 486, 1),
+            (129, 564, 6, 486, 1),  # last on floor 6
+            (125, 564, 7, 486, 1),  # first on floor 7
+            (122, 564, 7, 486, 1),
+            (119, 564, 7, 486, 1),
+        ]
+        result = _simplify_path(path)
+        result_xyz = [(p[0], p[1], p[2]) for p in result]
+
+        assert (129, 564, 6) in result_xyz, (
+            f"Last point before floor change dropped! Result: {result_xyz}"
+        )
+        assert (125, 564, 7) in result_xyz, (
+            f"First point after floor change dropped! Result: {result_xyz}"
+        )
+
+    def test_south_walk_stair_recording(self):
+        """Walk south into stair at (112,567,7).
+
+        The stair tile (112,567,7) should be in the map as the last floor-7
+        node before the transition to floor 6, and should be marked exact.
+        """
+        wps = [
+            _autowalk((112, 564, 7)),
+            _walk("south", (112, 565, 7)),  # pos: (112,566,7)
+            _walk("south", (112, 566, 7)),  # pos: (112,567,7) ← stair
+            # Floor changed to 6
+            _walk("south", (112, 568, 6)),  # pos: (112,569,6)
+            _walk("east", (113, 568, 6)),   # pos: (114,568,6)
+            _walk("south", (112, 569, 6)),  # pos: (112,570,6)
+            _autowalk((113, 566, 6)),       # transition for return
+            _autowalk((113, 563, 7)),       # back on floor 7
+        ]
+        nodes = build_actions_map(_rec(wps))
+        targets = [tuple(n["target"]) for n in nodes]
+
+        # Stair tile (112,567,7) must be in the map and exact
+        assert (112, 567, 7) in targets, (
+            f"Stair tile (112,567,7) should be in the actions map! Targets: {targets}"
+        )
+        stair_nodes = [n for n in nodes if tuple(n["target"]) == (112, 567, 7)]
+        assert stair_nodes[0].get("exact") is True
+
+        # Return trip: (113,566,6) should be exact (before floor change to Z=7)
+        return_nodes = [n for n in nodes if tuple(n["target"]) == (113, 566, 6)]
+        assert len(return_nodes) == 1
+        assert return_nodes[0].get("exact") is True
+
+    def test_no_cascading_exact(self):
+        """Only the last node before floor change should be exact."""
+        wps = [
+            _walk("south", (100, 195, 7)),  # pos: (100, 196, 7)
+            _walk("south", (100, 196, 7)),  # pos: (100, 197, 7)
+            _walk("south", (100, 197, 7)),  # pos: (100, 198, 7)
+            _walk("south", (100, 198, 7)),  # pos: (100, 199, 7)
+            _walk("south", (100, 199, 7)),  # pos: (100, 200, 7)
+            _walk("south", (100, 200, 7)),  # pos: (100, 201, 7) ← stair
+            _walk("south", (100, 201, 6)),  # pos: (100, 202, 6) — floor changed
+        ]
+        nodes = build_actions_map(_rec(wps))
+
+        # Only (100,201,7) — the stair tile — should be exact
+        for n in nodes:
+            t = tuple(n["target"])
+            if t[2] == 7 and t != (100, 201, 7):
+                assert not n.get("exact"), (
+                    f"Node at {t} should NOT be exact — only (100,201,7) should be"
+                )
+
+
+# ── Position waypoints ───────────────────────────────────────────────
+
+class TestPositionWaypoints:
+    """Tests for position-tracking waypoints (type='position').
+
+    Position waypoints are recorded by a background thread that polls the
+    player's position every 50ms.  They should not affect the actions map
+    output — they are informational only.
+    """
+
+    def test_position_waypoints_alone_ignored(self):
+        """Position waypoints with no walks should produce empty actions map."""
+        wps = [
+            _position((100, 200, 7)),
+            _position((101, 200, 7)),
+            _position((102, 200, 7)),
+        ]
+        nodes = build_actions_map(_rec(wps))
+        assert nodes == []
+
+    def test_position_between_walks_does_not_break_grouping(self):
+        """Position waypoints between walks should not split the walk group."""
+        wps = [
+            _walk("west", (105, 200, 7)),   # pos: (104, 200, 7)
+            _position((104, 200, 7)),
+            _walk("west", (104, 200, 7)),   # pos: (103, 200, 7)
+            _position((103, 200, 7)),
+            _walk("west", (103, 200, 7)),   # pos: (102, 200, 7)
+        ]
+        nodes = build_actions_map(_rec(wps))
+        # All walks should be in one group → simplified into walk_to nodes
+        for n in nodes:
+            assert n["type"] == "walk_to"
+        assert nodes[0]["target"] == [104, 200, 7]
+        assert nodes[-1]["target"] == [102, 200, 7]
+
+    def test_position_with_floor_change_between_walks(self):
+        """Reproduce user bug: position waypoint shows floor change between walks.
+
+        Recording:
+          103. Walk west | (129,564,6) → (128,564,6)
+          104. Pos: (127, 564, 7)                     ← floor change
+          105. Walk west | (127,564,7) → (126,564,7)
+
+        Should produce walk_to (128,564,6) [exact], walk_to (126,564,7).
+        Must NOT produce walk_to (127,564,6) (the old double-offset bug).
+        """
+        wps = [
+            _walk("west", (129, 564, 6)),   # pos: (128, 564, 6) ← stair
+            _position((127, 564, 7)),        # floor changed to 7
+            _walk("west", (127, 564, 7)),   # pos: (126, 564, 7)
+        ]
+        nodes = build_actions_map(_rec(wps))
+        targets = [tuple(n["target"]) for n in nodes]
+
+        # Must have the stair tile (128,564,6), NOT the bogus (127,564,6)
+        assert (128, 564, 6) in targets, (
+            f"Stair tile (128,564,6) should be in targets, got {targets}"
+        )
+        assert (127, 564, 6) not in targets, (
+            f"Double-offset bug: (127,564,6) should NOT be in targets, got {targets}"
+        )
+
+        # Floor 6 node must be exact (before floor change)
+        floor6_nodes = [n for n in nodes if n["target"][2] == 6]
+        assert len(floor6_nodes) >= 1
+        assert floor6_nodes[-1].get("exact") is True
+
+        # Floor 7 node
+        assert (126, 564, 7) in targets
+
+    def test_many_positions_between_walks_skipped(self):
+        """Many position waypoints between walks should all be skipped."""
+        wps = [
+            _walk("east", (100, 200, 7)),   # pos: (101, 200, 7)
+            _position((101, 200, 7)),
+            _position((101, 201, 7)),
+            _position((102, 201, 7)),
+            _position((103, 201, 7)),
+            _walk("east", (103, 201, 7)),   # pos: (104, 201, 7)
+        ]
+        nodes = build_actions_map(_rec(wps))
+        for n in nodes:
+            assert n["type"] == "walk_to"
+        # The two walks are in one group
+        assert len(nodes) == 2
+        assert nodes[0]["target"] == [101, 200, 7]
+        assert nodes[1]["target"] == [104, 201, 7]
+
+    def test_position_before_use_item_does_not_interfere(self):
+        """Position waypoints before a use_item should not affect it."""
+        wps = [
+            _walk("east", (99, 200, 7)),    # pos: (100, 200, 7)
+            _position((100, 200, 7)),
+            _use_item(101, 200, 7, 1696, player_pos=(100, 200, 7)),
+        ]
+        nodes = build_actions_map(_rec(wps))
+        types = [n["type"] for n in nodes]
+        assert "walk_to" in types
+        assert "use_item" in types
+
+    def test_position_only_floor_change_no_double_offset(self):
+        """Extended real scenario: walks → position (floor change) → more walks.
+
+        Verifies no double-offset bug exists anywhere in the produced map.
+        """
+        wps = [
+            _walk("west", (132, 564, 6)),   # pos: (131, 564, 6)
+            _walk("west", (131, 564, 6)),   # pos: (130, 564, 6)
+            _walk("west", (130, 564, 6)),   # pos: (129, 564, 6)
+            _walk("west", (129, 564, 6)),   # pos: (128, 564, 6) ← stair
+            _position((127, 564, 7)),        # floor change
+            _walk("west", (127, 564, 7)),   # pos: (126, 564, 7)
+            _walk("west", (126, 564, 7)),   # pos: (125, 564, 7)
+            _walk("west", (125, 564, 7)),   # pos: (124, 564, 7)
+        ]
+        nodes = build_actions_map(_rec(wps))
+        targets = [tuple(n["target"]) for n in nodes]
+
+        # Stair tile on floor 6
+        assert (128, 564, 6) in targets
+        # No double-offset values
+        assert (127, 564, 6) not in targets
+
+        # Floor 6 and 7 both present
+        floors = set(t[2] for t in targets)
+        assert 6 in floors
+        assert 7 in floors
+
+        # Last floor-6 node is exact
+        floor6_nodes = [n for n in nodes if n["target"][2] == 6]
+        assert floor6_nodes[-1].get("exact") is True
+        assert floor6_nodes[-1]["target"] == [128, 564, 6]

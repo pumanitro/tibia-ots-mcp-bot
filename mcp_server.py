@@ -90,6 +90,8 @@ class BotState:
         self.game_proxy: OTProxy | None = None
         self.ready: bool = False
         self._auto_task: asyncio.Task | None = None
+        self._login_wait_task: asyncio.Task | None = None
+        self._login_event: asyncio.Event | None = None
         self._proxy_tasks: list[asyncio.Task] = []
         self.settings: dict = load_settings()
         self._action_tasks: dict[str, asyncio.Task] = {}
@@ -681,10 +683,20 @@ async def _reset_bot() -> str:
     globals()['parse_server_packet'] = _gs_mod.parse_server_packet
     from game_state import GameState
 
+    # 5b. Cancel the login-wait task
+    login_task = getattr(state, '_login_wait_task', None)
+    if login_task and not login_task.done():
+        login_task.cancel()
+        try:
+            await asyncio.wait_for(login_task, timeout=1.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
+            pass
+
     # 6. Reset global state
     state.login_proxy = None
     state.game_proxy = None
     state.ready = False
+    state._login_event = asyncio.Event()
     state._auto_task = None
     state._action_tasks.clear()
     state.game_state = GameState()
@@ -870,8 +882,15 @@ async def start_bot() -> str:
         except ValueError:
             name = "?"
         log.debug(f"[C->S] 0x{opcode:02X} ({name})")
+        # Track current attack target in game_state
+        if opcode == ClientOpcode.ATTACK:
+            try:
+                cid = reader.read_u32()
+                state.game_state.attack_target_id = cid
+            except Exception:
+                pass
         # Log USE_ITEM details so we can discover item IDs
-        if opcode == ClientOpcode.USE_ITEM:
+        elif opcode == ClientOpcode.USE_ITEM:
             try:
                 pos = reader.read_position()
                 item_id = reader.read_u16()
@@ -883,6 +902,22 @@ async def start_bot() -> str:
     def on_login_success(keys):
         state.ready = True
         log.info("=== BOT READY — game session established ===")
+        # Signal the login-wait task immediately (no polling delay)
+        event = getattr(state, '_login_event', None)
+        if event:
+            event.set()
+        # Direct auto-start: schedule action startup from the callback itself.
+        # This is the bulletproof path — no watcher task, no race condition.
+        async def _direct_start():
+            # Brief delay for proxy to finish setting up server_writer
+            for _ in range(10):
+                await asyncio.sleep(0.5)
+                if (state.game_proxy and state.game_proxy.logged_in
+                        and state.game_proxy.server_writer is not None):
+                    break
+            n = _start_all_enabled_actions()
+            log.info(f"on_login_success: {n} action(s) auto-started")
+        asyncio.ensure_future(_direct_start())
 
     def on_raw_server_data(data):
         scan_packet(data, state.game_state)
@@ -904,42 +939,47 @@ async def start_bot() -> str:
     dashboard_api.start_api(asyncio.get_running_loop(), state)
     _launch_dashboard()
 
-    # Wait up to 120 s for the player to log in
-    for _ in range(240):
-        if state.ready:
-            # Verify the proxy connection is actually functional
-            proxy_ok = (
-                state.game_proxy
-                and state.game_proxy.logged_in
-                and state.game_proxy.server_writer is not None
-                and state.game_proxy.client_writer is not None
-            )
-            if not proxy_ok:
-                # Wait a bit more for connection to stabilize
-                for _ in range(10):
-                    await asyncio.sleep(0.5)
-                    if (state.game_proxy and state.game_proxy.logged_in
-                            and state.game_proxy.server_writer is not None):
-                        proxy_ok = True
-                        break
-            if not proxy_ok:
-                log.error("Proxy connection verification FAILED — packets won't flow")
+    # Background task: wait for login, then start actions automatically
+    # Uses an asyncio.Event for instant wakeup (no polling race condition).
+    state._login_event = asyncio.Event()
+    # If already ready (e.g. fast login), pre-set the event
+    if state.ready:
+        state._login_event.set()
 
-            actions_started = _start_all_enabled_actions()
-            actions_msg = f" {actions_started} automated action(s) started." if actions_started else ""
+    async def _wait_for_login_and_start():
+        t0 = time.time()
+        log.info(f"[TIMING] waiting for login... t=0.0s")
+        try:
+            await asyncio.wait_for(state._login_event.wait(), timeout=120.0)
+        except asyncio.TimeoutError:
+            log.warning(f"[TIMING] No login detected after {time.time()-t0:.1f}s — actions not started.")
+            return
 
-            status = _build_status_report()
-            return (
-                f"Bot started successfully. Patched {patched} IP(s). "
-                f"Game session is active.{actions_msg}\n\n"
-                f"=== Component Status ===\n{status}"
-            )
-        await asyncio.sleep(0.5)
+        t1 = time.time()
+        log.info(f"[TIMING] login event fired at t={t1-t0:.1f}s — verifying proxy...")
+
+        # Verify proxy connection is functional
+        for i in range(10):
+            await asyncio.sleep(0.5)
+            if (state.game_proxy and state.game_proxy.logged_in
+                    and state.game_proxy.server_writer is not None):
+                t2 = time.time()
+                log.info(f"[TIMING] proxy verified at t={t2-t0:.1f}s (waited {t2-t1:.1f}s)")
+                break
+        else:
+            t2 = time.time()
+            log.info(f"[TIMING] proxy verify timeout at t={t2-t0:.1f}s — starting actions anyway")
+
+        actions_started = _start_all_enabled_actions()
+        t3 = time.time()
+        log.info(f"[TIMING] {actions_started} action(s) started at t={t3-t0:.1f}s")
+
+    state._login_wait_task = asyncio.create_task(_wait_for_login_and_start())
 
     status = _build_status_report()
     return (
-        f"Proxies are running (patched {patched} IP(s)) but no login detected yet. "
-        f"Log in through the game client.\n\n"
+        f"Bot launched. Patched {patched} IP(s). Proxies listening.\n"
+        f"Log in through the game client — actions will auto-start.\n\n"
         f"=== Component Status ===\n{status}"
     )
 

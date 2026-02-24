@@ -6,6 +6,7 @@ export interface ActionInfo {
   running: boolean;
   description: string;
   logs?: string[];
+  config?: Record<string, any>;
 }
 
 export interface PlayerInfo {
@@ -47,6 +48,7 @@ export interface WaypointInfo {
   to_stack_pos?: number;
   label?: string;
   pos: number[];
+  player_pos?: number[];
   t: number;
 }
 
@@ -129,6 +131,7 @@ export interface ProxySequence {
   xtea_captured: boolean;
   logged_in: boolean;
   packets_flowing: boolean;
+  timestamps?: Record<string, number | null>;
 }
 
 export interface BotState {
@@ -173,6 +176,21 @@ export async function deleteAction(name: string): Promise<void> {
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     console.error("Delete failed:", res.status, err);
+  }
+}
+
+export async function updateActionConfig(
+  name: string,
+  config: Record<string, any>
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/actions/${name}/config`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    console.error("Config update failed:", res.status, err);
   }
 }
 
@@ -253,6 +271,22 @@ export async function deleteRecording(name: string): Promise<void> {
     const err = await res.json().catch(() => ({}));
     console.error("Delete recording failed:", res.status, err);
   }
+}
+
+export async function removeWaypoints(
+  name: string,
+  indices: number[]
+): Promise<{ waypoints: WaypointInfo[] } | null> {
+  const res = await fetch(
+    `${API_BASE}/api/recordings/${encodeURIComponent(name)}/remove_waypoints`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ indices }),
+    }
+  );
+  if (!res.ok) return null;
+  return res.json();
 }
 
 export async function fetchActionsMap(

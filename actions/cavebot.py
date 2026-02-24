@@ -13,10 +13,13 @@ from protocol import (
     build_walk_packet,
 )
 from cavebot import load_recording, build_actions_map, build_all_minimaps, build_sequence_minimaps, actions_map_to_text
+from constants import MONSTER_ID_MIN
 
 USE_ITEM_TIMEOUT = 5.0
 WALK_TO_TOLERANCE = 2   # tiles — close enough for walk_to nodes
 MAX_RETRIES = 5
+REACHABLE_PROBE_TIMEOUT = 0.4  # seconds — one walk attempt, fast bail
+PAUSE_MAX_TIMEOUT = 60  # seconds — safety cap on monster-fight pause
 
 # Map direction name strings to Direction enum values
 DIR_NAME_TO_ENUM = {
@@ -31,9 +34,76 @@ def _get_state():
     return sys.modules["__main__"].state
 
 
+def _get_targeting_strategy():
+    """Read the targeting_strategy from bot_settings.json for the cavebot action."""
+    state = _get_state()
+    cfg = state.settings.get("actions", {}).get("cavebot", {})
+    return cfg.get("targeting_strategy", "none")
+
+
+def _get_nearby_monsters(gs):
+    """Return list of alive monsters from game_state.creatures.
+
+    Filters for creature IDs >= MONSTER_ID_MIN with health between 1-100
+    and seen within the last 60 seconds.
+    """
+    now = time.time()
+    monsters = []
+    for cid, info in dict(gs.creatures).items():
+        if cid < MONSTER_ID_MIN:
+            continue
+        health = info.get("health", 0)
+        if health <= 0 or health > 100:
+            continue
+        age = now - info.get("last_seen", now)
+        if age > 60:
+            continue
+        monsters.append(info)
+    return monsters
+
+
 def _distance(a, b):
     """Manhattan distance (ignoring z)."""
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+
+async def _is_reachable(bot, target_x, target_y, target_z):
+    """Check if a map position is reachable via server pathfinding.
+
+    Sends a ground-click (use_item) toward the target tile. If the server
+    finds a valid path, the character starts walking — detected as a
+    position change. This is the server-side equivalent of OTClientV8's
+    findPath() reachability check.
+
+    Returns True if the character moved (path exists), False otherwise.
+    Side effect: if reachable, the character starts walking toward the target.
+    """
+    gs = _get_state().game_state
+    px, py, pz = gs.position
+
+    # Different floor = unreachable
+    if pz != target_z:
+        return False
+
+    # Already adjacent or on the tile = definitely reachable
+    dist = max(abs(target_x - px), abs(target_y - py))
+    if dist <= 1:
+        return True
+
+    # Send ground click to target tile (triggers server pathfinding)
+    pkt = build_use_item_packet(target_x, target_y, target_z, 4449, 1, 0)
+    await bot.inject_to_server(pkt)
+
+    # Watch for position change (character started walking = path exists)
+    start = time.time()
+    start_pos = (px, py)
+    while time.time() - start < REACHABLE_PROBE_TIMEOUT:
+        await bot.sleep(0.1)
+        cx, cy = gs.position[0], gs.position[1]
+        if (cx, cy) != start_pos:
+            return True
+
+    return False
 
 
 FLOOR_CHANGED = "floor_changed"
@@ -90,8 +160,12 @@ async def _execute_walk_to(bot, node, prefix="", exact=False):
         await bot.inject_to_server(pkt)
 
         timeout = max(dist * 0.3 + 2.0, 3.0)
+        # For exact nodes, use tolerance=1 so we actually wait for the
+        # pathfind to move the character close, instead of returning
+        # immediately when per-axis distance happens to be <= 2.
+        wait_tol = 1 if exact else WALK_TO_TOLERANCE
         result = await _wait_for_position(bot, target, timeout,
-                                          tolerance=WALK_TO_TOLERANCE,
+                                          tolerance=wait_tol,
                                           abort_on_floor_change=exact)
 
         if result == FLOOR_CHANGED:
@@ -116,7 +190,7 @@ async def _execute_walk_to(bot, node, prefix="", exact=False):
             if after[2] != start_z:
                 bot.log(f"{prefix}   -> ({after[0]},{after[1]},{after[2]}) [floor changed]")
                 return True
-            if after[2] == target[2] and _distance(after, target) <= 3:
+            if after[2] == target[2] and _distance(after, target) <= 5:
                 ok = await _walk_to_exact(bot, target, max_steps=6)
                 after = bot.position
                 if after[2] != start_z:
@@ -235,8 +309,13 @@ async def _execute_use_item_ex_node(bot, node, prefix=""):
 
 async def _walk_to_exact(bot, target, max_steps=8):
     """Walk directionally to reach an exact tile position."""
+    start_z = bot.position[2]
     for _ in range(max_steps):
         current = bot.position
+        # Floor changed (stair triggered) — exit immediately so the caller
+        # can detect it; don't keep walking on the wrong floor.
+        if current[2] != start_z:
+            return False
         dx = target[0] - current[0]
         dy = target[1] - current[1]
         if dx == 0 and dy == 0 and current[2] == target[2]:
@@ -368,6 +447,58 @@ async def run(bot):
             )
 
             prefix = f"[{i+1}/{len(actions_map)}]"
+
+            # Targeting strategy: pause while actively fighting a monster
+            # Uses server pathfinding reachability probe instead of reactive
+            # "can't throw" message — equivalent to OTClientV8's findPath() check.
+            strategy = _get_targeting_strategy()
+            if strategy == "pause_on_monster":
+                gs = state.game_state
+                target_id = gs.attack_target_id
+                if target_id and target_id >= MONSTER_ID_MIN:
+                    creature = gs.creatures.get(target_id)
+                    if creature and 0 < creature.get("health", 0) <= 100:
+                        cx = creature.get("x", 0)
+                        cy = creature.get("y", 0)
+                        cz = creature.get("z", 0)
+                        name = creature.get("name", "?")
+                        hp = creature.get("health", 100)
+
+                        # Pathfinding reachability check: send ground-click to
+                        # monster's tile, see if the server pathfinds us there.
+                        reachable = await _is_reachable(bot, cx, cy, cz)
+
+                        if reachable:
+                            bot.log(f"{prefix} Pausing — fighting {name} (0x{target_id:08X}) hp={hp}%")
+                            pause_start = time.time()
+                            last_checked_target = target_id
+                            while state.playback_active and bot.is_connected:
+                                target_id = gs.attack_target_id
+                                if not target_id:
+                                    break
+                                creature = gs.creatures.get(target_id)
+                                if not creature or creature.get("health", 0) <= 0:
+                                    break
+                                # Safety timeout — don't pause forever
+                                if time.time() - pause_start > PAUSE_MAX_TIMEOUT:
+                                    bot.log(f"{prefix} Resuming — pause timeout ({PAUSE_MAX_TIMEOUT}s)")
+                                    break
+                                # If auto_targeting switched to a NEW monster,
+                                # re-check reachability before continuing to pause.
+                                if target_id != last_checked_target:
+                                    new_c = gs.creatures.get(target_id)
+                                    if new_c:
+                                        nx = new_c.get("x", 0)
+                                        ny = new_c.get("y", 0)
+                                        nz = new_c.get("z", 0)
+                                        if not await _is_reachable(bot, nx, ny, nz):
+                                            bot.log(f"{prefix} New target unreachable, resuming")
+                                            break
+                                    last_checked_target = target_id
+                                await bot.sleep(0.2)
+                        else:
+                            bot.log(f"{prefix} Monster {name} unreachable (no path), skipping")
+
             ntype = node["type"]
 
             if ntype == "walk_to":

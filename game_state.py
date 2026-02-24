@@ -50,6 +50,12 @@ class GameState:
         self.world_light_level: int = 0
         self.world_light_color: int = 0
 
+        # Current attack target (creature ID from client ATTACK opcode, 0 = none)
+        self.attack_target_id: int = 0
+
+        # Timestamp of last "You can't throw there" server message
+        self.last_cant_throw: float = 0
+
         # Position (x, y, z)
         self.position: tuple[int, int, int] = (0, 0, 0)
 
@@ -288,6 +294,8 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
             return -1
         text = data[pos + 3:end].decode('latin-1', errors='replace')
         gs.messages.append({"type": msg_type, "text": text})
+        if "can't throw there" in text.lower():
+            gs.last_cant_throw = time.time()
         log.info(f"TEXT_MESSAGE(type={msg_type}): {text}")
         return end
 
@@ -478,4 +486,6 @@ def _parse(opcode: int, reader, gs: GameState) -> None:
         msg_type = reader.read_u8()
         text = reader.read_string()
         gs.messages.append({"type": msg_type, "text": text})
+        if "can't throw there" in text.lower():
+            gs.last_cant_throw = time.time()
         log.info(f"TEXT_MESSAGE(type={msg_type}): {text}")

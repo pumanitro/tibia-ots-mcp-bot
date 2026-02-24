@@ -10,6 +10,7 @@ Handles TWO phases:
 import asyncio
 import struct
 import logging
+import time
 from crypto import (
     rsa_decrypt, rsa_encrypt, xtea_decrypt, xtea_encrypt,
     adler32_checksum, generate_proxy_rsa_keypair, get_default_rsa_key,
@@ -71,6 +72,14 @@ class OTProxy:
         self._connection_task: asyncio.Task | None = None
         self._server: asyncio.AbstractServer | None = None
 
+        # Timestamps for proxy sequence debugging
+        self._ts_created = time.time()
+        self._ts_listening = None
+        self._ts_client_connected = None
+        self._ts_server_connected = None
+        self._ts_xtea_captured = None
+        self._ts_logged_in = None
+
     # ── Client packet callback registry ────────────────────────────
     def register_client_packet_callback(self, callback):
         if callback not in self._client_packet_callbacks:
@@ -109,6 +118,7 @@ class OTProxy:
             self.listen_port
         )
         self._server = server
+        self._ts_listening = time.time()
         addr = server.sockets[0].getsockname()
         mode = "LOGIN" if self.is_login_proxy else "GAME"
         log.info(f"[{mode}] Proxy listening on {addr[0]}:{addr[1]} -> {self.server_host}:{self.server_port}")
@@ -150,6 +160,7 @@ class OTProxy:
 
         self.client_reader = reader
         self.client_writer = writer
+        self._ts_client_connected = time.time()
         self.logged_in = False
         self.xtea_keys = None
 
@@ -157,6 +168,7 @@ class OTProxy:
             self.server_reader, self.server_writer = await asyncio.open_connection(
                 self.server_host, self.server_port
             )
+            self._ts_server_connected = time.time()
             log.info(f"[{mode}] Connected to server {self.server_host}:{self.server_port}")
         except Exception as e:
             log.error(f"[{mode}] Failed to connect to server: {e}")
@@ -388,6 +400,7 @@ class OTProxy:
 
             if not self.logged_in and self.xtea_keys is not None:
                 self.logged_in = True
+                self._ts_logged_in = time.time()
                 log.info("=== GAME SESSION ESTABLISHED ===")
                 log.info(f"XTEA Keys: {' '.join(f'{k:08X}' for k in self.xtea_keys)}")
                 if self.on_login_success:
@@ -471,6 +484,7 @@ class OTProxy:
 
                             xtea_data = decrypted[1:17]
                             self.xtea_keys = struct.unpack('<4I', xtea_data)
+                            self._ts_xtea_captured = time.time()
                             log.info(f"XTEA keys: {' '.join(f'{k:08X}' for k in self.xtea_keys)}")
 
                             # Log additional info from the decrypted block

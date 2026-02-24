@@ -128,64 +128,81 @@ def _send_init_commands(bridge, player_id):
 
 async def _connect_with_inject(bridge, bot):
     """Try existing pipe, health-check it, re-inject if needed. Returns True on success."""
+    t0 = time.time()
+    _dbg(f"[TIMING] _connect_with_inject START t=0.0s")
+
     # Try existing pipe first (DLL may still be loaded with live thread)
-    await bot.sleep(1)
+    # Short sleep — just enough for pipe thread to be ready
+    await bot.sleep(0.2)
+
     if bridge.connect():
+        _dbg(f"[TIMING] existing pipe connected t={time.time()-t0:.1f}s — sending init...")
         _send_init_commands(bridge, bot.player_id)
-        _dbg("connected to existing pipe — health checking...")
-        # DLL full scan can take up to 20s on first run
-        for check in range(40):
+        # Fast health check: if pipe is alive, first read_creatures returns
+        # within 1-2s. A stale pipe from a previous session will never respond.
+        # 6 attempts × 0.5s = 3s max (was 40 × 0.5s = 20s)
+        for check in range(6):
             await bot.sleep(0.5)
             test = bridge.read_creatures()
             if test is not None:
-                _dbg(f"pipe healthy — got {len(test)} creatures (after {(check+1)*0.5:.1f}s)")
+                _dbg(f"[TIMING] pipe healthy — {len(test)} creatures t={time.time()-t0:.1f}s")
                 return True
-        _dbg("pipe dead after 20s — will inject fresh DLL")
+        _dbg(f"[TIMING] pipe dead after 3s health check t={time.time()-t0:.1f}s — will inject fresh")
         bridge.disconnect()
+    else:
+        _dbg(f"[TIMING] no existing pipe t={time.time()-t0:.1f}s")
 
     # Inject a fresh copy
+    _dbg(f"[TIMING] injecting fresh DLL t={time.time()-t0:.1f}s")
     try:
         _inject_fresh_dll()
     except Exception as e:
-        _dbg(f"injection failed: {e}")
+        _dbg(f"[TIMING] injection failed t={time.time()-t0:.1f}s: {e}")
         return False
+    _dbg(f"[TIMING] injection done t={time.time()-t0:.1f}s — waiting for pipe...")
 
-    await bot.sleep(3)
-
+    # Poll for pipe instead of fixed sleep — DLL may be ready in < 1s
     for attempt in range(30):
+        await bot.sleep(0.3)
         if bridge.connect():
+            _dbg(f"[TIMING] pipe connected attempt {attempt+1} t={time.time()-t0:.1f}s — sending init...")
             _send_init_commands(bridge, bot.player_id)
-            _dbg(f"pipe connected on attempt {attempt+1} — waiting for first scan...")
-            # Wait for DLL to complete first full scan before returning
+            _dbg(f"[TIMING] init sent t={time.time()-t0:.1f}s — waiting for first scan...")
+            # Wait for DLL to complete first full creature scan
             for check in range(40):
                 await bot.sleep(0.5)
                 test = bridge.read_creatures()
                 if test is not None:
-                    _dbg(f"first data received — {len(test)} creatures")
+                    _dbg(f"[TIMING] first data — {len(test)} creatures t={time.time()-t0:.1f}s DONE")
                     return True
-            _dbg("pipe connected but no data after 20s — continuing anyway")
+            _dbg(f"[TIMING] no data after 20s wait t={time.time()-t0:.1f}s — continuing anyway")
             return True
         if attempt % 5 == 0:
-            _dbg(f"pipe connect attempt {attempt+1}...")
-        await bot.sleep(CONNECT_RETRY)
+            _dbg(f"[TIMING] pipe connect attempt {attempt+1} t={time.time()-t0:.1f}s")
 
-    _dbg("FAILED to connect to pipe after injection")
+    _dbg(f"[TIMING] FAILED after all attempts t={time.time()-t0:.1f}s")
     return False
 
 
 async def run(bot):
     bridge = DllBridge()
+    t_start = time.time()
     with open(DEBUG_LOG, "w") as f:
-        f.write("=== dll_bridge started ===\n")
+        f.write(f"=== dll_bridge started at {time.strftime('%H:%M:%S')} ===\n")
+
+    _dbg(f"[TIMING] run() START — waiting for connection & player_id")
 
     # Wait for bot connection and player_id
     while not bot.is_connected or bot.player_id == 0:
         await bot.sleep(1)
 
-    _dbg(f"player_id={bot.player_id:#010x} ({bot.player_id})")
+    _dbg(f"[TIMING] connected, player_id={bot.player_id:#010x} t={time.time()-t_start:.1f}s")
 
     if not await _connect_with_inject(bridge, bot):
+        _dbg(f"[TIMING] connect_with_inject FAILED t={time.time()-t_start:.1f}s")
         return
+
+    _dbg(f"[TIMING] DLL READY — total startup t={time.time()-t_start:.1f}s")
 
     # Access game_state directly for authoritative updates
     state = sys.modules["__main__"].state

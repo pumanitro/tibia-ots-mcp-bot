@@ -1,10 +1,11 @@
 "use client";
 
 import { useBot } from "@/lib/useBot";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   toggleAction,
   deleteAction,
+  updateActionConfig,
   startRecording,
   stopRecording,
   playRecording,
@@ -12,6 +13,7 @@ import {
   deleteRecording,
   fetchRecording,
   fetchActionsMap,
+  removeWaypoints,
 } from "@/lib/api";
 import type {
   ActionInfo,
@@ -201,55 +203,56 @@ function StatBar({
   );
 }
 
-function ConnectionSequence({ seq }: { seq: ProxySequence }) {
+
+function ConnectionSequence({ seq, onClose }: { seq: ProxySequence; onClose: () => void }) {
   const steps = [
     { key: "proxy_created", label: "Proxy Created" },
     { key: "listening", label: "Listening" },
     { key: "client_connected", label: "Client Connected" },
     { key: "server_connected", label: "Server Connected" },
-    { key: "xtea_captured", label: "XTEA Keys Captured" },
+    { key: "xtea_captured", label: "XTEA Captured" },
     { key: "logged_in", label: "Logged In" },
     { key: "packets_flowing", label: "Packets Flowing" },
   ] as const;
 
-  // Find the first failed step
+  const ts = seq.timestamps ?? {};
   const firstFail = steps.findIndex((s) => !seq[s.key]);
-  const allGood = firstFail === -1;
 
   return (
-    <div className={`rounded-lg border p-3 mb-4 ${
-      allGood ? "border-emerald-700 bg-emerald-950/20" : "border-yellow-700 bg-yellow-950/20"
-    }`}>
-      <p className="text-xs text-gray-400 uppercase tracking-wider mb-2">
-        Proxy Connection Sequence
-      </p>
-      <div className="flex items-center gap-1">
-        {steps.map((s, i) => {
-          const ok = seq[s.key];
-          const isBlocker = i === firstFail;
-          return (
-            <div key={s.key} className="flex items-center gap-1">
-              {i > 0 && (
-                <span className={`text-xs ${ok ? "text-emerald-600" : "text-gray-600"}`}>
-                  &rarr;
-                </span>
-              )}
-              <div
-                className={`rounded px-2 py-1 text-xs font-medium ${
-                  ok
-                    ? "bg-emerald-900/50 text-emerald-300"
-                    : isBlocker
-                    ? "bg-red-900/50 text-red-300 animate-pulse"
-                    : "bg-gray-800 text-gray-500"
-                }`}
-                title={s.label}
-              >
-                {s.label}
-              </div>
+    <div className="flex items-center gap-1 flex-wrap mb-4">
+      {steps.map((s, i) => {
+        const ok = seq[s.key];
+        const isBlocker = i === firstFail;
+        const t = ts[s.key];
+        const timeStr = t != null ? `+${t}s` : "";
+        return (
+          <div key={s.key} className="flex items-center gap-1">
+            {i > 0 && (
+              <span className={`text-xs ${ok ? "text-emerald-600" : "text-gray-600"}`}>
+                &rarr;
+              </span>
+            )}
+            <div
+              className={`rounded px-2 py-1 text-xs font-medium ${
+                ok
+                  ? "bg-emerald-900/50 text-emerald-300"
+                  : isBlocker
+                  ? "bg-red-900/50 text-red-300 animate-pulse"
+                  : "bg-gray-800 text-gray-500"
+              }`}
+              title={`${s.label}${timeStr ? ` (${timeStr})` : ""}`}
+            >
+              {s.label}{timeStr && <span className="ml-1 text-[10px] opacity-70">{timeStr}</span>}
             </div>
-          );
-        })}
-      </div>
+          </div>
+        );
+      })}
+      <button
+        onClick={onClose}
+        className="text-xs text-gray-500 hover:text-gray-300 ml-1"
+      >
+        &times;
+      </button>
     </div>
   );
 }
@@ -318,25 +321,28 @@ const WALK_OFFSETS: Record<string, [number, number]> = {
 };
 
 function WaypointLine({ wp, index }: { wp: WaypointInfo; index: number }) {
+  if (wp.type === "position") {
+    const pos = wp.pos;
+    return (
+      <div className="text-xs text-gray-500 font-mono whitespace-nowrap">
+        <span className="text-gray-600 mr-2">{index + 1}.</span>
+        Pos: ({pos[0]}, {pos[1]}, {pos[2]})
+      </div>
+    );
+  }
+
   let desc = "";
   if (wp.type === "walk") {
-    const pos = wp.pos;
+    const dest = wp.pos;
     const dir = wp.direction ?? "?";
-    const off = WALK_OFFSETS[dir];
-    // Keyboard walks: pos is BEFORE walk, compute destination
-    // Autowalks: pos is already the destination
-    const dest = dir === "autowalk" || !off
-      ? pos
-      : [pos[0] + off[0], pos[1] + off[1], pos[2]];
-    desc = `Walk ${dir} | cur: (${pos[0]},${pos[1]},${pos[2]}) \u2192 dest: (${dest[0]},${dest[1]},${dest[2]})`;
+    const cur = wp.player_pos ?? dest;
+    desc = `Walk ${dir} | (${cur[0]},${cur[1]},${cur[2]}) \u2192 (${dest[0]},${dest[1]},${dest[2]})`;
   } else if (wp.type === "use_item") {
     const label = wp.label ?? `item ${wp.item_id}`;
-    const pos = wp.pos;
-    desc = `${label} at (${wp.x}, ${wp.y}, ${wp.z}) \u2192 (${pos[0]}, ${pos[1]}, ${pos[2]})`;
+    desc = `${label} at (${wp.x}, ${wp.y}, ${wp.z})`;
   } else if (wp.type === "use_item_ex") {
     const label = wp.label ?? `item ${wp.item_id}`;
-    const pos = wp.pos;
-    desc = `${label} \u2192 (${pos[0]}, ${pos[1]}, ${pos[2]})`;
+    desc = `${label} \u2192 (${wp.to_x}, ${wp.to_y}, ${wp.to_z})`;
   } else {
     desc = wp.type;
   }
@@ -477,9 +483,11 @@ function Minimap({ minimaps, nodeIndex, total }: {
 
 function CavebotPanel({
   cavebot,
+  cavebotConfig,
   onRefresh,
 }: {
   cavebot: CavebotState;
+  cavebotConfig?: Record<string, any>;
   onRefresh: () => void;
 }) {
   const [recName, setRecName] = useState("");
@@ -490,24 +498,49 @@ function CavebotPanel({
   const [mapPreviewName, setMapPreviewName] = useState<string | null>(null);
   const [mapPreviewText, setMapPreviewText] = useState<string>("");
   const [showPlaybackLogs, setShowPlaybackLogs] = useState(false);
+  const [autoScrollLive, setAutoScrollLive] = useState(true);
+  const [autoScrollLast, setAutoScrollLast] = useState(true);
   const logsContainerRef = useRef<HTMLDivElement>(null);
   const lastLogsContainerRef = useRef<HTMLDivElement>(null);
 
   const { recording, playback, recordings } = cavebot;
 
-  // Smart auto-scroll: only scroll if user is near the bottom
-  useEffect(() => {
+  // Scroll handlers: disable autoscroll when user scrolls away from bottom
+  const handleLiveScroll = useCallback(() => {
     const el = logsContainerRef.current;
     if (!el) return;
-    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
-    if (isNearBottom) el.scrollTop = el.scrollHeight;
-  }, [playback.logs]);
-  useEffect(() => {
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
+    setAutoScrollLive(atBottom);
+  }, []);
+
+  const handleLastScroll = useCallback(() => {
     const el = lastLogsContainerRef.current;
     if (!el) return;
-    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
-    if (isNearBottom) el.scrollTop = el.scrollHeight;
-  }, [playback.logs, showPlaybackLogs]);
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
+    setAutoScrollLast(atBottom);
+  }, []);
+
+  // Auto-scroll live logs
+  useEffect(() => {
+    if (!autoScrollLive) return;
+    const el = logsContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [playback.logs, autoScrollLive]);
+
+  // Auto-scroll last logs
+  useEffect(() => {
+    if (!autoScrollLast) return;
+    const el = lastLogsContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [playback.logs, showPlaybackLogs, autoScrollLast]);
+
+  // Reset autoscroll when playback starts or logs section is opened
+  useEffect(() => {
+    if (playback.active) setAutoScrollLive(true);
+  }, [playback.active]);
+  useEffect(() => {
+    if (showPlaybackLogs) setAutoScrollLast(true);
+  }, [showPlaybackLogs]);
 
   const handleStartRecording = async () => {
     if (!recName.trim()) return;
@@ -573,6 +606,18 @@ function CavebotPanel({
     if (resp) {
       setMapPreviewName(name);
       setMapPreviewText(resp.text_preview);
+    }
+  };
+
+  const handleRemoveWaypoint = async (name: string, index: number) => {
+    const result = await removeWaypoints(name, [index]);
+    if (result) {
+      setPreviewWaypoints(result.waypoints);
+      // If map preview is open for this recording, refresh it
+      if (mapPreviewName === name) {
+        const resp = await fetchActionsMap(name);
+        if (resp) setMapPreviewText(resp.text_preview);
+      }
     }
   };
 
@@ -661,7 +706,18 @@ function CavebotPanel({
                     <div className="rounded-b-md bg-gray-950 border border-t-0 border-gray-700 p-2 max-h-48 overflow-y-auto">
                       <div className="space-y-0.5">
                         {previewWaypoints.map((wp, i) => (
-                          <WaypointLine key={i} wp={wp} index={i} />
+                          <div key={i} className="flex items-start gap-1 group">
+                            <button
+                              onClick={() => handleRemoveWaypoint(r.name, i)}
+                              className="shrink-0 mt-0.5 rounded px-1 text-xs text-red-500 opacity-0 group-hover:opacity-100 hover:bg-red-900/30 transition-all"
+                              title="Remove waypoint"
+                            >
+                              X
+                            </button>
+                            <div className="flex-1 min-w-0">
+                              <WaypointLine wp={wp} index={i} />
+                            </div>
+                          </div>
                         ))}
                       </div>
                     </div>
@@ -731,16 +787,34 @@ function CavebotPanel({
           </div>
         )}
 
-        {/* Loop checkbox */}
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={loopEnabled}
-            onChange={(e) => setLoopEnabled(e.target.checked)}
-            className="rounded border-gray-600 bg-gray-900 text-emerald-500 focus:ring-emerald-500"
-          />
-          <span className="text-xs text-gray-400">Loop playback</span>
-        </label>
+        {/* Loop checkbox + Targeting strategy */}
+        <div className="flex items-center gap-4">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={loopEnabled}
+              onChange={(e) => setLoopEnabled(e.target.checked)}
+              className="rounded border-gray-600 bg-gray-900 text-emerald-500 focus:ring-emerald-500"
+            />
+            <span className="text-xs text-gray-400">Loop playback</span>
+          </label>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400">Targeting:</span>
+            <select
+              value={cavebotConfig?.targeting_strategy ?? "none"}
+              onChange={async (e) => {
+                await updateActionConfig("cavebot", {
+                  targeting_strategy: e.target.value,
+                });
+                onRefresh();
+              }}
+              className="rounded-md bg-gray-900 border border-gray-600 px-2 py-1 text-xs text-gray-200 focus:border-emerald-500 focus:outline-none"
+            >
+              <option value="none">None</option>
+              <option value="pause_on_monster">Pause on Monster</option>
+            </select>
+          </div>
+        </div>
 
         {/* Live Preview (recording) */}
         {recording.active && recording.waypoints.length > 0 && (
@@ -794,11 +868,29 @@ function CavebotPanel({
               />
             )}
             {hasPlaybackLogs && (
-              <div ref={logsContainerRef} className="rounded-md bg-gray-900 border border-gray-700 p-2 overflow-y-auto" style={{ resize: "vertical", minHeight: "4rem", height: "10rem", maxHeight: "80vh" }}>
-                <div className="space-y-0.5 font-mono text-xs text-gray-300">
-                  {playback.logs.map((line, i) => (
-                    <div key={i} className={`whitespace-pre-wrap ${line?.includes("[SUCCESS]") ? "text-emerald-400" : line?.includes("[FAILURE]") ? "text-red-400" : ""}`}>{line || "\u00A0"}</div>
-                  ))}
+              <div>
+                <div className="flex items-center justify-end mb-1">
+                  <button
+                    onClick={() => {
+                      setAutoScrollLive(true);
+                      const el = logsContainerRef.current;
+                      if (el) el.scrollTop = el.scrollHeight;
+                    }}
+                    className={`rounded px-1.5 py-0.5 text-[10px] transition-colors ${
+                      autoScrollLive
+                        ? "text-emerald-400 bg-emerald-900/30"
+                        : "text-gray-500 hover:text-gray-300 hover:bg-gray-700"
+                    }`}
+                  >
+                    Auto-scroll {autoScrollLive ? "ON" : "OFF"}
+                  </button>
+                </div>
+                <div ref={logsContainerRef} onScroll={handleLiveScroll} className="rounded-md bg-gray-900 border border-gray-700 p-2 overflow-y-auto" style={{ resize: "vertical", minHeight: "4rem", height: "10rem", maxHeight: "80vh" }}>
+                  <div className="space-y-0.5 font-mono text-xs text-gray-300">
+                    {playback.logs.map((line, i) => (
+                      <div key={i} className={`whitespace-pre-wrap ${line?.includes("[SUCCESS]") ? "text-emerald-400" : line?.includes("[FAILURE]") ? "text-red-400" : ""}`}>{line || "\u00A0"}</div>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
@@ -819,9 +911,25 @@ function CavebotPanel({
               >
                 Last Playback Logs
               </button>
+              {showPlaybackLogs && (
+                <button
+                  onClick={() => {
+                    setAutoScrollLast(true);
+                    const el = lastLogsContainerRef.current;
+                    if (el) el.scrollTop = el.scrollHeight;
+                  }}
+                  className={`rounded px-1.5 py-0.5 text-[10px] transition-colors ${
+                    autoScrollLast
+                      ? "text-emerald-400 bg-emerald-900/30"
+                      : "text-gray-500 hover:text-gray-300 hover:bg-gray-700"
+                  }`}
+                >
+                  Auto-scroll {autoScrollLast ? "ON" : "OFF"}
+                </button>
+              )}
             </div>
             {showPlaybackLogs && (
-              <div ref={lastLogsContainerRef} className="mt-2 rounded-md bg-gray-900 border border-gray-700 p-2 overflow-y-auto" style={{ resize: "vertical", minHeight: "4rem", height: "12rem", maxHeight: "80vh" }}>
+              <div ref={lastLogsContainerRef} onScroll={handleLastScroll} className="mt-2 rounded-md bg-gray-900 border border-gray-700 p-2 overflow-y-auto" style={{ resize: "vertical", minHeight: "4rem", height: "12rem", maxHeight: "80vh" }}>
                 <div className="space-y-0.5 font-mono text-xs text-gray-300">
                   {playback.logs.map((line, i) => (
                     <div key={i} className={`whitespace-pre-wrap ${line?.includes("[SUCCESS]") ? "text-emerald-400" : line?.includes("[FAILURE]") ? "text-red-400" : ""}`}>{line || "\u00A0"}</div>
@@ -839,19 +947,36 @@ function CavebotPanel({
 
 export default function Dashboard() {
   const { state, mcpConnected, refresh } = useBot();
+  const [showProxySeq, setShowProxySeq] = useState(false);
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-bold tracking-tight">DBVictory Bot</h1>
         <div className="flex items-center gap-2">
           <StatusBadge label="MCP" connected={mcpConnected} />
           <StatusBadge label="Game Login" connected={state?.connected ?? false} />
           <StatusBadge label="DLL Injected" connected={state?.dll_injected ?? false} />
           <StatusBadge label="DLL Bridge" connected={state?.dll_bridge_connected ?? false} />
+          {state?.proxy_sequence && (
+            <button
+              onClick={() => setShowProxySeq(!showProxySeq)}
+              className={`text-xs px-1.5 py-1 rounded transition-colors ${
+                showProxySeq ? "text-blue-300 bg-blue-900/30" : "text-gray-500 hover:text-gray-300"
+              }`}
+              title="Proxy connection details"
+            >
+              {showProxySeq ? "\u25B2" : "\u25BC"}
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Proxy Connection Sequence */}
+      {showProxySeq && state?.proxy_sequence && (
+        <ConnectionSequence seq={state.proxy_sequence} onClose={() => setShowProxySeq(false)} />
+      )}
 
       {/* Packet Stats */}
       {state && (
@@ -887,11 +1012,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Proxy Connection Sequence */}
-      {state?.proxy_sequence && (
-        <ConnectionSequence seq={state.proxy_sequence} />
-      )}
-
       {/* Player Stats */}
       {state?.connected && state.player && (
         <PlayerStats player={state.player} />
@@ -904,7 +1024,11 @@ export default function Dashboard() {
 
       {/* Cavebot */}
       {state?.connected && state.cavebot && (
-        <CavebotPanel cavebot={state.cavebot} onRefresh={refresh} />
+        <CavebotPanel
+          cavebot={state.cavebot}
+          cavebotConfig={state.actions.find((a) => a.name === "cavebot")?.config}
+          onRefresh={refresh}
+        />
       )}
 
       {/* Actions */}

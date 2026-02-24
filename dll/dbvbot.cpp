@@ -43,9 +43,13 @@ static BOOL safe_readable(const void* ptr, size_t len) {
 }
 
 static BOOL safe_memcpy(void* dst, const void* src, size_t len) {
-    if (!safe_readable(src, len)) return FALSE;
-    memcpy(dst, src, len);
-    return TRUE;
+    // Use ReadProcessMemory on ourselves — it handles page faults atomically,
+    // avoiding the TOCTOU race where VirtualQuery says "readable" but the game
+    // thread frees the memory before our memcpy executes.
+    SIZE_T bytes_read = 0;
+    if (!ReadProcessMemory(GetCurrentProcess(), src, dst, len, &bytes_read))
+        return FALSE;
+    return bytes_read == len;
 }
 
 // ── Constants ───────────────────────────────────────────────────────
@@ -3130,14 +3134,19 @@ static void parse_command(const char* line) {
                         buf[nbytes++] = (uint8_t)val;
                     }
                     if (nbytes > 0 && safe_readable((void*)addr, nbytes)) {
-                        // Try direct write first; if page is read-only, use VirtualProtect
-                        DWORD oldProt = 0;
-                        if (VirtualProtect((void*)addr, nbytes, PAGE_EXECUTE_READWRITE, &oldProt)) {
-                            memcpy((void*)addr, buf, nbytes);
-                            VirtualProtect((void*)addr, nbytes, oldProt, &oldProt);
-                            dbg("[WMEM] wrote %d bytes at RVA +0x%X (prot=%X)", nbytes, (unsigned)rva, oldProt);
+                        // Skip write if bytes already match (avoids cache flush + race with executing code)
+                        if (memcmp((void*)addr, buf, nbytes) == 0) {
+                            dbg("[WMEM] skip RVA +0x%X — already patched", (unsigned)rva);
                         } else {
-                            dbg("[WMEM] VirtualProtect failed at RVA +0x%X err=%lu", (unsigned)rva, GetLastError());
+                            DWORD oldProt = 0;
+                            if (VirtualProtect((void*)addr, nbytes, PAGE_EXECUTE_READWRITE, &oldProt)) {
+                                memcpy((void*)addr, buf, nbytes);
+                                VirtualProtect((void*)addr, nbytes, oldProt, &oldProt);
+                                FlushInstructionCache(GetCurrentProcess(), (void*)addr, nbytes);
+                                dbg("[WMEM] wrote %d bytes at RVA +0x%X (prot=%X)", nbytes, (unsigned)rva, oldProt);
+                            } else {
+                                dbg("[WMEM] VirtualProtect failed at RVA +0x%X err=%lu", (unsigned)rva, GetLastError());
+                            }
                         }
                     } else {
                         dbg("[WMEM] cannot read %d bytes at RVA +0x%X", nbytes, (unsigned)rva);

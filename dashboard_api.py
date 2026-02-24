@@ -88,6 +88,13 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._handle_toggle(name)
             if verb == "restart":
                 return self._handle_restart(name)
+            if verb == "config":
+                return self._handle_action_config(name)
+
+        # POST /api/recordings/{name}/remove_waypoints
+        if (len(parts) == 4 and parts[0] == "api" and parts[1] == "recordings"
+                and parts[3] == "remove_waypoints"):
+            return self._handle_remove_waypoints(parts[2])
 
         # Cavebot endpoints
         if self.path == "/api/cavebot/record/start":
@@ -167,6 +174,27 @@ class _Handler(BaseHTTPRequestHandler):
         except Exception as e:
             self._json_response({"error": str(e)}, 500)
 
+
+    # ── POST /api/actions/{name}/config ──────────────────────────
+    def _handle_action_config(self, name: str):
+        body = self._read_body()
+        if not body:
+            self._json_response({"error": "empty body"}, 400)
+            return
+        main_mod = sys.modules.get("__main__")
+        if main_mod is None or _state is None:
+            self._json_response({"error": "bot not started"}, 503)
+            return
+        save_settings = getattr(main_mod, "save_settings", None)
+        if save_settings is None:
+            self._json_response({"error": "save_settings not available"}, 500)
+            return
+        actions = _state.settings.setdefault("actions", {})
+        cfg = actions.setdefault(name, {})
+        cfg.update(body)
+        save_settings(_state.settings)
+        log.info(f"Action config updated: {name} -> {body}")
+        self._json_response({"ok": True, "config": cfg})
 
     # ── DELETE /api/actions/{name} ───────────────────────────────
     def _handle_delete(self, name: str):
@@ -302,6 +330,19 @@ class _Handler(BaseHTTPRequestHandler):
             "node_count": len(actions_map),
         })
 
+    def _handle_remove_waypoints(self, name: str):
+        body = self._read_body()
+        indices = body.get("indices", [])
+        if not isinstance(indices, list):
+            self._json_response({"error": "indices must be a list"}, 400)
+            return
+        import cavebot
+        rec = cavebot.remove_waypoints(name, indices)
+        if rec is None:
+            self._json_response({"error": f"Recording '{name}' not found"}, 404)
+        else:
+            self._json_response({"waypoints": rec.get("waypoints", [])})
+
     def _handle_delete_recording(self, name: str):
         import cavebot
         if cavebot.delete_recording(name):
@@ -347,10 +388,14 @@ def _build_state_json() -> str:
         except OSError:
             pass
         logs = list(st.action_logs.get(name, []))
+        # Expose non-standard config keys (everything except "enabled")
+        action_config = {k: v for k, v in cfg.items() if k != "enabled"}
         entry = {
             "name": name, "enabled": enabled,
             "running": running, "description": desc,
         }
+        if action_config:
+            entry["config"] = action_config
         if logs:
             entry["logs"] = logs
         actions.append(entry)
@@ -360,6 +405,14 @@ def _build_state_json() -> str:
 
     # Proxy connection sequence (for debugging)
     gp = st.game_proxy
+    t0 = getattr(gp, '_ts_created', None) if gp else None
+
+    def _rel(ts):
+        """Return seconds relative to proxy creation, or None."""
+        if ts is None or t0 is None:
+            return None
+        return round(ts - t0, 2)
+
     proxy_sequence = {
         "proxy_created": gp is not None,
         "listening": gp is not None and getattr(gp, '_server', None) is not None,
@@ -368,6 +421,15 @@ def _build_state_json() -> str:
         "xtea_captured": gp is not None and getattr(gp, 'xtea_keys', None) is not None,
         "logged_in": gp is not None and getattr(gp, 'logged_in', False),
         "packets_flowing": pkt_server > 0 or pkt_client > 0,
+        "timestamps": {
+            "proxy_created": 0 if t0 else None,
+            "listening": _rel(getattr(gp, '_ts_listening', None)) if gp else None,
+            "client_connected": _rel(getattr(gp, '_ts_client_connected', None)) if gp else None,
+            "server_connected": _rel(getattr(gp, '_ts_server_connected', None)) if gp else None,
+            "xtea_captured": _rel(getattr(gp, '_ts_xtea_captured', None)) if gp else None,
+            "logged_in": _rel(getattr(gp, '_ts_logged_in', None)) if gp else None,
+            "packets_flowing": 0 if (pkt_server > 0 or pkt_client > 0) else None,
+        },
     }
 
     gs = st.game_state

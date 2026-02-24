@@ -48,15 +48,16 @@ async def run(bot):
         bridge.send_command({"cmd": "read_mem", "rva": LIGHT_JZ_RVA, "size": 8})
         await bot.sleep(0.5)
 
-        # Apply the patch and keep re-applying every 2s
+        # Apply the patch and keep verifying every 5s
         # (game may restore original bytes on map reload / floor change)
+        # The DLL's write_mem now skips if bytes already match (no-op + no cache flush)
         bridge.send_command({"cmd": "write_mem", "rva": LIGHT_JZ_RVA, "bytes": PATCHED_BYTES})
         patched = True
         bot.log("Full light ENABLED (darkness overlay skipped)")
         _dbg(f"patched JZ→JMP at {LIGHT_JZ_RVA}")
 
         while True:
-            await bot.sleep(2)
+            await bot.sleep(5)
             if bridge.connected:
                 bridge.send_command({"cmd": "write_mem", "rva": LIGHT_JZ_RVA, "bytes": PATCHED_BYTES})
 
