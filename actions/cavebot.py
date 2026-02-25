@@ -234,19 +234,43 @@ def _check_tile_update(bot, x, y, z, since_time):
 
 
 async def _execute_use_item_node(bot, node, prefix=""):
-    """Execute an exact use_item (stairs/doors/ladders)."""
+    """Execute an exact use_item (stairs/doors/ladders).
+
+    For far targets, the server auto-walks the player then uses the item.
+    For floor-change targets (different z), waits for z to change.
+    For same-floor targets (doors), waits for tile update or movement.
+    Also detects unexpected floor changes (ladders at same z that go up/down).
+    """
     label = node.get("label", f"item {node['item_id']}")
     target = node["target"]
-    player_pos = node.get("player_pos", target)
 
     bot.log(f"{prefix} {label} at ({target[0]},{target[1]},{target[2]})")
 
+    # --- Pre-position: walk to adjacency before interacting ---
+    current = bot.position
+    dist = max(abs(current[0] - target[0]), abs(current[1] - target[1]))  # Chebyshev
+    wrong_floor = current[2] != target[2]
+
+    if dist > 1 or wrong_floor:
+        walk_target = node.get("player_pos", target)
+        bot.log(f"{prefix}   pre-walk to ({walk_target[0]},{walk_target[1]},{walk_target[2]}) dist={dist}")
+        walk_node = {
+            "target": walk_target,
+            "item_id": 4449,
+            "stack_pos": 1,
+        }
+        walk_ok = await _execute_walk_to(bot, walk_node, prefix + "  ", exact=True)
+        if not walk_ok:
+            bot.log(f"{prefix}   pre-walk failed")
+            return False
+
+    # --- Proceed with use_item interaction ---
     pkt = build_use_item_packet(
         node["x"], node["y"], node["z"],
         node["item_id"], node.get("stack_pos", 0), node.get("index", 0),
     )
 
-    current = bot.position
+    current = bot.position  # re-read after potential walk
     is_floor_change = target[2] != current[2]
 
     if is_floor_change:
@@ -265,23 +289,25 @@ async def _execute_use_item_node(bot, node, prefix=""):
         bot.log(f"{prefix}   [FAILURE] still at z={after[2]}")
         return False
     else:
-        # Same-floor interaction (door etc): send packet, verify via server
-        # tile update at target coords, with position-change fallback.
+        # Same-floor interaction: send packet, verify via tile update,
+        # position change, or floor change (ladder at same z that goes up/down).
         for attempt in range(MAX_RETRIES):
             before = bot.position
             before_time = time.time()
             await bot.inject_to_server(pkt)
-            # Poll up to 2s for tile update at target OR position change
-            success = False
             start = time.time()
-            while time.time() - start < 2.0:
-                # Check for server tile update at target coords
+            while time.time() - start < USE_ITEM_TIMEOUT:
+                # Check for server tile update at target coords (door opened)
                 if _check_tile_update(bot, target[0], target[1], target[2], before_time):
                     after = bot.position
                     bot.log(f"{prefix}   [SUCCESS] tile update at ({target[0]},{target[1]},{target[2]})")
                     return True
-                # Fallback: position changed (player walked through)
                 after = bot.position
+                # Floor changed (ladder/stairs at same z going up/down)
+                if after[2] != before[2]:
+                    bot.log(f"{prefix}   [SUCCESS] floor change -> ({after[0]},{after[1]},{after[2]})")
+                    return True
+                # Position changed on same floor (walked through door)
                 if after[0] != before[0] or after[1] != before[1]:
                     bot.log(f"{prefix}   [SUCCESS] -> ({after[0]},{after[1]},{after[2]})")
                     return True
