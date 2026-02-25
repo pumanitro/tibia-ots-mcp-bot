@@ -260,10 +260,21 @@ dbv_exp/
 The cavebot is a first working version but not yet fully functional:
 
 ### Bugs
-- [ ] **Stairs recording incorrect** — floor transitions via stairs/ramps are not always captured properly in recordings, causing playback to fail at floor changes
+- [ ] **Ladder floor change bug** — moving up/down via ladders requires 2 exact use_item interactions but recording sometimes captures only 1, causing playback to fail at floor changes
+- [ ] **Some waypoints randomly retry** — certain walk_to nodes retry up to 5/5 despite player being in correct position; investigate root cause (stale position? distance calc?)
+- [ ] **Pause on untargetable monster** — cavebot pauses when it sees a monster but can't target it (e.g. behind wall, unreachable), blocking progress
+- [ ] **PZ zone false pause** — cavebot pauses near monsters when player is in Protection Zone where combat isn't possible
+- [ ] **Waypoint removal broken** — deleting waypoints from a recording doesn't work correctly in the dashboard
+- [ ] **Cancelled path not handled** — when server sends cancel_walk (blocked tile/wall), cavebot doesn't adapt and keeps retrying the same failed path
 
 ### Planned Features
 - [x] **Sequence-based minimap visualization** — instead of showing one map per floor (Z level), split the recording into sequential "frames" based on floor transitions. Each time the player enters a floor, a new sequence/frame starts with a fresh map. For example: sequence 1 at Z=6 shows the initial patrol, sequence 2 at Z=7 shows the underground segment, sequence 3 at Z=6 shows the return path on a clean map. This prevents overlapping backtrack lines that make debugging impossible — each frame only shows the waypoints and actions for that continuous segment on that floor
+- [ ] **Reduce max retries to 1-2** — current 5 retries per node is too many; reduce to 1-2 to fail fast and move on
+- [ ] **Floor skip on Z mismatch** — if player is on a different Z level than the current node, skip ahead to the first node matching the current floor instead of waiting for the full sequence to repeat
+- [ ] **Door auto-open script** — either smart recording that captures door interactions, or a background action that automatically opens doors when the player walks into one
+- [ ] **Intelligent targeting (lure mode)** — instead of pausing on monster, lure it to the closest waypoint while maintaining ~3 sq distance, then continue pathing. Handle exceptions for doors and floor changes
+- [ ] **Auto-retarget on deselect** — when user manually deselects a monster and auto_targeting is enabled, retarget that same creature again
+- [ ] **AOE spell on mob clusters** — cast area-of-effect spell when 2+ monsters are within ~3 squares of the player
 - [ ] **Monster combat strategies** — move-and-attack behavior that keeps 1 square distance from the monster while fighting
 - [ ] **Real item usage support** — shovel, rope, and other usable items during cavebot navigation
 - [ ] **Terrain testing** — verify and fix playback on doors, ladders, and other interactive map objects
