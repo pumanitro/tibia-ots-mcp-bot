@@ -345,6 +345,16 @@ function WaypointLine({ wp, index }: { wp: WaypointInfo; index: number }) {
   } else if (wp.type === "use_item_ex") {
     const label = wp.label ?? `item ${wp.item_id}`;
     desc = `${label} \u2192 (${wp.to_x}, ${wp.to_y}, ${wp.to_z})`;
+  } else if (wp.type === "floor_change") {
+    const pos = wp.pos;
+    const dir = wp.direction ?? "?";
+    desc = `floor_change ${dir} \u2192 (${pos[0]},${pos[1]},${pos[2]})`;
+    return (
+      <div className="text-xs text-yellow-400 font-mono whitespace-nowrap">
+        <span className="text-gray-500 mr-2">{index + 1}.</span>
+        {desc}
+      </div>
+    );
   } else {
     desc = wp.type;
   }

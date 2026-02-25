@@ -9,7 +9,6 @@ import json
 import logging
 import threading
 import time
-from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -191,13 +190,11 @@ def start_recording(state, name: str) -> str | None:
     state._recording_callback = _on_client_packet
     proxy.register_client_packet_callback(_on_client_packet)
 
-    # Position tracking thread — polls game_state.position every 200ms
-    # and records a waypoint whenever it changes.
-    last_pos = list(pos)
+    # Server event draining thread — polls game_state.server_events every 50ms
+    # and records floor_change / cancel_walk / tile_transform as waypoints.
     stop_event = threading.Event()
 
-    def _poll_position():
-        nonlocal last_pos
+    def _drain_events():
         while not stop_event.is_set():
             stop_event.wait(0.05)
             if not state.recording_active:
@@ -213,35 +210,35 @@ def start_recording(state, name: str) -> str | None:
                 t_elapsed = round(ts - state.recording_start_time, 1)
                 if event_type in ("floor_change_up", "floor_change_down"):
                     direction = "up" if event_type == "floor_change_up" else "down"
+                    evt_pos = event_data.get("pos", list(gs.position))
                     state.recording_waypoints.append({
                         "type": "floor_change",
                         "direction": direction,
-                        "pos": event_data.get("pos", list(gs.position)),
+                        "pos": evt_pos,
                         "z": event_data.get("z", gs.position[2]),
                         "t": t_elapsed,
                     })
-                    log.info(f"[REC] floor_change {direction} z={event_data.get('z')}")
+                    log.info(f"[REC] floor_change {direction} pos=({evt_pos[0]},{evt_pos[1]},{evt_pos[2]})")
                 elif event_type == "cancel_walk":
+                    evt_pos = event_data.get("pos", list(gs.position))
                     state.recording_waypoints.append({
                         "type": "cancel_walk",
                         "direction": event_data.get("direction", 0),
-                        "pos": event_data.get("pos", list(gs.position)),
+                        "pos": evt_pos,
                         "t": t_elapsed,
                     })
-                    log.info(f"[REC] cancel_walk dir={event_data.get('direction')}")
+                    log.info(f"[REC] cancel_walk dir={event_data.get('direction')} pos=({evt_pos[0]},{evt_pos[1]},{evt_pos[2]})")
+                elif event_type == "tile_transform_item":
+                    state.recording_waypoints.append({
+                        "type": "tile_transform_item",
+                        "x": event_data["x"],
+                        "y": event_data["y"],
+                        "z": event_data["z"],
+                        "t": t_elapsed,
+                    })
 
-            current = list(gs.position)
-            if current != last_pos:
-                t_elapsed = round(time.time() - state.recording_start_time, 1)
-                state.recording_waypoints.append({
-                    "type": "position",
-                    "pos": current,
-                    "t": t_elapsed,
-                })
-                last_pos = current
-
-    state._recording_position_stop = stop_event
-    threading.Thread(target=_poll_position, daemon=True).start()
+    state._recording_event_stop = stop_event
+    threading.Thread(target=_drain_events, daemon=True).start()
 
     log.info(f"Recording started: '{name}' at {pos}")
     return None
@@ -252,11 +249,11 @@ def stop_recording(state, *, discard: bool = False) -> dict | None:
     if not state.recording_active:
         return None
 
-    # Stop position tracking thread
-    stop_event = getattr(state, "_recording_position_stop", None)
+    # Stop event draining thread
+    stop_event = getattr(state, "_recording_event_stop", None)
     if stop_event:
         stop_event.set()
-    state._recording_position_stop = None
+    state._recording_event_stop = None
 
     # Unregister callback
     cb = getattr(state, "_recording_callback", None)
@@ -363,6 +360,34 @@ def _manhattan(a, b) -> int:
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
 
+# How many waypoints to look ahead for effect detection after a far use_item.
+_EFFECT_LOOKAHEAD = 15
+
+
+def _has_effect_after(waypoints: list[dict], start: int, player_z: int,
+                      target_x: int, target_y: int, target_z: int) -> bool:
+    """Check if a use_item had an observable effect (floor change or tile update at target).
+
+    Detects:
+    - Stairs/ladders: floor_change waypoints from server events
+    - Doors: tile_transform_item at the target position (server replaced closed→open item)
+
+    Stops scanning at the next use_item to avoid false attribution.
+    """
+    for j in range(start + 1, min(start + _EFFECT_LOOKAHEAD, len(waypoints))):
+        nwp = waypoints[j]
+        nt = nwp.get("type", "")
+        if nt == "floor_change":
+            return True
+        if nt == "tile_transform_item":
+            if nwp["x"] == target_x and nwp["y"] == target_y and nwp["z"] == target_z:
+                return True
+        # Stop at the next use_item — effects after it belong to that item
+        if nt == "use_item":
+            return False
+    return False
+
+
 def _is_map_click_walk(wp: dict) -> bool:
     """True if this use_item is a map-click walk (far tile, any floor).
 
@@ -428,14 +453,15 @@ def build_actions_map(recording: dict) -> list[dict]:
         wp = waypoints[i]
         wp_type = wp.get("type", "")
 
-        if wp_type in ("position", "floor_change", "cancel_walk"):
+        if wp_type in ("position", "floor_change", "cancel_walk", "tile_transform_item"):
             # Informational-only waypoints; skip them.
             i += 1
             continue
 
         if wp_type == "use_item" and _is_map_click_walk(wp):
-            # Collect consecutive far use_items, skipping position waypoints
-            group = []
+            # Collect consecutive far use_items with their original indices
+            group_start = i
+            group = []  # list of (original_index, waypoint)
             while i < len(waypoints):
                 wpi = waypoints[i]
                 wpi_type = wpi.get("type", "")
@@ -443,36 +469,33 @@ def build_actions_map(recording: dict) -> list[dict]:
                     i += 1
                     continue
                 if _is_map_click_walk(wpi):
-                    group.append(wpi)
+                    group.append((i, wpi))
                     i += 1
                 else:
                     break
+            group_end = i - 1  # last index consumed
 
-            # Count how many times each target (x,y,z) appears.
-            # Repeated targets = real interactions (ladder/door clicked
-            # multiple times from different positions as the player walks).
-            # Unique targets = ground-click walks.
-            target_counts = Counter(
-                (g["x"], g["y"], g["z"]) for g in group
-            )
-
-            # Process in order: consecutive walk clicks get path-simplified,
-            # real interactions get emitted as use_item nodes.
-            walk_run = []
+            # Detect real interactions:
+            # 1. Floor change after use_item → stairs/ladder (auto-detected)
+            # 2. Item ID in DOOR_ITEM_IDS → door (whitelist, can't detect by effect)
+            # Everything else → ground-click walk.
+            walk_run = []  # list of (orig_idx, waypoint)
 
             def _flush_walk_run():
                 if not walk_run:
                     return
                 nonlocal first_ground_item_id
+                run_start = walk_run[0][0]
+                run_end = walk_run[-1][0]
                 path = []
-                for wg in walk_run:
+                for wr_idx, wg in walk_run:
                     px, py, pz = wg["pos"][0], wg["pos"][1], wg["pos"][2]
                     pt = (px, py, pz, wg["item_id"], wg.get("stack_pos", 1))
                     if not path or (pt[0], pt[1], pt[2]) != (path[-1][0], path[-1][1], path[-1][2]):
                         path.append(pt)
                     if first_ground_item_id is None:
                         first_ground_item_id = wg["item_id"]
-                last_wg = walk_run[-1]
+                last_wg = walk_run[-1][1]
                 final_z = last_wg["pos"][2]
                 final = (last_wg["x"], last_wg["y"], final_z,
                          last_wg["item_id"], last_wg.get("stack_pos", 1))
@@ -485,13 +508,17 @@ def build_actions_map(recording: dict) -> list[dict]:
                         "target": [pt[0], pt[1], pt[2]],
                         "item_id": pt[3],
                         "stack_pos": pt[4],
+                        "wp_range": [run_start, run_end],
                     })
                 walk_run.clear()
 
-            for g in group:
-                tgt = (g["x"], g["y"], g["z"])
-                if target_counts[tgt] >= 2:
-                    # Real interaction — flush any pending walks, emit use_item
+            for orig_idx, g in group:
+                is_interactive = _has_effect_after(
+                    waypoints, orig_idx, g["pos"][2],
+                    g["x"], g["y"], g["z"],
+                )
+                if is_interactive:
+                    # Real interaction — flush pending walks, emit use_item
                     _flush_walk_run()
                     nodes.append({
                         "type": "use_item",
@@ -502,9 +529,10 @@ def build_actions_map(recording: dict) -> list[dict]:
                         "index": g.get("index", 0),
                         "label": g.get("label", f"Use item {g['item_id']}"),
                         "player_pos": g["pos"],
+                        "wp_range": [orig_idx, orig_idx],
                     })
                 else:
-                    walk_run.append(g)
+                    walk_run.append((orig_idx, g))
 
             _flush_walk_run()
 
@@ -521,11 +549,13 @@ def build_actions_map(recording: dict) -> list[dict]:
                 "index": wp.get("index", 0),
                 "label": wp.get("label", f"Use item {wp['item_id']}"),
                 "player_pos": wp["pos"],
+                "wp_range": [i, i],
             })
             i += 1
 
         elif wp_type == "walk":
             # Collect consecutive walks, skipping position waypoints
+            walk_start = i
             walks = [wp]
             j = i + 1
             while j < len(waypoints):
@@ -558,12 +588,14 @@ def build_actions_map(recording: dict) -> list[dict]:
                     path.append(pt)
 
             simplified = _simplify_path(path)
+            walk_end = j - 1
             for pt in simplified:
                 nodes.append({
                     "type": "walk_to",
                     "target": [pt[0], pt[1], pt[2]],
                     "item_id": pt[3],
                     "stack_pos": pt[4],
+                    "wp_range": [walk_start, walk_end],
                 })
 
             i = j
@@ -583,6 +615,7 @@ def build_actions_map(recording: dict) -> list[dict]:
                 "to_stack_pos": wp.get("to_stack_pos", 0),
                 "label": wp.get("label", f"Use item {wp['item_id']}"),
                 "player_pos": wp["pos"],
+                "wp_range": [i, i],
             })
             i += 1
 
@@ -596,6 +629,9 @@ def build_actions_map(recording: dict) -> list[dict]:
             prev = deduped[-1]
             if (n["type"] == prev["type"]
                     and n["target"] == prev["target"]):
+                # Merge wp_range: extend the previous node's range
+                if "wp_range" in prev and "wp_range" in n:
+                    prev["wp_range"][1] = max(prev["wp_range"][1], n["wp_range"][1])
                 continue  # skip duplicate
             deduped.append(n)
         nodes = deduped
@@ -625,25 +661,28 @@ def actions_map_to_text(actions_map: list[dict]) -> str:
         t = node["target"]
         pos_str = f"({t[0]},{t[1]},{t[2]})"
         ntype = node["type"]
+        # Waypoint range suffix — e.g. " [wp 35-55]"
+        wp_range = node.get("wp_range")
+        wp_str = f" [wp {wp_range[0]+1}-{wp_range[1]+1}]" if wp_range else ""
 
         if ntype == "walk_to":
             exact = " [exact]" if node.get("exact") else ""
-            lines.append(f"{i+1}. walk_to {pos_str}{exact}")
+            lines.append(f"{i+1}. walk_to {pos_str}{exact}{wp_str}")
         elif ntype == "use_item":
             label = node.get("label", f"item {node['item_id']}")
             # Detect floor change: if target z != player z
             ppos = node.get("player_pos", t)
             if t[2] != ppos[2]:
-                lines.append(f"{i+1}. use_item {label} {pos_str} *floor change*")
+                lines.append(f"{i+1}. use_item {label} {pos_str} *floor change*{wp_str}")
             else:
-                lines.append(f"{i+1}. use_item {label} {pos_str}")
+                lines.append(f"{i+1}. use_item {label} {pos_str}{wp_str}")
         elif ntype == "use_item_ex":
             label = node.get("label", f"item {node['item_id']}")
-            lines.append(f"{i+1}. use_item_ex {label} {pos_str}")
+            lines.append(f"{i+1}. use_item_ex {label} {pos_str}{wp_str}")
         elif ntype == "walk_steps":
             label = node.get("label", "floor change")
             dirs = ", ".join(s["direction"] for s in node.get("steps", []))
-            lines.append(f"{i+1}. walk_steps {pos_str} *{label}* [{dirs}]")
+            lines.append(f"{i+1}. walk_steps {pos_str} *{label}* [{dirs}]{wp_str}")
 
     return "\n".join(lines)
 

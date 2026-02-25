@@ -80,6 +80,11 @@ class OTProxy:
         self._ts_xtea_captured = None
         self._ts_logged_in = None
 
+        # Ghost Mode state
+        self._saved_login_packet: bytes | None = None
+        self._ghost_mode: bool = False
+        self._ghost_reconnect_event: asyncio.Event = asyncio.Event()
+
     # ── Client packet callback registry ────────────────────────────
     def register_client_packet_callback(self, callback):
         if callback not in self._client_packet_callbacks:
@@ -183,11 +188,7 @@ class OTProxy:
             if self.is_login_proxy:
                 await self._handle_login_session()
             else:
-                await asyncio.gather(
-                    self._relay_client_to_server(),
-                    self._relay_server_to_client(),
-                    self._process_inject_queue(),
-                )
+                await self._run_relay_loop()
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -361,6 +362,69 @@ class OTProxy:
         """Wrap data with length header."""
         return struct.pack('<H', len(data)) + data
 
+    async def _run_relay_loop(self):
+        """Supervised relay loop that supports ghost mode reconnection.
+
+        Creates 3 relay tasks and monitors them. During ghost mode, when the
+        server relay ends (due to ghost_disconnect closing the server socket),
+        it waits for ghost_reconnect to signal before restarting all relays.
+        """
+        while True:
+            client_task = asyncio.create_task(self._relay_client_to_server())
+            server_task = asyncio.create_task(self._relay_server_to_client())
+            inject_task = asyncio.create_task(self._process_inject_queue())
+            tasks = {client_task, server_task, inject_task}
+
+            try:
+                done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            except asyncio.CancelledError:
+                for t in tasks:
+                    t.cancel()
+                for t in tasks:
+                    try:
+                        await t
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                raise
+
+            # Check what ended
+            server_ended = server_task in done
+            client_ended = client_task in done
+
+            if self._ghost_mode and server_ended:
+                # Ghost disconnect: server relay ended, client still connected.
+                # Cancel remaining tasks and wait for ghost_reconnect signal.
+                for t in pending:
+                    t.cancel()
+                for t in pending:
+                    try:
+                        await t
+                    except (asyncio.CancelledError, Exception):
+                        pass
+
+                log.info("[GHOST] Server relay ended, waiting for reconnect signal...")
+                self._ghost_reconnect_event.clear()
+                try:
+                    await asyncio.wait_for(self._ghost_reconnect_event.wait(), timeout=30.0)
+                except asyncio.TimeoutError:
+                    log.error("[GHOST] Reconnect timeout (30s), ending session")
+                    break
+                except asyncio.CancelledError:
+                    raise
+
+                log.info("[GHOST] Reconnect signal received, restarting relays")
+                continue  # loop back, create new relay tasks
+            else:
+                # Normal end: client disconnected, or server disconnected without ghost mode
+                for t in pending:
+                    t.cancel()
+                for t in pending:
+                    try:
+                        await t
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                break
+
     async def _relay_client_to_server(self):
         """Relay packets from client to server, intercepting login."""
         while True:
@@ -372,21 +436,39 @@ class OTProxy:
             self.packets_from_client += 1
 
             if self.server_writer is None:
+                if self._ghost_mode:
+                    continue  # Ghost disconnect in progress — drop packet
                 log.warning("Server writer gone, stopping client relay")
                 break
 
-            if not self.logged_in:
-                processed = self._process_login_packet(raw)
-                if processed is not None:
+            try:
+                if not self.logged_in:
+                    if self.xtea_keys is None:
+                        # True login phase: extract XTEA keys
+                        processed = self._process_login_packet(raw)
+                        if processed is not None:
+                            if self._saved_login_packet is None and self.xtea_keys is not None:
+                                self._saved_login_packet = raw
+                                log.info(f"[GHOST] Saved login packet ({len(raw)} bytes)")
+                            self.server_writer.write(self._wrap_packet(processed))
+                            await self.server_writer.drain()
+                        else:
+                            self.server_writer.write(self._wrap_packet(raw))
+                            await self.server_writer.drain()
+                    else:
+                        # Ghost reconnect: XTEA keys already known, treat as game packet
+                        processed = self._process_client_game_packet(raw)
+                        self.server_writer.write(self._wrap_packet(processed))
+                        await self.server_writer.drain()
+                else:
+                    processed = self._process_client_game_packet(raw)
                     self.server_writer.write(self._wrap_packet(processed))
                     await self.server_writer.drain()
-                else:
-                    self.server_writer.write(self._wrap_packet(raw))
-                    await self.server_writer.drain()
-            else:
-                processed = self._process_client_game_packet(raw)
-                self.server_writer.write(self._wrap_packet(processed))
-                await self.server_writer.drain()
+            except (ConnectionError, OSError):
+                if self._ghost_mode:
+                    log.debug("[GHOST] Client relay write failed (server closing), dropping packet")
+                    continue
+                raise
 
     async def _relay_server_to_client(self):
         """Relay packets from server to client."""
@@ -602,3 +684,41 @@ class OTProxy:
     def get_proxy_rsa_public_key(self) -> str:
         """Get the proxy's RSA public key as a decimal string."""
         return str(self.proxy_rsa_key.n)
+
+    # ── Ghost Mode ───────────────────────────────────────────────────
+
+    async def ghost_disconnect(self):
+        """Close only the server socket. Server sees TCP disconnect (→ 30s invisibility).
+        Client connection stays alive."""
+        self._ghost_mode = True
+        self._ghost_reconnect_event.clear()
+        self.logged_in = False
+        if self.server_writer:
+            try:
+                self.server_writer.close()
+                await self.server_writer.wait_closed()
+            except Exception:
+                pass
+        self.server_writer = None
+        self.server_reader = None
+
+    async def ghost_reconnect(self) -> bool:
+        """Open a new TCP to the server and replay the saved login packet.
+        Returns True on success, False on failure."""
+        if self._saved_login_packet is None:
+            log.error("[GHOST] No saved login packet — cannot reconnect")
+            return False
+        try:
+            self.server_reader, self.server_writer = await asyncio.open_connection(
+                self.server_host, self.server_port)
+            self.server_writer.write(self._wrap_packet(self._saved_login_packet))
+            await self.server_writer.drain()
+            self._inject_queue = asyncio.Queue()  # discard stale queued packets
+            self._ghost_reconnect_event.set()      # signal relay loop to restart
+            log.info("[GHOST] Reconnected to server, login packet replayed")
+            return True
+        except Exception as e:
+            log.error(f"[GHOST] Reconnect failed: {e}")
+            self.server_writer = None
+            self.server_reader = None
+            return False

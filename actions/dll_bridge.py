@@ -267,6 +267,14 @@ async def run(bot):
                                 px, py, pz = cx, cy, cz
                                 if old[2] != cz:
                                     _dbg(f"player z changed: {old} -> ({cx},{cy},{cz})")
+                                    # Generate floor_change event for cavebot recording
+                                    import time as _time
+                                    direction = "up" if cz < old[2] else "down"
+                                    evt_type = f"floor_change_{direction}"
+                                    gs.server_events.append((
+                                        _time.time(), evt_type,
+                                        {"pos": [cx, cy, cz], "z": cz}
+                                    ))
                         # Update HP from memory (creature health %) — much more
                         # reliable than packet parsing during combat
                         hp_pct = c.get("hp", 0)

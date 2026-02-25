@@ -95,6 +95,7 @@ export interface ActionsMapNode {
   x?: number;
   y?: number;
   z?: number;
+  wp_range?: [number, number];
 }
 
 export interface ActionsMapResponse {

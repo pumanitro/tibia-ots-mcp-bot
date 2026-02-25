@@ -111,8 +111,8 @@ CANCEL_WALK = "cancel_walk"
 
 async def _wait_for_position(bot, expected_pos, timeout, tolerance=0, abort_on_floor_change=False):
     """Wait until game_state.position is within tolerance of expected_pos (or timeout).
-    Returns True if arrived, FLOOR_CHANGED if floor changed (when abort_on_floor_change),
-    CANCEL_WALK if server rejected a walk, else False.
+    Returns True if arrived, a dict (event data with "pos") or FLOOR_CHANGED if floor changed
+    (when abort_on_floor_change), CANCEL_WALK if server rejected a walk, else False.
     """
     start = time.time()
     start_z = bot.position[2]
@@ -123,13 +123,35 @@ async def _wait_for_position(bot, expected_pos, timeout, tolerance=0, abort_on_f
                 and abs(current[1] - expected_pos[1]) <= tolerance
                 and current[2] == expected_pos[2]):
             return True
-        if abort_on_floor_change and current[2] != start_z:
-            return FLOOR_CHANGED
+        if abort_on_floor_change:
+            # Event-driven: scan server_events for floor_change with position data
+            for evt in gs.server_events:
+                ts, etype, edata = evt
+                if ts > start and etype in ("floor_change_up", "floor_change_down"):
+                    return edata  # {"pos": [x, y, new_z], "z": new_z}
+            # Fallback: position polling
+            if current[2] != start_z:
+                return FLOOR_CHANGED
         # Server rejected the walk — bail immediately for fast retry
         if gs.cancel_walk_time > start:
             return CANCEL_WALK
         await bot.sleep(0.05)
     return False
+
+
+def _is_floor_change(result):
+    """Check if a _wait_for_position result indicates a floor change."""
+    return result == FLOOR_CHANGED or isinstance(result, dict)
+
+
+def _log_floor_change(bot, result, prefix):
+    """Log a floor change result from _wait_for_position."""
+    if isinstance(result, dict):
+        landed = result["pos"]
+        bot.log(f"{prefix}   -> ({landed[0]},{landed[1]},{landed[2]}) [floor changed]")
+    else:
+        after = bot.position
+        bot.log(f"{prefix}   -> ({after[0]},{after[1]},{after[2]}) [floor changed]")
 
 
 async def _execute_walk_to(bot, node, prefix="", exact=False):
@@ -140,6 +162,8 @@ async def _execute_walk_to(bot, node, prefix="", exact=False):
     current = bot.position
     start_z = current[2]
     dist = _distance(current, target)
+    cancel_count = 0
+    last_cancel_pos = None
 
     bot.log(f"{prefix} walk_to ({target[0]},{target[1]},{target[2]}) dist={dist}{' [exact]' if exact else ''}")
 
@@ -174,15 +198,43 @@ async def _execute_walk_to(bot, node, prefix="", exact=False):
                                           tolerance=wait_tol,
                                           abort_on_floor_change=exact)
 
-        if result == FLOOR_CHANGED:
-            after = bot.position
-            bot.log(f"{prefix}   -> ({after[0]},{after[1]},{after[2]}) [floor changed]")
+        if _is_floor_change(result):
+            _log_floor_change(bot, result, prefix)
             return True
 
         if result == CANCEL_WALK:
-            bot.log(f"{prefix}   cancel_walk at ({bot.position[0]},{bot.position[1]},{bot.position[2]}), retry")
+            pos = bot.position
+            cur_pos = (pos[0], pos[1], pos[2])
+            cancel_count += 1
+            bot.log(f"{prefix}   cancel_walk #{cancel_count} at ({pos[0]},{pos[1]},{pos[2]}) target=({target[0]},{target[1]},{target[2]})")
+            # After 3 consecutive cancel_walks at same position: try directional escape
+            if cancel_count >= 3 and last_cancel_pos == cur_pos:
+                bot.log(f"{prefix}   stuck at same position, trying directional escape")
+                escaped = False
+                for escape_dir in ["north", "east", "south", "west"]:
+                    escape_pkt = build_walk_packet(DIR_NAME_TO_ENUM[escape_dir])
+                    await bot.inject_to_server(escape_pkt)
+                    await bot.sleep(0.3)
+                    new_pos = bot.position
+                    if (new_pos[0], new_pos[1], new_pos[2]) != cur_pos:
+                        bot.log(f"{prefix}   escaped {escape_dir} to ({new_pos[0]},{new_pos[1]},{new_pos[2]})")
+                        escaped = True
+                        cancel_count = 0
+                        last_cancel_pos = None
+                        break
+                if not escaped:
+                    bot.log(f"{prefix}   escape failed, skipping node")
+                    return False
+            else:
+                if cur_pos != last_cancel_pos:
+                    cancel_count = 1
+                last_cancel_pos = cur_pos
             await bot.sleep(0.2)
             continue
+
+        # Non-cancel result: reset counter
+        cancel_count = 0
+        last_cancel_pos = None
 
         if result is True:
             after = bot.position
@@ -223,8 +275,8 @@ async def _execute_walk_to(bot, node, prefix="", exact=False):
     return dist <= tolerance + 2
 
 
-def _check_tile_update(bot, x, y, z, since_time):
-    """Check if game_state.tile_updates has an entry at (x,y,z) after since_time."""
+def _check_tile_transform(bot, x, y, z, since_time):
+    """Check if game_state.tile_updates has a transform at (x,y,z) after since_time."""
     state = _get_state()
     gs = state.game_state
     for ts, tx, ty, tz in gs.tile_updates:
@@ -273,17 +325,32 @@ async def _execute_use_item_node(bot, node, prefix=""):
     current = bot.position  # re-read after potential walk
     is_floor_change = target[2] != current[2]
 
+    gs = _get_state().game_state
+
     if is_floor_change:
-        # Floor change: send packet, wait for z to change, retry if needed
+        # Floor change: send packet, check server events first, then poll z
         for attempt in range(MAX_RETRIES):
             before = bot.position
+            before_time = time.time()
             await bot.inject_to_server(pkt)
-            arrived = await _wait_for_position(bot, target, USE_ITEM_TIMEOUT, tolerance=0)
-            after = bot.position
-            if arrived or after[2] != before[2]:
-                bot.log(f"{prefix}   [SUCCESS] -> ({after[0]},{after[1]},{after[2]})")
-                return True
+
+            deadline = time.time() + USE_ITEM_TIMEOUT
+            while time.time() < deadline:
+                # Event-driven: check for floor_change event with position
+                for evt in gs.server_events:
+                    ts, etype, edata = evt
+                    if ts > before_time and etype in ("floor_change_up", "floor_change_down"):
+                        landed = edata["pos"]
+                        bot.log(f"{prefix}   [SUCCESS] stairs -> ({landed[0]},{landed[1]},{landed[2]})")
+                        return True
+                after = bot.position
+                if after[2] != before[2]:
+                    bot.log(f"{prefix}   [SUCCESS] -> ({after[0]},{after[1]},{after[2]})")
+                    return True
+                await bot.sleep(0.05)
+
             if attempt < MAX_RETRIES - 1:
+                after = bot.position
                 bot.log(f"{prefix}   retry {attempt+1}/{MAX_RETRIES} at ({after[0]},{after[1]},{after[2]})")
         after = bot.position
         bot.log(f"{prefix}   [FAILURE] still at z={after[2]}")
@@ -297,10 +364,17 @@ async def _execute_use_item_node(bot, node, prefix=""):
             await bot.inject_to_server(pkt)
             start = time.time()
             while time.time() - start < USE_ITEM_TIMEOUT:
+                # Event-driven floor change check (unexpected stairs at same z)
+                for evt in gs.server_events:
+                    ts, etype, edata = evt
+                    if ts > before_time and etype in ("floor_change_up", "floor_change_down"):
+                        landed = edata["pos"]
+                        bot.log(f"{prefix}   [SUCCESS] floor change event -> ({landed[0]},{landed[1]},{landed[2]})")
+                        return True
                 # Check for server tile update at target coords (door opened)
-                if _check_tile_update(bot, target[0], target[1], target[2], before_time):
+                if _check_tile_transform(bot, target[0], target[1], target[2], before_time):
                     after = bot.position
-                    bot.log(f"{prefix}   [SUCCESS] tile update at ({target[0]},{target[1]},{target[2]})")
+                    bot.log(f"{prefix}   [SUCCESS] tile transform at ({target[0]},{target[1]},{target[2]})")
                     return True
                 after = bot.position
                 # Floor changed (ladder/stairs at same z going up/down)
@@ -473,7 +547,9 @@ async def run(bot):
         bot.log(actions_map_to_text(actions_map))
 
         aborted = False
-        for i, node in enumerate(actions_map):
+        i = 0
+        while i < len(actions_map):
+            node = actions_map[i]
             if not state.playback_active or not bot.is_connected:
                 break
 
@@ -554,6 +630,27 @@ async def run(bot):
             if not success:
                 state.playback_failed_nodes.add(i)
                 bot.log(f"{prefix} Node failed, continuing...")
+
+            # Auto-advance on floor mismatch: if player ended up on a
+            # different floor than the next node expects, skip ahead to
+            # the first node on the current floor.
+            current_z = bot.position[2]
+            if i + 1 < len(actions_map):
+                next_z = actions_map[i + 1]["target"][2]
+                if current_z != next_z:
+                    skip_to = None
+                    for j in range(i + 1, len(actions_map)):
+                        if actions_map[j]["target"][2] == current_z:
+                            skip_to = j
+                            break
+                    if skip_to is not None and skip_to > i + 1:
+                        skipped = skip_to - (i + 1)
+                        bot.log(f"{prefix} Floor mismatch (at z={current_z}, expected z={next_z}), "
+                                f"skipping {skipped} nodes to [{skip_to+1}/{len(actions_map)}]")
+                        i = skip_to
+                        continue
+
+            i += 1
 
         # Update minimap one final time
         state.playback_minimap = build_sequence_minimaps(

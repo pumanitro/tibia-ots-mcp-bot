@@ -614,11 +614,15 @@ async def _reset_bot() -> str:
             if hasattr(proxy, 'close_server'):
                 proxy.close_server()
             # Also close client/server sockets (unblocks relay reads)
+            # Must await wait_closed() on Windows to ensure TCP sockets are
+            # actually released, otherwise the game client stays connected
+            # to a dead socket and never reconnects to the new proxy.
             for writer_attr in ('client_writer', 'server_writer'):
                 w = getattr(proxy, writer_attr, None)
                 if w:
                     try:
                         w.close()
+                        await asyncio.wait_for(w.wait_closed(), timeout=1.0)
                     except Exception:
                         pass
 
@@ -652,7 +656,7 @@ async def _reset_bot() -> str:
             proxy.server_writer = None
             proxy.logged_in = False
 
-    await asyncio.sleep(0.5)  # Windows needs time for port release
+    await asyncio.sleep(1.0)  # Windows needs time for port release
 
     # 4. Kill dashboard (Electron + Next.js dev server)
     _kill_port(DASHBOARD_PORT)
@@ -803,8 +807,11 @@ def _close_game_connections(pid: int) -> int:
         local_port = socket.ntohs(row.dwLocalPort & 0xFFFF)
         remote_ip = socket.inet_ntoa(_struct.pack('<I', row.dwRemoteAddr))
 
-        # Close connections to game/login server ports (not localhost proxy)
-        if remote_port in (GAME_PORT, LOGIN_PORT) and remote_ip != "127.0.0.1":
+        # Close ALL connections on game/login server ports (including localhost proxy).
+        # This is called after _reset_bot() tears down the old proxy and before
+        # new proxies are created, so closing localhost connections is safe and
+        # necessary — otherwise the game client stays connected to a dead socket.
+        if remote_port in (GAME_PORT, LOGIN_PORT):
             log.info(f"Closing game connection: {remote_ip}:{remote_port} (state={row.dwState})")
             close_row = MIB_TCPROW()
             close_row.dwState = MIB_TCP_STATE_DELETE_TCB
@@ -907,6 +914,12 @@ async def start_bot() -> str:
     def on_login_success(keys):
         state.ready = True
         log.info("=== BOT READY — game session established ===")
+
+        # Ghost mode: actions already running, skip auto-start
+        if state.game_proxy and getattr(state.game_proxy, '_ghost_mode', False):
+            log.info("[GHOST] Reconnect login — skipping action auto-start")
+            return
+
         # Signal the login-wait task immediately (no polling delay)
         event = getattr(state, '_login_event', None)
         if event:
