@@ -18,6 +18,7 @@
 #include <cstdlib>
 #include <cstdarg>
 #include <cstdint>
+#include <csetjmp>
 
 // ── Safe memory copy (replaces deprecated IsBadReadPtr) ─────────────
 // MinGW does not support MSVC __try/__except in C++.  Use
@@ -116,6 +117,18 @@ static int  g_scan_count = 0;
 static uintptr_t g_map_addr = 0;           // address of the std::map header
 static volatile BOOL g_use_map_scan = FALSE; // feature flag: use tree walk vs VirtualQuery
 static int g_map_scan_count = 0;
+
+// ── Crash recovery (setjmp/longjmp + VEH) ──────────────────────────
+// MinGW doesn't support MSVC __try/__except.  Instead, setjmp saves
+// the call point and the VEH handler longjmp's back on access violation.
+// Thread IDs prevent cross-thread longjmp (undefined behavior).
+static jmp_buf  g_scan_jmpbuf;               // scan thread recovery point
+static volatile BOOL g_scan_recovery = FALSE; // armed when scan is in progress
+static DWORD    g_scan_thread_id = 0;         // pipe/scan thread ID
+
+static jmp_buf  g_attack_jmpbuf;              // game thread recovery point
+static volatile BOOL g_attack_recovery = FALSE;
+static DWORD    g_attack_thread_id = 0;       // game thread ID (from WndProc)
 
 // ── WndProc hook state ──────────────────────────────────────────────
 #define WM_BOT_TARGET (WM_USER + 100)
@@ -1291,20 +1304,32 @@ static void __cdecl do_game_target_update(void) {
 
     dbg("[GTUPD] Game::attack(&%p) id=0x%08X hp=%u", (void*)creature_ptr, cid, hp);
 
+    // Arm crash recovery: if Game::attack dereferences a stale Creature*,
+    // the VEH handler will longjmp back here instead of crashing the game.
+    g_attack_recovery = TRUE;
+    if (setjmp(g_attack_jmpbuf) != 0) {
+        // Recovered from AV inside Game::attack or sendAttackCreature
+        dbg("[GTUPD] VEH recovered from AV during Game::attack — stale Creature* %p id=0x%08X",
+            (void*)creature_ptr, cid);
+        g_last_attack_target_cid = 0;
+        g_pending_creature_ptr = 0;
+        return;
+    }
+
     // 1. Call Game::attack for UI (red square, battle list, Lua callback)
     uintptr_t creature_ref = creature_ptr;
     typedef void (__attribute__((thiscall)) *Game_attack_fn)(void* game_this, uintptr_t* creature_ref);
     Game_attack_fn attack_fn = (Game_attack_fn)func_addr;
     attack_fn((void*)game_obj, &creature_ref);
 
-    // 2. Call sendAttackCreature for network (actual combat + follow)
-    //    Signature: __thiscall ProtocolGame::sendAttackCreature(uint32_t cid, uint32_t seq)
-    //    ECX = protocol (Game+0x18), stack = (creature_id, seq)
-    //    Seq comes from Game+0x70 (increment first, like the tick function does)
+    // 2. Call sendAttackCreature for network (actual combat + follow).
+    //    In DBVictory, Game::attack() only updates UI — it does NOT send
+    //    the network packet internally (unlike standard OTClient).
+    //    This explicit call is required for combat to work and for the
+    //    proxy to see ATTACK packets (used by auto_rune, etc.).
     uintptr_t proto = 0;
     safe_memcpy(&proto, (void*)(game_obj + OFF_GAME_PROTOCOL), 4);
     if (proto > 0x10000) {
-        // Increment seq counter then read it
         volatile uint32_t* seq_ptr = (volatile uint32_t*)(game_obj + OFF_GAME_SEQ);
         uint32_t seq = InterlockedIncrement((volatile LONG*)seq_ptr);
 
@@ -1316,6 +1341,7 @@ static void __cdecl do_game_target_update(void) {
         dbg("[GTUPD] no protocol — skipped sendAttackCreature");
     }
 
+    g_attack_recovery = FALSE;  // disarm
     g_last_attack_target_cid = cid;
     dbg("[GTUPD] target locked 0x%08X", cid);
 }
@@ -1608,7 +1634,7 @@ static void scan_gmap(void) {
 
 // Walk the creature map tree and populate g_addrs[].
 // Returns the number of creatures found.
-static int walk_creature_map(void) {
+static int walk_creature_map_inner(void) {
     if (!g_map_addr) return -1;
 
     uint8_t hdr[8];
@@ -1735,6 +1761,22 @@ static int walk_creature_map(void) {
     return found_count;
 }
 
+// Crash-safe wrapper: uses setjmp + VEH longjmp to recover from access
+// violations caused by stale tree pointers during the scan.  Without this,
+// a single race condition between the scan thread and the game thread
+// modifying the red-black tree brings down the entire game process.
+static int walk_creature_map(void) {
+    g_scan_recovery = TRUE;
+    if (setjmp(g_scan_jmpbuf) != 0) {
+        // VEH handler caught an AV and longjmp'd back here
+        dbg("[MAP] VEH recovered from AV during tree walk — skipping cycle");
+        return -1;
+    }
+    int result = walk_creature_map_inner();
+    g_scan_recovery = FALSE;
+    return result;
+}
+
 // Find a specific creature by ID using the map tree (O(log n) binary search).
 static uintptr_t find_creature_in_map(uint32_t creature_id) {
     if (!g_map_addr) return 0;
@@ -1784,6 +1826,9 @@ static uintptr_t find_creature_in_map(uint32_t creature_id) {
 
 static LRESULT CALLBACK bot_wndproc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     if (msg == WM_BOT_TARGET) {
+        // Capture game thread ID on first call (WndProc runs on the game's UI thread)
+        if (!g_attack_thread_id)
+            g_attack_thread_id = GetCurrentThreadId();
         do_game_target_update();
         return 0;
     }
@@ -3226,7 +3271,8 @@ static void parse_command(const char* line) {
 static DWORD WINAPI pipe_thread(LPVOID param) {
     (void)param;
     dbg_open();
-    dbg("pipe_thread started");
+    g_scan_thread_id = GetCurrentThreadId();
+    dbg("pipe_thread started (tid=%lu)", g_scan_thread_id);
 
     while (g_running) {
         HANDLE pipe = CreateNamedPipeA(
@@ -3383,8 +3429,32 @@ static void crash_log_open(const char* dir) {
 static LONG WINAPI crash_handler(EXCEPTION_POINTERS* ep) {
     if (!ep || !ep->ExceptionRecord || !ep->ContextRecord)
         return EXCEPTION_CONTINUE_SEARCH;
-    // Skip benign / OS-internal exceptions — logging during these can corrupt heap
+
     DWORD code = ep->ExceptionRecord->ExceptionCode;
+
+    // ── Crash recovery via longjmp ──────────────────────────────────
+    // If a protected code region (tree scan or game_attack) hit an AV,
+    // recover by longjmp'ing back to the setjmp point instead of
+    // crashing the game.  Thread ID check prevents cross-thread longjmp.
+    if (code == EXCEPTION_ACCESS_VIOLATION) {
+        DWORD tid = GetCurrentThreadId();
+        if (g_scan_recovery && tid == g_scan_thread_id) {
+            g_scan_recovery = FALSE;
+            dbg("[VEH] recovering scan thread from AV at EIP=0x%08X",
+                (unsigned)ep->ContextRecord->Eip);
+            longjmp(g_scan_jmpbuf, 1);
+            // NOT REACHED
+        }
+        if (g_attack_recovery && tid == g_attack_thread_id) {
+            g_attack_recovery = FALSE;
+            dbg("[VEH] recovering game thread from AV at EIP=0x%08X",
+                (unsigned)ep->ContextRecord->Eip);
+            longjmp(g_attack_jmpbuf, 1);
+            // NOT REACHED
+        }
+    }
+
+    // Skip benign / OS-internal exceptions — logging during these can corrupt heap
     if (code == 0xE24C4A02 || code == 0xE0434352 || code == 0x406D1388)
         return EXCEPTION_CONTINUE_SEARCH;
     if (code == 0x80000001  // STATUS_GUARD_PAGE_VIOLATION (stack/heap growth)

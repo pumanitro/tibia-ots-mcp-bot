@@ -587,11 +587,15 @@ class OTProxy:
                 if target == 'server' and self.server_writer:
                     self.server_writer.write(packet)
                     await self.server_writer.drain()
-                    log.debug(f"Injected to server: opcode=0x{payload[0]:02X}")
+                    log.info(f"Injected to server: opcode=0x{payload[0]:02X} len={len(payload)}B")
                 elif target == 'client' and self.client_writer:
                     self.client_writer.write(packet)
                     await self.client_writer.drain()
-                    log.debug(f"Injected to client: opcode=0x{payload[0]:02X}")
+                    log.info(f"Injected to client: opcode=0x{payload[0]:02X} len={len(payload)}B")
+                else:
+                    log.warning(f"Inject DROPPED: target={target} "
+                                f"server_writer={self.server_writer is not None} "
+                                f"client_writer={self.client_writer is not None}")
             except Exception as e:
                 log.error(f"Injection error: {e}")
 

@@ -918,6 +918,185 @@ class TestStairTransitionDestination:
                 )
 
 
+# ── Far use_item interaction preservation ─────────────────────────────
+
+class TestFarUseItemPreservation:
+    """Tests that far use_items (distance > 1) with repeated targets are
+    preserved as use_item nodes, not converted to walk_to.
+
+    When right-clicking to walk, each click targets a DIFFERENT ground tile.
+    When interacting with a ladder/door from far away, the player clicks the
+    SAME target multiple times (the game auto-walks then uses).  Repeated
+    targets (count >= 2) are real interactions.
+    """
+
+    def test_repeated_far_use_item_is_use_item(self):
+        """Two clicks on the same far ladder → use_item node (deduped to 1)."""
+        wps = [
+            _use_item(137, 579, 7, 1968, player_pos=(140, 575, 7)),
+            _use_item(137, 579, 7, 1968, player_pos=(138, 577, 7)),
+        ]
+        nodes = build_actions_map(_rec(wps))
+        # Should produce use_item, not walk_to
+        use_items = [n for n in nodes if n["type"] == "use_item"]
+        assert len(use_items) >= 1, (
+            f"Repeated far use_item should be preserved as use_item, got: {_targets(nodes)}"
+        )
+        assert use_items[0]["target"] == [137, 579, 7]
+        assert use_items[0]["item_id"] == 1968
+
+    def test_single_far_use_item_is_walk_to(self):
+        """One click on a far ground tile → walk_to (no repetition)."""
+        wps = [
+            _use_item(129, 581, 6, 486, player_pos=(132, 582, 6)),
+        ]
+        nodes = build_actions_map(_rec(wps))
+        for n in nodes:
+            assert n["type"] == "walk_to", (
+                f"Single far use_item should be walk_to, got: {_targets(nodes)}"
+            )
+
+    def test_mixed_group_walks_and_interactions(self):
+        """Group with ground walks and repeated ladder clicks: walks → walk_to,
+        ladder → use_item."""
+        wps = [
+            # Walk clicks (unique targets)
+            _use_item(120, 200, 7, 486, player_pos=(100, 200, 7)),
+            _use_item(130, 200, 7, 486, player_pos=(120, 200, 7)),
+            # Ladder clicks (same target, repeated)
+            _use_item(137, 200, 7, 1968, player_pos=(130, 200, 7)),
+            _use_item(137, 200, 7, 1968, player_pos=(135, 200, 7)),
+        ]
+        nodes = build_actions_map(_rec(wps))
+        walk_nodes = [n for n in nodes if n["type"] == "walk_to"]
+        use_nodes = [n for n in nodes if n["type"] == "use_item"]
+        assert len(walk_nodes) >= 1, "Walk clicks should produce walk_to"
+        assert len(use_nodes) >= 1, "Repeated ladder clicks should produce use_item"
+        assert use_nodes[0]["target"] == [137, 200, 7]
+
+    def test_position_waypoints_between_far_use_items(self):
+        """Position waypoints between far use_items should not break grouping."""
+        wps = [
+            _use_item(137, 579, 7, 1968, player_pos=(140, 575, 7)),
+            _position((139, 576, 7)),
+            _position((138, 577, 7)),
+            _use_item(137, 579, 7, 1968, player_pos=(138, 577, 7)),
+        ]
+        nodes = build_actions_map(_rec(wps))
+        use_items = [n for n in nodes if n["type"] == "use_item"]
+        assert len(use_items) >= 1, (
+            f"Position waypoints should not prevent use_item detection, got: {_targets(nodes)}"
+        )
+        assert use_items[0]["target"] == [137, 579, 7]
+
+    def test_real_recording_ladder_and_door(self):
+        """Reproduce the user's real recording: ladder (1968) and door (1771)
+        interleaved with ground walk (486).
+
+        use_item 1968 at (137,579,7) — 2x = ladder (real interaction)
+        use_item 1771 at (132,582,6) — 2x = door (real interaction)
+        use_item 486 at (129,581,6) — 1x = ground walk
+        """
+        wps = [
+            # Ladder clicks (repeated target)
+            _use_item(137, 579, 7, 1968, player_pos=(140, 575, 7)),
+            _position((139, 576, 7)),
+            _use_item(137, 579, 7, 1968, player_pos=(138, 577, 7)),
+            _position((137, 579, 6)),  # floor changed after ladder
+            # Door clicks (repeated target)
+            _use_item(132, 582, 6, 1771, player_pos=(135, 580, 6)),
+            _position((134, 581, 6)),
+            _use_item(132, 582, 6, 1771, player_pos=(133, 581, 6)),
+            _position((132, 582, 6)),
+            # Ground walk (single click)
+            _use_item(129, 581, 6, 486, player_pos=(132, 582, 6)),
+        ]
+        nodes = build_actions_map(_rec(wps))
+        types_targets = _targets(nodes)
+
+        # Ladder should be use_item
+        ladder_nodes = [n for n in nodes
+                        if n["type"] == "use_item" and n["item_id"] == 1968]
+        assert len(ladder_nodes) >= 1, (
+            f"Ladder (1968) should be use_item, got: {types_targets}"
+        )
+
+        # Door should be use_item
+        door_nodes = [n for n in nodes
+                      if n["type"] == "use_item" and n["item_id"] == 1771]
+        assert len(door_nodes) >= 1, (
+            f"Door (1771) should be use_item, got: {types_targets}"
+        )
+
+        # Ground should be walk_to
+        walk_nodes = [n for n in nodes if n["type"] == "walk_to"]
+        assert len(walk_nodes) >= 1, (
+            f"Ground click (486) should be walk_to, got: {types_targets}"
+        )
+
+    def test_three_clicks_same_target_is_interaction(self):
+        """Three clicks on the same target → definitely a real interaction."""
+        wps = [
+            _use_item(137, 579, 7, 1968, player_pos=(142, 575, 7)),
+            _use_item(137, 579, 7, 1968, player_pos=(140, 577, 7)),
+            _use_item(137, 579, 7, 1968, player_pos=(138, 578, 7)),
+        ]
+        nodes = build_actions_map(_rec(wps))
+        # All three have same target → interaction; dedup collapses to 1
+        use_items = [n for n in nodes if n["type"] == "use_item"]
+        assert len(use_items) == 1
+        assert use_items[0]["target"] == [137, 579, 7]
+
+    def test_interleaved_interactions_and_walks(self):
+        """Interaction → walk → interaction should preserve order."""
+        wps = [
+            # First interaction (ladder)
+            _use_item(100, 200, 7, 1968, player_pos=(105, 200, 7)),
+            _use_item(100, 200, 7, 1968, player_pos=(103, 200, 7)),
+            # Walk click
+            _use_item(90, 200, 6, 486, player_pos=(100, 200, 6)),
+            # Second interaction (door)
+            _use_item(85, 200, 6, 1771, player_pos=(90, 200, 6)),
+            _use_item(85, 200, 6, 1771, player_pos=(87, 200, 6)),
+        ]
+        nodes = build_actions_map(_rec(wps))
+        types = [n["type"] for n in nodes]
+        # Should have: use_item, walk_to, use_item (in that order)
+        assert "use_item" in types
+        assert "walk_to" in types
+        # First node should be use_item (ladder)
+        first_use = next(n for n in nodes if n["type"] == "use_item")
+        assert first_use["item_id"] == 1968
+        # Last use_item should be door
+        last_use = [n for n in nodes if n["type"] == "use_item"][-1]
+        assert last_use["item_id"] == 1771
+
+    def test_walk_before_far_interaction_marked_exact(self):
+        """Walk_to before a far use_item (ladder) should be marked exact."""
+        wps = [
+            _autowalk((140, 575, 7)),
+            # Ladder clicks (far, repeated)
+            _use_item(137, 579, 7, 1968, player_pos=(140, 575, 7)),
+            _use_item(137, 579, 7, 1968, player_pos=(138, 577, 7)),
+        ]
+        nodes = build_actions_map(_rec(wps))
+        walk_nodes = [n for n in nodes if n["type"] == "walk_to"]
+        assert len(walk_nodes) >= 1
+        # The walk before the use_item should be exact
+        assert walk_nodes[-1].get("exact") is True
+
+    def test_far_interaction_deduped_by_post_process(self):
+        """Repeated far use_items at same target get deduped to one node."""
+        wps = [
+            _use_item(137, 579, 7, 1968, player_pos=(140, 575, 7)),
+            _use_item(137, 579, 7, 1968, player_pos=(138, 577, 7)),
+        ]
+        nodes = build_actions_map(_rec(wps))
+        use_items = [n for n in nodes if n["type"] == "use_item"]
+        # Dedup collapses consecutive same-target use_items to 1
+        assert len(use_items) == 1
+
+
 # ── Position waypoints ───────────────────────────────────────────────
 
 class TestPositionWaypoints:

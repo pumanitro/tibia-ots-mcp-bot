@@ -393,6 +393,7 @@ def _build_state_json() -> str:
         entry = {
             "name": name, "enabled": enabled,
             "running": running, "description": desc,
+            "completed": name in st._action_completed,
         }
         if action_config:
             entry["config"] = action_config

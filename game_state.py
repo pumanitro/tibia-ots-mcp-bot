@@ -78,6 +78,11 @@ class GameState:
         # Tile updates ring buffer — (timestamp, x, y, z) for use_item verification
         self.tile_updates: deque = deque(maxlen=50)
 
+        # Server events ring buffer — (timestamp, event_type, data_dict)
+        self.server_events: deque = deque(maxlen=100)
+        # Timestamp of last CANCEL_WALK from server
+        self.cancel_walk_time: float = 0
+
 
 def parse_server_packet(opcode: int, reader, gs: GameState) -> None:
     """Parse the first opcode (called by the old single-opcode callback)."""
@@ -104,7 +109,8 @@ def scan_packet(data: bytes, gs: GameState) -> None:
         pos += 1
         if opcode in (ServerOpcode.LOGIN_OR_PENDING, ServerOpcode.MAP_DESCRIPTION,
                       ServerOpcode.MAP_SLICE_NORTH, ServerOpcode.MAP_SLICE_EAST,
-                      ServerOpcode.MAP_SLICE_SOUTH, ServerOpcode.MAP_SLICE_WEST):
+                      ServerOpcode.MAP_SLICE_SOUTH, ServerOpcode.MAP_SLICE_WEST,
+                      ServerOpcode.FLOOR_CHANGE_UP, ServerOpcode.FLOOR_CHANGE_DOWN):
             has_map_data = True
         try:
             new_pos = _parse_at(opcode, data, pos, gs)
@@ -428,7 +434,34 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
 
     # PLAYER_CANCEL_WALK — 1 byte: u8 direction
     if opcode == ServerOpcode.PLAYER_CANCEL_WALK:
-        return pos + 1 if pos + 1 <= len(data) else -1
+        if pos + 1 > len(data):
+            return -1
+        direction = data[pos]
+        now = time.time()
+        gs.cancel_walk_time = now
+        gs.server_events.append((now, "cancel_walk", {"direction": direction, "pos": list(gs.position)}))
+        log.info(f"CANCEL_WALK direction={direction}")
+        return pos + 1
+
+    # FLOOR_CHANGE_UP (0xBE) — server re-describes the map; update z and bail
+    if opcode == ServerOpcode.FLOOR_CHANGE_UP:
+        x, y, z = gs.position
+        gs.position = (x, y, z - 1)
+        now = time.time()
+        gs.server_events.append((now, "floor_change_up", {"pos": list(gs.position), "z": z - 1}))
+        gs.last_map_time = now
+        log.info(f"FLOOR_CHANGE_UP: z {z} -> {z - 1}")
+        return -1  # can't parse the map re-description that follows
+
+    # FLOOR_CHANGE_DOWN (0xBF) — server re-describes the map; update z and bail
+    if opcode == ServerOpcode.FLOOR_CHANGE_DOWN:
+        x, y, z = gs.position
+        gs.position = (x, y, z + 1)
+        now = time.time()
+        gs.server_events.append((now, "floor_change_down", {"pos": list(gs.position), "z": z + 1}))
+        gs.last_map_time = now
+        log.info(f"FLOOR_CHANGE_DOWN: z {z} -> {z + 1}")
+        return -1  # can't parse the map re-description that follows
 
     # PING — 0 bytes
     if opcode == ServerOpcode.PING:

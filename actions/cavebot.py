@@ -107,13 +107,16 @@ async def _is_reachable(bot, target_x, target_y, target_z):
 
 
 FLOOR_CHANGED = "floor_changed"
+CANCEL_WALK = "cancel_walk"
 
 async def _wait_for_position(bot, expected_pos, timeout, tolerance=0, abort_on_floor_change=False):
     """Wait until game_state.position is within tolerance of expected_pos (or timeout).
-    Returns True if arrived, FLOOR_CHANGED if floor changed (when abort_on_floor_change), else False.
+    Returns True if arrived, FLOOR_CHANGED if floor changed (when abort_on_floor_change),
+    CANCEL_WALK if server rejected a walk, else False.
     """
     start = time.time()
     start_z = bot.position[2]
+    gs = _get_state().game_state
     while time.time() - start < timeout:
         current = bot.position
         if (abs(current[0] - expected_pos[0]) <= tolerance
@@ -122,6 +125,9 @@ async def _wait_for_position(bot, expected_pos, timeout, tolerance=0, abort_on_f
             return True
         if abort_on_floor_change and current[2] != start_z:
             return FLOOR_CHANGED
+        # Server rejected the walk — bail immediately for fast retry
+        if gs.cancel_walk_time > start:
+            return CANCEL_WALK
         await bot.sleep(0.05)
     return False
 
@@ -172,6 +178,11 @@ async def _execute_walk_to(bot, node, prefix="", exact=False):
             after = bot.position
             bot.log(f"{prefix}   -> ({after[0]},{after[1]},{after[2]}) [floor changed]")
             return True
+
+        if result == CANCEL_WALK:
+            bot.log(f"{prefix}   cancel_walk at ({bot.position[0]},{bot.position[1]},{bot.position[2]}), retry")
+            await bot.sleep(0.2)
+            continue
 
         if result is True:
             after = bot.position

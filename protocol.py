@@ -106,6 +106,8 @@ class ServerOpcode(IntEnum):
     MAP_SLICE_EAST = 0x66
     MAP_SLICE_SOUTH = 0x67
     MAP_SLICE_WEST = 0x68
+    FLOOR_CHANGE_UP = 0xBE
+    FLOOR_CHANGE_DOWN = 0xBF
 
     # Tile updates
     TILE_ADD_THING = 0x6A

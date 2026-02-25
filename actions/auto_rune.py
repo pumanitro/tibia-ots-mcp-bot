@@ -19,9 +19,11 @@ async def run(bot):
     def track_target(opcode, reader):
         """Watch ATTACK packets to track the current target.
 
-        This works with auto_targeting because the DLL's game_attack calls both
-        Game::attack() (UI red square) AND sendAttackCreature() (network packet).
-        The network packet flows through the proxy, so we intercept it here.
+        The DLL's game_attack calls Game::attack() (UI red square) AND
+        sendAttackCreature() (network packet).  In DBVictory, Game::attack()
+        only handles UI — sendAttackCreature() is required for the network
+        packet to exist.  The packet flows through the proxy, so we intercept
+        it here.
         """
         if opcode == ClientOpcode.ATTACK:
             try:

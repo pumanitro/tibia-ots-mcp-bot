@@ -4,6 +4,7 @@ export interface ActionInfo {
   name: string;
   enabled: boolean;
   running: boolean;
+  completed?: boolean;
   description: string;
   logs?: string[];
   config?: Record<string, any>;

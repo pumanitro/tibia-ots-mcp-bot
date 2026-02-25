@@ -95,6 +95,7 @@ class BotState:
         self._proxy_tasks: list[asyncio.Task] = []
         self.settings: dict = load_settings()
         self._action_tasks: dict[str, asyncio.Task] = {}
+        self._action_completed: set[str] = set()
         self.game_state: GameState = GameState()
         self.action_logs: dict[str, collections.deque] = {}
 
@@ -285,14 +286,18 @@ def _start_action(name: str) -> str | None:
         return f"actions/{name}.py has no async def run(bot)."
 
     ctx = BotContext(action_name=name)
+    state._action_completed.discard(name)
 
     async def _wrapper():
         try:
             log.info(f"[action:{name}] Started")
             await mod.run(ctx)
+            state._action_completed.add(name)
         except asyncio.CancelledError:
+            state._action_completed.discard(name)
             log.info(f"[action:{name}] Stopped")
         except Exception:
+            state._action_completed.discard(name)
             log.error(f"[action:{name}] Crashed:\n{traceback.format_exc()}")
 
     state._action_tasks[name] = asyncio.create_task(_wrapper())
