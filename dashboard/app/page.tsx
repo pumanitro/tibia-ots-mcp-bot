@@ -17,6 +17,7 @@ import {
 } from "@/lib/api";
 import type {
   ActionInfo,
+  ActionsMapNode,
   PlayerInfo,
   CreatureInfo,
   CavebotState,
@@ -509,6 +510,9 @@ function CavebotPanel({
   const [previewWaypoints, setPreviewWaypoints] = useState<WaypointInfo[]>([]);
   const [mapPreviewName, setMapPreviewName] = useState<string | null>(null);
   const [mapPreviewText, setMapPreviewText] = useState<string>("");
+  const [compareName, setCompareName] = useState<string | null>(null);
+  const [compareWaypoints, setCompareWaypoints] = useState<WaypointInfo[]>([]);
+  const [compareMapNodes, setCompareMapNodes] = useState<ActionsMapNode[]>([]);
   const [showPlaybackLogs, setShowPlaybackLogs] = useState(false);
   const [autoScrollLive, setAutoScrollLive] = useState(true);
   const [autoScrollLast, setAutoScrollLast] = useState(true);
@@ -588,6 +592,11 @@ function CavebotPanel({
       setPreviewName(null);
       setPreviewWaypoints([]);
     }
+    if (compareName === name) {
+      setCompareName(null);
+      setCompareWaypoints([]);
+      setCompareMapNodes([]);
+    }
     onRefresh();
   };
 
@@ -599,6 +608,9 @@ function CavebotPanel({
     }
     setMapPreviewName(null);
     setMapPreviewText("");
+    setCompareName(null);
+    setCompareWaypoints([]);
+    setCompareMapNodes([]);
     const rec = await fetchRecording(name);
     if (rec) {
       setPreviewName(name);
@@ -614,10 +626,37 @@ function CavebotPanel({
     }
     setPreviewName(null);
     setPreviewWaypoints([]);
+    setCompareName(null);
+    setCompareWaypoints([]);
+    setCompareMapNodes([]);
     const resp = await fetchActionsMap(name);
     if (resp) {
       setMapPreviewName(name);
       setMapPreviewText(resp.text_preview);
+    }
+  };
+
+  const handleCompare = async (name: string) => {
+    if (compareName === name) {
+      setCompareName(null);
+      setCompareWaypoints([]);
+      setCompareMapNodes([]);
+      return;
+    }
+    // Close individual panels
+    setPreviewName(null);
+    setPreviewWaypoints([]);
+    setMapPreviewName(null);
+    setMapPreviewText("");
+    // Fetch both
+    const [rec, mapResp] = await Promise.all([
+      fetchRecording(name),
+      fetchActionsMap(name),
+    ]);
+    if (rec && mapResp) {
+      setCompareName(name);
+      setCompareWaypoints(rec.waypoints ?? []);
+      setCompareMapNodes(mapResp.actions_map ?? []);
     }
   };
 
@@ -696,6 +735,16 @@ function CavebotPanel({
                             Map
                           </button>
                           <button
+                            onClick={() => handleCompare(r.name)}
+                            className={`rounded px-2 py-1 text-xs transition-colors ${
+                              compareName === r.name
+                                ? "text-cyan-300 bg-cyan-900/30"
+                                : "text-gray-300 hover:bg-gray-700"
+                            }`}
+                          >
+                            Compare
+                          </button>
+                          <button
                             onClick={() => handlePlay(r.name)}
                             disabled={playback.active || recording.active}
                             className="rounded px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-900/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
@@ -746,6 +795,78 @@ function CavebotPanel({
                       </pre>
                     </div>
                   )}
+                  {/* Compare grouped view */}
+                  {compareName === r.name && compareWaypoints.length > 0 && compareMapNodes.length > 0 && (() => {
+                    // Build segments: interleave unmapped waypoints with mapped groups
+                    const segments: { type: "unmapped" | "mapped"; wpStart: number; wpEnd: number; node?: ActionsMapNode; nodeIdx?: number }[] = [];
+                    let cursor = 0;
+                    for (let ni = 0; ni < compareMapNodes.length; ni++) {
+                      const node = compareMapNodes[ni];
+                      const [ws, we] = node.wp_range ?? [0, 0];
+                      // Unmapped gap before this node
+                      if (cursor < ws) {
+                        segments.push({ type: "unmapped", wpStart: cursor, wpEnd: ws - 1 });
+                      }
+                      segments.push({ type: "mapped", wpStart: ws, wpEnd: we, node, nodeIdx: ni });
+                      cursor = we + 1;
+                    }
+                    // Trailing unmapped waypoints
+                    if (cursor < compareWaypoints.length) {
+                      segments.push({ type: "unmapped", wpStart: cursor, wpEnd: compareWaypoints.length - 1 });
+                    }
+                    return (
+                      <div
+                        className="rounded-b-md bg-gray-950 border border-t-0 border-gray-700 overflow-y-auto"
+                        style={{ maxHeight: "70vh", resize: "vertical", minHeight: "120px", height: "400px" }}
+                      >
+                        {/* Header row */}
+                        <div className="flex sticky top-0 bg-gray-950 z-10 border-b border-gray-700">
+                          <div className="flex-[3] px-2 py-1 text-[10px] text-blue-400 font-semibold uppercase tracking-wider">Recording</div>
+                          <div className="flex-[2] px-2 py-1 text-[10px] text-purple-400 font-semibold uppercase tracking-wider border-l border-gray-700">Actions Map</div>
+                        </div>
+                        {segments.map((seg, si) => {
+                          const wps = compareWaypoints.slice(seg.wpStart, seg.wpEnd + 1);
+                          if (seg.type === "unmapped") {
+                            return (
+                              <div key={`u${si}`} className="flex border-b border-gray-800/50 bg-gray-900/10">
+                                <div className="flex-[3] px-2 py-0.5 border-r border-gray-700 opacity-60">
+                                  {wps.map((wp, wi) => (
+                                    <WaypointLine key={seg.wpStart + wi} wp={wp} index={seg.wpStart + wi} />
+                                  ))}
+                                </div>
+                                <div className="flex-[2] px-2 py-0.5" />
+                              </div>
+                            );
+                          }
+                          const node = seg.node!;
+                          const ni = seg.nodeIdx!;
+                          const t = node.target;
+                          const pos = `(${t[0]},${t[1]},${t[2]})`;
+                          let nodeText = `${ni + 1}. ${node.type} ${pos}`;
+                          if (node.type === "use_item" || node.type === "use_item_ex") {
+                            const label = node.label || `item ${node.item_id}`;
+                            nodeText = `${ni + 1}. ${node.type} ${label} ${pos}`;
+                          }
+                          const isExact = (node as any).exact;
+                          const wpStr = node.wp_range ? ` [wp ${seg.wpStart + 1}-${seg.wpEnd + 1}]` : "";
+                          return (
+                            <div key={`m${si}`} className={`flex border-b border-gray-800 ${ni % 2 === 0 ? "bg-gray-950" : "bg-gray-900/30"}`}>
+                              <div className="flex-[3] px-2 py-1 border-r border-gray-700">
+                                {wps.map((wp, wi) => (
+                                  <WaypointLine key={seg.wpStart + wi} wp={wp} index={seg.wpStart + wi} />
+                                ))}
+                              </div>
+                              <div className="flex-[2] px-2 py-1 flex items-start">
+                                <span className={`font-mono text-xs ${isExact ? "text-yellow-300" : "text-purple-300"}`}>
+                                  {nodeText}{isExact ? " [exact]" : ""}{wpStr}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </div>
               ))}
             </div>

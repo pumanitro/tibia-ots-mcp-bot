@@ -631,25 +631,6 @@ async def run(bot):
                 state.playback_failed_nodes.add(i)
                 bot.log(f"{prefix} Node failed, continuing...")
 
-            # Auto-advance on floor mismatch: if player ended up on a
-            # different floor than the next node expects, skip ahead to
-            # the first node on the current floor.
-            current_z = bot.position[2]
-            if i + 1 < len(actions_map):
-                next_z = actions_map[i + 1]["target"][2]
-                if current_z != next_z:
-                    skip_to = None
-                    for j in range(i + 1, len(actions_map)):
-                        if actions_map[j]["target"][2] == current_z:
-                            skip_to = j
-                            break
-                    if skip_to is not None and skip_to > i + 1:
-                        skipped = skip_to - (i + 1)
-                        bot.log(f"{prefix} Floor mismatch (at z={current_z}, expected z={next_z}), "
-                                f"skipping {skipped} nodes to [{skip_to+1}/{len(actions_map)}]")
-                        i = skip_to
-                        continue
-
             i += 1
 
         # Update minimap one final time
