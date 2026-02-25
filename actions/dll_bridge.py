@@ -267,6 +267,9 @@ async def run(bot):
                                 px, py, pz = cx, cy, cz
                                 if old[2] != cz:
                                     _dbg(f"player z changed: {old} -> ({cx},{cy},{cz})")
+                                    # Sync packet_position z (MAP_SLICE only tracks x/y)
+                                    ppx, ppy, _ = gs.packet_position
+                                    gs.packet_position = (ppx, ppy, cz)
                                     # Generate floor_change event for cavebot recording
                                     import time as _time
                                     direction = "up" if cz < old[2] else "down"

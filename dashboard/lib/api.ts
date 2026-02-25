@@ -50,6 +50,7 @@ export interface WaypointInfo {
   label?: string;
   pos: number[];
   player_pos?: number[];
+  dll_pos?: number[];
   t: number;
 }
 

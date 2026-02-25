@@ -75,6 +75,10 @@ class GameState:
         # When True, MAP_SLICE position updates are skipped (DLL provides position)
         self.dll_position_active: bool = False
 
+        # Packet-derived position — always updated by MAP_SLICE, never by DLL.
+        # Used by cavebot recording for accurate per-step position tracking.
+        self.packet_position: tuple[int, int, int] = (0, 0, 0)
+
         # Tile updates ring buffer — (timestamp, x, y, z) for use_item verification
         self.tile_updates: deque = deque(maxlen=50)
 
@@ -318,6 +322,7 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
                 z = data[i + 5]
                 if 100 < x < 65000 and 100 < y < 65000 and z < 16:
                     gs.position = (x, y, z)
+                    gs.packet_position = (x, y, z)
                     gs.creatures = {cid: info for cid, info in gs.creatures.items() if info.get("source") == "dll"}
                     gs.last_map_time = time.time()
                     log.info(f"LOGIN position: ({x}, {y}, {z})")
@@ -332,6 +337,7 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
         y = struct.unpack_from('<H', data, pos + 2)[0]
         z = data[pos + 4]
         gs.position = (x, y, z)
+        gs.packet_position = (x, y, z)
         gs.creatures = {cid: info for cid, info in gs.creatures.items() if info.get("source") == "dll"}
         gs.last_map_time = time.time()
         log.info(f"MAP_DESCRIPTION: pos=({x}, {y}, {z}) — creatures cleared")
@@ -350,6 +356,20 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
                 gs.position = (x, y + 1, z)
             elif opcode == ServerOpcode.MAP_SLICE_WEST:
                 gs.position = (x - 1, y, z)
+        # Always track packet-derived position for recording accuracy
+        # Seed from gs.position if packet_position looks uninitialized
+        # (real game coordinates are always > 100)
+        if gs.packet_position[0] < 100 and gs.position[0] > 100:
+            gs.packet_position = gs.position
+        px, py, pz = gs.packet_position
+        if opcode == ServerOpcode.MAP_SLICE_NORTH:
+            gs.packet_position = (px, py - 1, pz)
+        elif opcode == ServerOpcode.MAP_SLICE_EAST:
+            gs.packet_position = (px + 1, py, pz)
+        elif opcode == ServerOpcode.MAP_SLICE_SOUTH:
+            gs.packet_position = (px, py + 1, pz)
+        elif opcode == ServerOpcode.MAP_SLICE_WEST:
+            gs.packet_position = (px - 1, py, pz)
         gs.last_map_time = time.time()
         return -1  # Can't skip tile data
 

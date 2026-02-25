@@ -3391,7 +3391,7 @@ static DWORD WINAPI pipe_thread(LPVOID param) {
                 }
             }
 
-            Sleep(8);  // ~120 Hz loop for responsive 60 FPS scanning
+            Sleep(1);  // ~1000 Hz loop for minimal latency
         }
 
         g_active_pipe = INVALID_HANDLE_VALUE;
