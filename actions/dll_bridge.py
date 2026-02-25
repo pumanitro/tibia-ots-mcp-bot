@@ -19,7 +19,7 @@ import inject as dll_inject
 
 log = logging.getLogger("action.dll_bridge")
 
-POLL_INTERVAL = 0.1   # seconds between creature reads
+POLL_INTERVAL = 0.016  # seconds between creature reads (~60 FPS)
 INJECT_RETRY = 10     # seconds to wait before retrying injection
 CONNECT_RETRY = 2     # seconds between pipe connection attempts
 PROXIMITY_RANGE = 7   # max tile Chebyshev distance (visible screen range)

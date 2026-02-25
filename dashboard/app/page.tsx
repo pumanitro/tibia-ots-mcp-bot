@@ -848,7 +848,6 @@ function CavebotPanel({
                             nodeText = `${ni + 1}. ${node.type} ${label} ${pos}`;
                           }
                           const isExact = (node as any).exact;
-                          const wpStr = node.wp_range ? ` [wp ${seg.wpStart + 1}-${seg.wpEnd + 1}]` : "";
                           return (
                             <div key={`m${si}`} className={`flex border-b border-gray-800 ${ni % 2 === 0 ? "bg-gray-950" : "bg-gray-900/30"}`}>
                               <div className="flex-[3] px-2 py-1 border-r border-gray-700">
@@ -858,7 +857,7 @@ function CavebotPanel({
                               </div>
                               <div className="flex-[2] px-2 py-1 flex items-start">
                                 <span className={`font-mono text-xs ${isExact ? "text-yellow-300" : "text-purple-300"}`}>
-                                  {nodeText}{isExact ? " [exact]" : ""}{wpStr}
+                                  {nodeText}{isExact ? " [exact]" : ""}
                                 </span>
                               </div>
                             </div>

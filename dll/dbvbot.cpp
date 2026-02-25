@@ -62,8 +62,8 @@ static BOOL safe_memcpy(void* dst, const void* src, size_t len) {
 #define MAX_NAME_LEN    63
 #define FULL_SCAN_INTERVAL 5000  // ms between full VirtualQuery scans
 #define FAST_SCAN_INTERVAL 200   // ms between fast re-reads of cached addrs
-#define MAP_SCAN_INTERVAL  100   // ms between creature map tree walks
-#define SEND_INTERVAL      200   // ms between JSON sends
+#define MAP_SCAN_INTERVAL  16    // ms between creature map tree walks (~60 FPS)
+#define SEND_INTERVAL      16    // ms between JSON sends (~60 FPS)
 
 // ── Configurable offsets (loaded from pipe "set_offsets" command) ────
 // Defaults match known DBVictory layout; overridden at runtime.
@@ -3391,7 +3391,7 @@ static DWORD WINAPI pipe_thread(LPVOID param) {
                 }
             }
 
-            Sleep(50);
+            Sleep(8);  // ~120 Hz loop for responsive 60 FPS scanning
         }
 
         g_active_pipe = INVALID_HANDLE_VALUE;
