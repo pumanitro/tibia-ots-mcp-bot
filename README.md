@@ -6,6 +6,8 @@ A man-in-the-middle proxy bot for the DBVictory game, controlled through Claude 
 
 ![Cavebot with Minimap](docs/dashboard_cavebot.png)
 
+![Cavebot Compare View](docs/dashboard_compare.png)
+
 ## Features
 
 - **MITM Proxy** — intercepts and decrypts all game traffic using XTEA encryption keys
