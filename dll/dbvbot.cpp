@@ -130,6 +130,18 @@ static jmp_buf  g_attack_jmpbuf;              // game thread recovery point
 static volatile BOOL g_attack_recovery = FALSE;
 static DWORD    g_attack_thread_id = 0;       // game thread ID (from WndProc)
 
+// ── Map stability tracking (Fix 11) ─────────────────────────────────
+// Track AV timestamps and creature count changes to detect unstable map
+// state.  When the map is unstable, skip Game::attack to avoid AVs
+// that corrupt Lua state via longjmp recovery.
+#define MAP_STABILITY_COOLDOWN_MS 2000  // skip attacks for 2s after any AV
+#define COUNT_CHANGE_COOLDOWN_MS  1000  // skip attacks for 1s after big count change
+#define COUNT_CHANGE_THRESHOLD    5     // creature count change >= 5 = "big"
+static volatile DWORD g_last_scan_av_tick    = 0;  // GetTickCount when scan thread last AVed
+static volatile DWORD g_last_attack_av_tick  = 0;  // GetTickCount when game thread last AVed during attack
+static volatile int   g_prev_creature_count  = 0;  // previous scan cycle creature count
+static volatile DWORD g_last_count_change_tick = 0; // when creature count changed significantly
+
 // ── WndProc hook state ──────────────────────────────────────────────
 #define WM_BOT_TARGET (WM_USER + 100)
 static HWND    g_game_hwnd = NULL;
@@ -1155,6 +1167,7 @@ typedef void (__attribute__((thiscall)) *Game_attack_fn)(void* game_this, const 
 
 // Pending target: set by pipe thread, consumed by XTEA hook on game thread
 static volatile uintptr_t g_pending_creature_ptr = 0;
+static volatile uint32_t  g_pending_creature_id  = 0;
 static volatile LONG g_pending_game_attack = 0;
 
 // Cache: last successfully found Creature*
@@ -1178,15 +1191,25 @@ static uintptr_t find_creature_ptr(uint32_t creature_id) {
         g_cached_target_ptr = 0;
     }
 
-    // Check creature map tree (O(log n) — instant)
+    // Check creature map tree (O(log n) — instant).
+    // Guarded by setjmp: tree walk can AV on stale pointers during floor
+    // changes or heavy creature churn.  VEH longjmp's back here on crash.
     if (g_map_addr) {
-        uintptr_t map_result = find_creature_in_map(creature_id);
-        if (map_result) {
-            g_cached_target_cid = creature_id;
-            g_cached_target_ptr = map_result;
-            dbg("find_creature_ptr: 0x%08X -> map tree, Creature* %p",
-                creature_id, (void*)map_result);
-            return map_result;
+        g_scan_recovery = TRUE;
+        if (setjmp(g_scan_jmpbuf) != 0) {
+            // VEH recovered from AV during tree search — fall through to cache
+            g_scan_recovery = FALSE;
+            dbg("find_creature_ptr: VEH recovered from AV searching for 0x%08X", creature_id);
+        } else {
+            uintptr_t map_result = find_creature_in_map(creature_id);
+            g_scan_recovery = FALSE;
+            if (map_result) {
+                g_cached_target_cid = creature_id;
+                g_cached_target_ptr = map_result;
+                dbg("find_creature_ptr: 0x%08X -> map tree, Creature* %p",
+                    creature_id, (void*)map_result);
+                return map_result;
+            }
         }
     }
 
@@ -1275,18 +1298,70 @@ static void __cdecl do_game_target_update(void) {
     if (!InterlockedExchange(&g_pending_game_attack, 0))
         return;
 
-    uintptr_t creature_ptr = g_pending_creature_ptr;
+    uint32_t cid = g_pending_creature_id;
     g_pending_creature_ptr = 0;
-    if (!creature_ptr) return;
+    g_pending_creature_id  = 0;
+    if (!cid) return;
 
-    // Quick validate creature
-    uint32_t vtable = 0, cid = 0, hp = 0;
+    // ── Fix 11: Skip attack if map is unstable ──
+    // If a scan thread AV, attack AV, or big creature count change happened
+    // recently, the creature map is in flux and Game::attack is likely to AV
+    // (which corrupts Lua state via longjmp recovery).  Better to skip.
+    {
+        DWORD now = GetTickCount();
+        DWORD scan_av = g_last_scan_av_tick;
+        DWORD atk_av  = g_last_attack_av_tick;
+        DWORD count_chg = g_last_count_change_tick;
+        if (scan_av && (now - scan_av) < MAP_STABILITY_COOLDOWN_MS) {
+            dbg("[GTUPD] SKIP attack 0x%08X — map unstable (scan AV %ums ago)", cid, now - scan_av);
+            g_last_attack_target_cid = 0;
+            return;
+        }
+        if (atk_av && (now - atk_av) < MAP_STABILITY_COOLDOWN_MS) {
+            dbg("[GTUPD] SKIP attack 0x%08X — map unstable (attack AV %ums ago)", cid, now - atk_av);
+            g_last_attack_target_cid = 0;
+            return;
+        }
+        if (count_chg && (now - count_chg) < COUNT_CHANGE_COOLDOWN_MS) {
+            dbg("[GTUPD] SKIP attack 0x%08X — map unstable (count change %ums ago)", cid, now - count_chg);
+            g_last_attack_target_cid = 0;
+            return;
+        }
+    }
+
+    // ── Fix 7: Re-lookup Creature* on game thread ──
+    // The pipe thread found a Creature* earlier, but by the time WndProc
+    // fires (~16ms later), the creature may have been freed/moved.
+    // Re-finding on the game thread eliminates the race: the game thread
+    // owns the creature map so it can't be modified mid-lookup.
+    uintptr_t creature_ptr = 0;
+    if (g_map_addr) {
+        creature_ptr = find_creature_in_map(cid);
+    }
+    // Fallback to pipe thread's cached pointer if map lookup fails
+    if (!creature_ptr) {
+        creature_ptr = g_cached_target_ptr;
+        if (g_cached_target_cid != cid)
+            creature_ptr = 0;
+    }
+    if (!creature_ptr) {
+        dbg("[GTUPD] Creature* not found for 0x%08X on game thread", cid);
+        return;
+    }
+
+    // Validate the fresh pointer
+    uint32_t vtable = 0, read_cid = 0, hp = 0;
     if (!safe_memcpy(&vtable, (void*)creature_ptr, 4) ||
-        !safe_memcpy(&cid, (void*)(creature_ptr + OFF_CREATURE_ID), 4) ||
+        !safe_memcpy(&read_cid, (void*)(creature_ptr + OFF_CREATURE_ID), 4) ||
         !safe_memcpy(&hp, (void*)(creature_ptr + OFF_CREATURE_HP), 4))
         return;
-    if (!is_valid_creature_vtable(vtable) || hp == 0 || hp > 100)
+    if (!is_valid_creature_vtable(vtable) || read_cid != cid || hp == 0 || hp > 100) {
+        dbg("[GTUPD] stale Creature* %p for 0x%08X (vtable=%08X cid=%08X hp=%u)",
+            (void*)creature_ptr, cid, vtable, read_cid, hp);
+        g_cached_target_cid = 0;
+        g_cached_target_ptr = 0;
         return;
+    }
 
     HMODULE game_mod = GetModuleHandle(NULL);
     uintptr_t base = (uintptr_t)game_mod;
@@ -1304,15 +1379,21 @@ static void __cdecl do_game_target_update(void) {
 
     dbg("[GTUPD] Game::attack(&%p) id=0x%08X hp=%u", (void*)creature_ptr, cid, hp);
 
-    // Arm crash recovery: if Game::attack dereferences a stale Creature*,
-    // the VEH handler will longjmp back here instead of crashing the game.
+    // ── Fix 7+9: Safe Game::attack() call ──
+    // Fix 7: Re-lookup on game thread prevents stale pointers (above).
+    // Fix 9: VEH-based catch for MSVC C++ exceptions (0xE06D7363).
+    //   MinGW's try/catch can't catch MSVC exceptions (incompatible ABI).
+    //   Instead, arm setjmp + VEH handler to longjmp on 0xE06D7363.
+    //   Safe because Lua cleans up its state BEFORE throwing the C++ exception,
+    //   unlike an AV mid-Lua-call where longjmp corrupts Lua state.
+    //   AVs (0xC0000005) are NOT caught here — let them crash cleanly.
+
+    g_attack_thread_id = GetCurrentThreadId();
     g_attack_recovery = TRUE;
     if (setjmp(g_attack_jmpbuf) != 0) {
-        // Recovered from AV inside Game::attack or sendAttackCreature
-        dbg("[GTUPD] VEH recovered from AV during Game::attack — stale Creature* %p id=0x%08X",
-            (void*)creature_ptr, cid);
+        // VEH caught a Lua C++ exception during Game::attack/sendAttackCreature
+        dbg("[GTUPD] VEH caught Lua exception during Game::attack for 0x%08X — swallowed", cid);
         g_last_attack_target_cid = 0;
-        g_pending_creature_ptr = 0;
         return;
     }
 
@@ -1342,6 +1423,7 @@ static void __cdecl do_game_target_update(void) {
     }
 
     g_attack_recovery = FALSE;  // disarm
+
     g_last_attack_target_cid = cid;
     dbg("[GTUPD] target locked 0x%08X", cid);
 }
@@ -1379,7 +1461,8 @@ static void request_game_attack(uint32_t creature_id) {
 
     dbg("[GATK] new target 0x%08X -> Creature* %p hp=%u", creature_id, (void*)creature_ptr, hp);
 
-    // Queue for game thread
+    // Queue for game thread (pass both ID and ptr — game thread will re-lookup)
+    g_pending_creature_id  = creature_id;
     g_pending_creature_ptr = creature_ptr;
     InterlockedExchange(&g_pending_game_attack, 1);
 
@@ -1774,6 +1857,19 @@ static int walk_creature_map(void) {
     }
     int result = walk_creature_map_inner();
     g_scan_recovery = FALSE;
+
+    // Fix 11: Track creature count changes for stability detection
+    if (result >= 0) {
+        int prev = g_prev_creature_count;
+        int delta = result - prev;
+        if (delta < 0) delta = -delta;
+        if (delta >= COUNT_CHANGE_THRESHOLD && prev > 0) {
+            g_last_count_change_tick = GetTickCount();
+            dbg("[MAP] creature count changed %d -> %d (delta=%d) — map unstable",
+                prev, result, delta);
+        }
+        g_prev_creature_count = result;
+    }
     return result;
 }
 
@@ -3433,21 +3529,44 @@ static LONG WINAPI crash_handler(EXCEPTION_POINTERS* ep) {
     DWORD code = ep->ExceptionRecord->ExceptionCode;
 
     // ── Crash recovery via longjmp ──────────────────────────────────
-    // If a protected code region (tree scan or game_attack) hit an AV,
-    // recover by longjmp'ing back to the setjmp point instead of
-    // crashing the game.  Thread ID check prevents cross-thread longjmp.
+    // If a protected code region (tree scan) hit an AV, recover by
+    // longjmp'ing back to the setjmp point instead of crashing.
+    // Thread ID check prevents cross-thread longjmp.
     if (code == EXCEPTION_ACCESS_VIOLATION) {
         DWORD tid = GetCurrentThreadId();
         if (g_scan_recovery && tid == g_scan_thread_id) {
             g_scan_recovery = FALSE;
+            g_last_scan_av_tick = GetTickCount();  // Fix 11: record for stability check
             dbg("[VEH] recovering scan thread from AV at EIP=0x%08X",
                 (unsigned)ep->ContextRecord->Eip);
             longjmp(g_scan_jmpbuf, 1);
             // NOT REACHED
         }
+        // ── Fix 10: Also recover AVs during Game::attack ──
+        // Fix 7 removed AV recovery (longjmp corrupts Lua state).
+        // But Game::attack Lua callbacks can ALSO crash with AV (e.g.,
+        // Lua traceback code hits corrupted data → EIP="trac").
+        // Without recovery → 100% game crash. With recovery → game may
+        // get Lua errors later but has a chance to survive.
         if (g_attack_recovery && tid == g_attack_thread_id) {
             g_attack_recovery = FALSE;
-            dbg("[VEH] recovering game thread from AV at EIP=0x%08X",
+            g_last_attack_av_tick = GetTickCount();  // Fix 11: record for stability check
+            dbg("[VEH] recovering game thread from AV during Game::attack at EIP=0x%08X",
+                (unsigned)ep->ContextRecord->Eip);
+            longjmp(g_attack_jmpbuf, 1);
+            // NOT REACHED
+        }
+    }
+
+    // ── Fix 9: Catch MSVC C++ exceptions during Game::attack ─────────
+    // MinGW try/catch can't catch MSVC exceptions (incompatible ABI).
+    // VEH sees 0xE06D7363 before MSVC's handler, so we can longjmp.
+    // Safe: Lua has already cleaned up its state before throwing.
+    if (code == 0xE06D7363) {
+        DWORD tid = GetCurrentThreadId();
+        if (g_attack_recovery && tid == g_attack_thread_id) {
+            g_attack_recovery = FALSE;
+            dbg("[VEH] catching MSVC C++ exception during Game::attack at EIP=0x%08X",
                 (unsigned)ep->ContextRecord->Eip);
             longjmp(g_attack_jmpbuf, 1);
             // NOT REACHED

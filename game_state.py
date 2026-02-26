@@ -91,6 +91,32 @@ class GameState:
         self.in_protection_zone: bool = False
 
 
+_stats_debug_file = None
+_stats_debug_count = 0
+
+
+def _dump_stats_debug(gs: GameState, raw_hex: str | None) -> None:
+    """Write PLAYER_STATS values to stats_debug.txt for HP/Mana diagnosis."""
+    global _stats_debug_file, _stats_debug_count
+    import os
+    try:
+        if _stats_debug_file is None:
+            path = os.path.join(os.path.dirname(__file__), "stats_debug.txt")
+            _stats_debug_file = open(path, "a", encoding="utf-8")
+        ts = time.strftime("%H:%M:%S")
+        hex_part = f" raw={raw_hex}" if raw_hex else ""
+        _stats_debug_file.write(
+            f"[{ts}] HP={gs.hp}/{gs.max_hp} MP={gs.mana}/{gs.max_mana} "
+            f"Cap={gs.capacity} XP={gs.experience} Lv={gs.level} "
+            f"ML={gs.magic_level} Soul={gs.soul}{hex_part}\n"
+        )
+        _stats_debug_count += 1
+        if _stats_debug_count % 5 == 0:
+            _stats_debug_file.flush()
+    except Exception:
+        pass
+
+
 def parse_server_packet(opcode: int, reader, gs: GameState) -> None:
     """Parse the first opcode (called by the old single-opcode callback)."""
     try:
@@ -268,6 +294,8 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
         needed = 36
         if pos + needed > len(data):
             return -1
+        # Raw hex dump for HP/Mana diagnosis
+        raw_hex = data[pos:pos + needed].hex()
         gs.hp = struct.unpack_from('<I', data, pos)[0]
         gs.max_hp = struct.unpack_from('<I', data, pos + 4)[0]
         gs.capacity = struct.unpack_from('<I', data, pos + 8)[0]
@@ -285,6 +313,7 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
             f"Stats: HP={gs.hp}/{gs.max_hp} MP={gs.mana}/{gs.max_mana} "
             f"Lv={gs.level} XP={gs.experience} ML={gs.magic_level}"
         )
+        _dump_stats_debug(gs, raw_hex)
         return pos + needed
 
     # CREATURE_HEALTH — 5 bytes: u32 + u8
@@ -535,6 +564,7 @@ def _parse(opcode: int, reader, gs: GameState) -> None:
             f"Stats: HP={gs.hp}/{gs.max_hp} MP={gs.mana}/{gs.max_mana} "
             f"Lv={gs.level} XP={gs.experience}"
         )
+        _dump_stats_debug(gs, None)
     elif opcode == ServerOpcode.TEXT_MESSAGE:
         msg_type = reader.read_u8()
         text = reader.read_string()

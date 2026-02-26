@@ -1,4 +1,4 @@
-"""Auto Senzu: uses item 8465 (senzu bean) when HP drops below 40%."""
+"""Auto Senzu: uses item 8465 (senzu bean) when HP drops below 50%."""
 import sys
 import os
 
@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from protocol import build_use_item_packet
 
 SENZU_ID = 8465
-HP_THRESHOLD = 0.40
+HP_THRESHOLD = 0.50
 INTERVAL = 0.2  # seconds between checks
 
 
