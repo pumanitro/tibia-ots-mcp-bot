@@ -510,6 +510,7 @@ function CavebotPanel({
   const [previewWaypoints, setPreviewWaypoints] = useState<WaypointInfo[]>([]);
   const [mapPreviewName, setMapPreviewName] = useState<string | null>(null);
   const [mapPreviewText, setMapPreviewText] = useState<string>("");
+  const [removingIndex, setRemovingIndex] = useState<number | null>(null);
   const [compareName, setCompareName] = useState<string | null>(null);
   const [compareWaypoints, setCompareWaypoints] = useState<WaypointInfo[]>([]);
   const [compareMapNodes, setCompareMapNodes] = useState<ActionsMapNode[]>([]);
@@ -661,15 +662,33 @@ function CavebotPanel({
   };
 
   const handleRemoveWaypoint = async (name: string, index: number) => {
-    const result = await removeWaypoints(name, [index]);
-    if (result) {
-      setPreviewWaypoints(result.waypoints);
-      // If map preview is open for this recording, refresh it
-      if (mapPreviewName === name) {
-        const resp = await fetchActionsMap(name);
-        if (resp) setMapPreviewText(resp.text_preview);
+    if (removingIndex !== null) return; // prevent double-click race
+    setRemovingIndex(index);
+    try {
+      const result = await removeWaypoints(name, [index]);
+      if (result) {
+        setPreviewWaypoints(result.waypoints);
+        // If map preview is open for this recording, refresh it
+        if (mapPreviewName === name) {
+          const resp = await fetchActionsMap(name);
+          if (resp) setMapPreviewText(resp.text_preview);
+        }
       }
+    } finally {
+      setRemovingIndex(null);
     }
+  };
+
+  const logLineColor = (line: string | null | undefined): string => {
+    if (!line) return "";
+    if (line.includes("[SUCCESS]")) return "text-emerald-400";
+    if (line.includes("[FAILURE]") || line.includes("failed:")) return "text-red-400";
+    if (line.includes("retry")) return "text-amber-400";
+    if (line.includes("Pausing")) return "text-yellow-300";
+    if (line.includes("Use item")) return "text-purple-400";
+    if (line.includes("walk_to")) return "text-blue-300";
+    if (line.includes("->")) return "text-gray-500";
+    return "";
   };
 
   const hasPlaybackLogs = playback.logs && playback.logs.length > 0;
@@ -770,7 +789,8 @@ function CavebotPanel({
                           <div key={i} className="flex items-start gap-1 group">
                             <button
                               onClick={() => handleRemoveWaypoint(r.name, i)}
-                              className="shrink-0 mt-0.5 rounded px-1 text-xs text-red-500 opacity-0 group-hover:opacity-100 hover:bg-red-900/30 transition-all"
+                              disabled={removingIndex !== null}
+                              className={`shrink-0 mt-0.5 rounded px-1 text-xs text-red-500 hover:bg-red-900/30 transition-all ${removingIndex !== null ? "opacity-30 cursor-not-allowed" : "opacity-0 group-hover:opacity-100"}`}
                               title="Remove waypoint"
                             >
                               X
@@ -1020,7 +1040,7 @@ function CavebotPanel({
                 <div ref={logsContainerRef} onScroll={handleLiveScroll} className="rounded-md bg-gray-900 border border-gray-700 p-2 overflow-y-auto" style={{ resize: "vertical", minHeight: "4rem", height: "10rem", maxHeight: "80vh" }}>
                   <div className="space-y-0.5 font-mono text-xs text-gray-300">
                     {playback.logs.map((line, i) => (
-                      <div key={i} className={`whitespace-pre-wrap ${line?.includes("[SUCCESS]") ? "text-emerald-400" : line?.includes("[FAILURE]") ? "text-red-400" : ""}`}>{line || "\u00A0"}</div>
+                      <div key={i} className={`whitespace-pre-wrap ${logLineColor(line)}`}>{line || "\u00A0"}</div>
                     ))}
                   </div>
                 </div>
@@ -1064,7 +1084,7 @@ function CavebotPanel({
               <div ref={lastLogsContainerRef} onScroll={handleLastScroll} className="mt-2 rounded-md bg-gray-900 border border-gray-700 p-2 overflow-y-auto" style={{ resize: "vertical", minHeight: "4rem", height: "12rem", maxHeight: "80vh" }}>
                 <div className="space-y-0.5 font-mono text-xs text-gray-300">
                   {playback.logs.map((line, i) => (
-                    <div key={i} className={`whitespace-pre-wrap ${line?.includes("[SUCCESS]") ? "text-emerald-400" : line?.includes("[FAILURE]") ? "text-red-400" : ""}`}>{line || "\u00A0"}</div>
+                    <div key={i} className={`whitespace-pre-wrap ${logLineColor(line)}`}>{line || "\u00A0"}</div>
                   ))}
                 </div>
               </div>

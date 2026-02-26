@@ -13,6 +13,7 @@ import threading
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
+from urllib.parse import unquote
 
 log = logging.getLogger("dashboard_api")
 
@@ -71,7 +72,7 @@ class _Handler(BaseHTTPRequestHandler):
             return self._handle_get_actions_map(parts[3])
         # GET /api/recordings/<name>
         if len(parts) == 3 and parts[0] == "api" and parts[1] == "recordings":
-            return self._handle_get_recording(parts[2])
+            return self._handle_get_recording(unquote(parts[2]))
         self._json_response({"error": "not found"}, 404)
 
     def do_POST(self):
@@ -94,7 +95,7 @@ class _Handler(BaseHTTPRequestHandler):
         # POST /api/recordings/{name}/remove_waypoints
         if (len(parts) == 4 and parts[0] == "api" and parts[1] == "recordings"
                 and parts[3] == "remove_waypoints"):
-            return self._handle_remove_waypoints(parts[2])
+            return self._handle_remove_waypoints(unquote(parts[2]))
 
         # Cavebot endpoints
         if self.path == "/api/cavebot/record/start":
@@ -121,7 +122,7 @@ class _Handler(BaseHTTPRequestHandler):
             return self._handle_delete(name)
         # DELETE /api/recordings/{name}
         if len(parts) == 3 and parts[0] == "api" and parts[1] == "recordings":
-            name = parts[2]
+            name = unquote(parts[2])
             return self._handle_delete_recording(name)
         self._json_response({"error": "not found"}, 404)
 

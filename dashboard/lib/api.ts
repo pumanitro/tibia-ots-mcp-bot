@@ -267,7 +267,7 @@ export async function fetchRecording(
 }
 
 export async function deleteRecording(name: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/recordings/${name}`, {
+  const res = await fetch(`${API_BASE}/api/recordings/${encodeURIComponent(name)}`, {
     method: "DELETE",
   });
   if (!res.ok) {

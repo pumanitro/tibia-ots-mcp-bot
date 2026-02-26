@@ -17,7 +17,7 @@ from constants import MONSTER_ID_MIN
 
 USE_ITEM_TIMEOUT = 5.0
 WALK_TO_TOLERANCE = 2   # tiles — close enough for walk_to nodes
-MAX_RETRIES = 5
+MAX_RETRIES = 2
 REACHABLE_PROBE_TIMEOUT = 0.4  # seconds — one walk attempt, fast bail
 PAUSE_MAX_TIMEOUT = 60  # seconds — safety cap on monster-fight pause
 
