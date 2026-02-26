@@ -87,6 +87,9 @@ class GameState:
         # Timestamp of last CANCEL_WALK from server
         self.cancel_walk_time: float = 0
 
+        # Protection Zone detection — updated by server text messages
+        self.in_protection_zone: bool = False
+
 
 def parse_server_packet(opcode: int, reader, gs: GameState) -> None:
     """Parse the first opcode (called by the old single-opcode callback)."""
@@ -181,6 +184,20 @@ def _search_for_tile_updates(data: bytes, start: int, gs: GameState) -> None:
             continue
         gs.tile_updates.append((now, x, y, z))
         gs.server_events.append((now, "tile_transform_item", {"x": x, "y": y, "z": z}))
+
+
+def _check_pz_message(text: str, gs: GameState) -> None:
+    """Detect Protection Zone enter/leave from server text messages."""
+    lower = text.lower()
+    if "protection zone" in lower:
+        if "enter" in lower or "inside" in lower or "cannot attack" in lower:
+            if not gs.in_protection_zone:
+                log.info("PZ detected: entered protection zone")
+            gs.in_protection_zone = True
+        elif "left" in lower or "leave" in lower:
+            if gs.in_protection_zone:
+                log.info("PZ detected: left protection zone")
+            gs.in_protection_zone = False
 
 
 def _search_for_stats(data: bytes, start: int, gs: GameState) -> None:
@@ -302,6 +319,7 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
         gs.messages.append({"type": msg_type, "text": text})
         if "can't throw there" in text.lower():
             gs.last_cant_throw = time.time()
+        _check_pz_message(text, gs)
         log.info(f"TEXT_MESSAGE(type={msg_type}): {text}")
         return end
 
@@ -523,4 +541,5 @@ def _parse(opcode: int, reader, gs: GameState) -> None:
         gs.messages.append({"type": msg_type, "text": text})
         if "can't throw there" in text.lower():
             gs.last_cant_throw = time.time()
+        _check_pz_message(text, gs)
         log.info(f"TEXT_MESSAGE(type={msg_type}): {text}")

@@ -20,6 +20,7 @@ WALK_TO_TOLERANCE = 2   # tiles — close enough for walk_to nodes
 MAX_RETRIES = 2
 REACHABLE_PROBE_TIMEOUT = 0.4  # seconds — one walk attempt, fast bail
 PAUSE_MAX_TIMEOUT = 60  # seconds — safety cap on monster-fight pause
+NO_DAMAGE_TIMEOUT = 5.0  # seconds — if monster HP unchanged, assume PZ/can't fight
 
 # Map direction name strings to Direction enum values
 DIR_NAME_TO_ENUM = {
@@ -108,6 +109,21 @@ async def _is_reachable(bot, target_x, target_y, target_z):
 
 FLOOR_CHANGED = "floor_changed"
 CANCEL_WALK = "cancel_walk"
+MAX_CANCEL_WALKS = 6  # cap on cancel_walk retries before giving up
+CANCEL_ESCAPE_THRESHOLD = 2  # consecutive cancel_walks at same pos before trying escape
+
+
+def _node_expected_z(node):
+    """Return the floor level the player should be on to execute this node.
+
+    For walk_steps (floor transitions), the player starts on the 'start' floor.
+    For everything else, the player should be on the target floor.
+    """
+    if node["type"] == "walk_steps":
+        start = node.get("start")
+        if start:
+            return start[2]
+    return node["target"][2]
 
 async def _wait_for_position(bot, expected_pos, timeout, tolerance=0, abort_on_floor_change=False):
     """Wait until game_state.position is within tolerance of expected_pos (or timeout).
@@ -167,12 +183,15 @@ async def _execute_walk_to(bot, node, prefix="", exact=False):
 
     bot.log(f"{prefix} walk_to ({target[0]},{target[1]},{target[2]}) dist={dist}{' [exact]' if exact else ''}")
 
-    for attempt in range(MAX_RETRIES):
+    # Use a while loop so cancel_walks don't consume normal retry attempts.
+    attempt = 0
+    tolerance = 0 if exact else WALK_TO_TOLERANCE
+
+    while attempt < MAX_RETRIES and cancel_count < MAX_CANCEL_WALKS:
         current = bot.position
         dist = _distance(current, target)
 
         # Already at target (or close enough for non-exact)
-        tolerance = 0 if exact else WALK_TO_TOLERANCE
         if dist <= tolerance and current[2] == target[2]:
             bot.log(f"{prefix}   -> ({current[0]},{current[1]},{current[2]})")
             return True
@@ -190,9 +209,6 @@ async def _execute_walk_to(bot, node, prefix="", exact=False):
         await bot.inject_to_server(pkt)
 
         timeout = max(dist * 0.3 + 2.0, 3.0)
-        # For exact nodes, use tolerance=1 so we actually wait for the
-        # pathfind to move the character close, instead of returning
-        # immediately when per-axis distance happens to be <= 2.
         wait_tol = 1 if exact else WALK_TO_TOLERANCE
         result = await _wait_for_position(bot, target, timeout,
                                           tolerance=wait_tol,
@@ -206,10 +222,10 @@ async def _execute_walk_to(bot, node, prefix="", exact=False):
             pos = bot.position
             cur_pos = (pos[0], pos[1], pos[2])
             cancel_count += 1
-            bot.log(f"{prefix}   cancel_walk #{cancel_count} at ({pos[0]},{pos[1]},{pos[2]}) target=({target[0]},{target[1]},{target[2]})")
-            # After 3 consecutive cancel_walks at same position: try directional escape
-            if cancel_count >= 3 and last_cancel_pos == cur_pos:
-                bot.log(f"{prefix}   stuck at same position, trying directional escape")
+            bot.log(f"{prefix}   cancel_walk #{cancel_count} at ({pos[0]},{pos[1]},{pos[2]})")
+            # After CANCEL_ESCAPE_THRESHOLD at same position: try directional escape
+            if cancel_count >= CANCEL_ESCAPE_THRESHOLD and last_cancel_pos == cur_pos:
+                bot.log(f"{prefix}   stuck, trying directional escape")
                 escaped = False
                 for escape_dir in ["north", "east", "south", "west"]:
                     escape_pkt = build_walk_packet(DIR_NAME_TO_ENUM[escape_dir])
@@ -230,6 +246,7 @@ async def _execute_walk_to(bot, node, prefix="", exact=False):
                     cancel_count = 1
                 last_cancel_pos = cur_pos
             await bot.sleep(0.2)
+            # cancel_walk does NOT increment attempt — retry the walk
             continue
 
         # Non-cancel result: reset counter
@@ -238,11 +255,9 @@ async def _execute_walk_to(bot, node, prefix="", exact=False):
 
         if result is True:
             after = bot.position
-            # For non-exact, close enough is fine
             if not exact:
                 bot.log(f"{prefix}   -> ({after[0]},{after[1]},{after[2]})")
                 return True
-            # For exact, check if we're actually on the tile
             if _distance(after, target) == 0 and after[2] == target[2]:
                 bot.log(f"{prefix}   -> ({after[0]},{after[1]},{after[2]})")
                 return True
@@ -263,15 +278,16 @@ async def _execute_walk_to(bot, node, prefix="", exact=False):
                     bot.log(f"{prefix}   -> ({after[0]},{after[1]},{after[2]}) [directional]")
                     return True
 
-        if attempt < MAX_RETRIES - 1:
+        # Normal retry — this one counts
+        attempt += 1
+        if attempt < MAX_RETRIES:
             current = bot.position
             dist = _distance(current, target)
-            bot.log(f"{prefix}   retry {attempt+1}/{MAX_RETRIES} at ({current[0]},{current[1]},{current[2]}) dist={dist}")
+            bot.log(f"{prefix}   retry {attempt}/{MAX_RETRIES} at ({current[0]},{current[1]},{current[2]}) dist={dist}")
 
     current = bot.position
     dist = _distance(current, target)
     bot.log(f"{prefix}   failed: at ({current[0]},{current[1]},{current[2]}) dist={dist}")
-    # Continue if reasonably close
     return dist <= tolerance + 2
 
 
@@ -328,11 +344,16 @@ async def _execute_use_item_node(bot, node, prefix=""):
     gs = _get_state().game_state
 
     if is_floor_change:
-        # Floor change: send packet, check server events first, then poll z
+        # Floor change: send packet, wait briefly, send again if floor
+        # hasn't changed yet (ladders often need 2 clicks).
         for attempt in range(MAX_RETRIES):
             before = bot.position
             before_time = time.time()
             await bot.inject_to_server(pkt)
+            # Wait briefly, then send 2nd click only if still on same floor
+            await bot.sleep(0.5)
+            if bot.position[2] == before[2]:
+                await bot.inject_to_server(pkt)
 
             deadline = time.time() + USE_ITEM_TIMEOUT
             while time.time() < deadline:
@@ -356,12 +377,17 @@ async def _execute_use_item_node(bot, node, prefix=""):
         bot.log(f"{prefix}   [FAILURE] still at z={after[2]}")
         return False
     else:
-        # Same-floor interaction: send packet, verify via tile update,
-        # position change, or floor change (ladder at same z that goes up/down).
+        # Same-floor interaction: send packet, wait briefly, send again
+        # only if no response yet (some objects need double click).
         for attempt in range(MAX_RETRIES):
             before = bot.position
             before_time = time.time()
             await bot.inject_to_server(pkt)
+            # Wait briefly, then send 2nd click only if nothing happened
+            await bot.sleep(0.5)
+            if (not _check_tile_transform(bot, target[0], target[1], target[2], before_time)
+                    and bot.position == before):
+                await bot.inject_to_server(pkt)
             start = time.time()
             while time.time() - start < USE_ITEM_TIMEOUT:
                 # Event-driven floor change check (unexpected stairs at same z)
@@ -561,56 +587,95 @@ async def run(bot):
 
             prefix = f"[{i+1}/{len(actions_map)}]"
 
-            # Targeting strategy: pause while actively fighting a monster
-            # Uses server pathfinding reachability probe instead of reactive
-            # "can't throw" message — equivalent to OTClientV8's findPath() check.
+            # Targeting strategy: pause while actively fighting a reachable
+            # monster.  Unreachable monsters are kept targeted but don't
+            # pause the cavebot.  PZ detected from server messages; no-damage
+            # timeout as fallback.
             strategy = _get_targeting_strategy()
             if strategy == "pause_on_monster":
                 gs = state.game_state
-                target_id = gs.attack_target_id
-                if target_id and target_id >= MONSTER_ID_MIN:
-                    creature = gs.creatures.get(target_id)
-                    if creature and 0 < creature.get("health", 0) <= 100:
-                        cx = creature.get("x", 0)
-                        cy = creature.get("y", 0)
-                        cz = creature.get("z", 0)
-                        name = creature.get("name", "?")
-                        hp = creature.get("health", 100)
 
-                        # Pathfinding reachability check: send ground-click to
-                        # monster's tile, see if the server pathfinds us there.
-                        reachable = await _is_reachable(bot, cx, cy, cz)
+                # Skip pause entirely if in Protection Zone
+                if gs.in_protection_zone:
+                    target_id = gs.attack_target_id
+                    if target_id and target_id >= MONSTER_ID_MIN:
+                        bot.log(f"{prefix} In protection zone, continuing path")
+                else:
+                    target_id = gs.attack_target_id
+                    if target_id and target_id >= MONSTER_ID_MIN:
+                        creature = gs.creatures.get(target_id)
+                        if creature and 0 < creature.get("health", 0) <= 100:
+                            cx = creature.get("x", 0)
+                            cy = creature.get("y", 0)
+                            cz = creature.get("z", 0)
+                            name = creature.get("name", "?")
+                            hp = creature.get("health", 100)
 
-                        if reachable:
-                            bot.log(f"{prefix} Pausing — fighting {name} (0x{target_id:08X}) hp={hp}%")
-                            pause_start = time.time()
-                            last_checked_target = target_id
-                            while state.playback_active and bot.is_connected:
-                                target_id = gs.attack_target_id
-                                if not target_id:
-                                    break
-                                creature = gs.creatures.get(target_id)
-                                if not creature or creature.get("health", 0) <= 0:
-                                    break
-                                # Safety timeout — don't pause forever
-                                if time.time() - pause_start > PAUSE_MAX_TIMEOUT:
-                                    bot.log(f"{prefix} Resuming — pause timeout ({PAUSE_MAX_TIMEOUT}s)")
-                                    break
-                                # If auto_targeting switched to a NEW monster,
-                                # re-check reachability before continuing to pause.
-                                if target_id != last_checked_target:
-                                    new_c = gs.creatures.get(target_id)
-                                    if new_c:
-                                        nx = new_c.get("x", 0)
-                                        ny = new_c.get("y", 0)
-                                        nz = new_c.get("z", 0)
-                                        if not await _is_reachable(bot, nx, ny, nz):
-                                            bot.log(f"{prefix} New target unreachable, resuming")
-                                            break
-                                    last_checked_target = target_id
-                                await bot.sleep(0.2)
-                        else:
-                            bot.log(f"{prefix} Monster {name} unreachable (no path), skipping")
+                            reachable = await _is_reachable(bot, cx, cy, cz)
+
+                            if reachable:
+                                bot.log(f"{prefix} Pausing — fighting {name} (0x{target_id:08X}) hp={hp}%")
+                                pause_start = time.time()
+                                initial_hp = hp
+                                last_checked_target = target_id
+                                while state.playback_active and bot.is_connected:
+                                    # PZ check inside pause loop
+                                    if gs.in_protection_zone:
+                                        bot.log(f"{prefix} Entered protection zone, resuming path")
+                                        break
+                                    target_id = gs.attack_target_id
+                                    if not target_id:
+                                        break
+                                    creature = gs.creatures.get(target_id)
+                                    if not creature or creature.get("health", 0) <= 0:
+                                        break
+                                    cur_hp = creature.get("health", 100)
+                                    elapsed = time.time() - pause_start
+                                    # No damage timeout — fallback if PZ not detected
+                                    # via text messages
+                                    if elapsed > NO_DAMAGE_TIMEOUT and cur_hp >= initial_hp:
+                                        bot.log(f"{prefix} No damage in {NO_DAMAGE_TIMEOUT}s, resuming (PZ?)")
+                                        break
+                                    # Track damage progress — reset timer if HP dropped
+                                    if cur_hp < initial_hp:
+                                        initial_hp = cur_hp
+                                        pause_start = time.time()
+                                    # Safety timeout
+                                    if elapsed > PAUSE_MAX_TIMEOUT:
+                                        bot.log(f"{prefix} Resuming — pause timeout ({PAUSE_MAX_TIMEOUT}s)")
+                                        break
+                                    # New target from auto_targeting — re-check
+                                    if target_id != last_checked_target:
+                                        new_c = gs.creatures.get(target_id)
+                                        if new_c:
+                                            nx, ny, nz = new_c.get("x", 0), new_c.get("y", 0), new_c.get("z", 0)
+                                            if not await _is_reachable(bot, nx, ny, nz):
+                                                bot.log(f"{prefix} New target unreachable, resuming path")
+                                                break
+                                        last_checked_target = target_id
+                                    await bot.sleep(0.2)
+                            else:
+                                # Unreachable — keep it targeted, just don't pause
+                                bot.log(f"{prefix} Monster {name} unreachable, continuing path")
+
+            # ── Floor skip: if player Z doesn't match what this node expects,
+            #    skip ahead to the first node matching current floor.
+            player_z = bot.position[2]
+            expected_z = _node_expected_z(node)
+            if player_z != expected_z:
+                skip_to = None
+                for j in range(i + 1, len(actions_map)):
+                    if _node_expected_z(actions_map[j]) == player_z:
+                        skip_to = j
+                        break
+                if skip_to is not None:
+                    bot.log(f"{prefix} Z mismatch (on Z={player_z}, node expects Z={expected_z}), skipping to [{skip_to+1}/{len(actions_map)}]")
+                    i = skip_to
+                    continue
+                else:
+                    bot.log(f"{prefix} Z mismatch (on Z={player_z}, node expects Z={expected_z}), no matching node ahead")
+                    i += 1
+                    continue
 
             ntype = node["type"]
 
