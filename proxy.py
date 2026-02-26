@@ -385,8 +385,8 @@ class OTProxy:
                 try:
                     await t
                 except (asyncio.CancelledError, Exception):
-                        pass
-                break
+                    pass
+            break
 
     async def _relay_client_to_server(self):
         """Relay packets from client to server, intercepting login."""
