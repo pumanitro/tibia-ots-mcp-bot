@@ -255,6 +255,64 @@ dbv_exp/
 └── bot_settings.json      Persisted action settings
 ```
 
+## Changelog
+
+### DLL Crash Safety & Stability
+- Add Fix 12: pre-validation before Game::attack to prevent Lua corruption
+- Add deferred attack retry after map instability, reduce cooldown to 500ms
+- Add map stability detection (Fix 11), crash report skill, action updates
+- Add VEH crash recovery, cavebot floor/cancel_walk support, fix far use_item preservation
+- Fix cavebot double-offset bug, add DLL crash safety, dashboard improvements
+
+### Cavebot
+- Add cavebot v1: recording, playback, minimap, and dashboard UI
+- Add sequence-based minimap visualization for cavebot
+- Add unit tests for cavebot build_actions_map (62 tests)
+- Add tile update verification for cavebot and proxy sequence dashboard
+- Add self-contained pre-walk to cavebot use_item nodes
+- Fix floor change detection, event-driven cavebot, proxy reset reliability
+- Add Compare grouped view, remove floor mismatch skip
+- Use DLL position for recording, reduce loop sleep to 1ms
+- Increase DLL scan and bridge poll rate to 60 FPS
+- Add AOE spell action, reduce retries, fix waypoint removal, color-code playback logs
+- Add PZ detection, floor skip, cancel_walk restructure, unreachable monster handling, double use_item
+
+### Actions & Combat
+- Add auto_targeting (nearest monster via Game::attack)
+- Add auto_rune action and build_use_on_creature_packet
+- Add auto_senzu action: use senzu bean (8465) when HP < 40%
+- Add speed_up action with haste detection via PLAYER_ICONS
+- Add full light action via code patch (skip darkness overlay)
+- Add AOE spell action (cast area spell when 2+ monsters nearby)
+- Only cast power up when HP is below 99%
+- Target closest creature, add action logs to dashboard
+
+### DLL & Targeting
+- Implement in-game targeting via Game::attack + sendAttackCreature
+- Replace VirtualQuery scan with direct creature map tree walk, add WndProc hook
+- Make dll_bridge always-on internal service, add 4 dashboard status badges
+- Read HP from DLL memory, improve packet scan and proxy reliability
+- Filter out dead creatures (0% HP) from game state
+
+### Infrastructure & Code Quality
+- Consolidate game constants into constants.py
+- Add OTCv8 source cross-reference comments to constants.py
+- Replace fragile callback chain with list-based registry
+- Auto-close game connections on start_bot and rebuild DLL
+- Code review fixes: remove ghost mode, guard tree walk, path traversal fix
+- Fix relay loop break indentation in proxy.py
+
+### Dashboard
+- Add Electron + Next.js dashboard with live action controls
+- Add WebSocket dashboard, fix player position tracking
+- Add game state parsing, dashboard player stats, bot reset and hot-reload
+- Add cavebot Compare view screenshot to docs and README
+- Add cavebot minimap screenshot to README
+
+### Security & Reviews
+- Fix 36 issues from full codebase security and quality audit
+- Fix 20 code quality, maintenance, and performance issues from full codebase review
+
 ## Cavebot TODO
 
 The cavebot is a first working version but not yet fully functional:
