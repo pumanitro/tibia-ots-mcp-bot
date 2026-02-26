@@ -134,13 +134,15 @@ static DWORD    g_attack_thread_id = 0;       // game thread ID (from WndProc)
 // Track AV timestamps and creature count changes to detect unstable map
 // state.  When the map is unstable, skip Game::attack to avoid AVs
 // that corrupt Lua state via longjmp recovery.
-#define MAP_STABILITY_COOLDOWN_MS 2000  // skip attacks for 2s after any AV
-#define COUNT_CHANGE_COOLDOWN_MS  1000  // skip attacks for 1s after big count change
+#define MAP_STABILITY_COOLDOWN_MS 500   // skip attacks for 0.5s after any AV
+#define COUNT_CHANGE_COOLDOWN_MS  500   // skip attacks for 0.5s after big count change
 #define COUNT_CHANGE_THRESHOLD    5     // creature count change >= 5 = "big"
 static volatile DWORD g_last_scan_av_tick    = 0;  // GetTickCount when scan thread last AVed
 static volatile DWORD g_last_attack_av_tick  = 0;  // GetTickCount when game thread last AVed during attack
 static volatile int   g_prev_creature_count  = 0;  // previous scan cycle creature count
 static volatile DWORD g_last_count_change_tick = 0; // when creature count changed significantly
+static volatile uint32_t g_deferred_attack_cid = 0; // creature to retry after cooldown
+static volatile DWORD    g_deferred_attack_tick = 0; // when the deferred attack was queued
 
 // ── WndProc hook state ──────────────────────────────────────────────
 #define WM_BOT_TARGET (WM_USER + 100)
@@ -1291,6 +1293,32 @@ static uintptr_t find_creature_ptr(uint32_t creature_id) {
 static volatile uint32_t g_last_attack_target_cid = 0; // track what we last attacked
 
 static void __cdecl do_game_target_update(void) {
+    // ── Check deferred retry first ──
+    // If a previous attack was skipped due to instability, check if the
+    // cooldown has expired and re-queue it.  This runs on every WndProc
+    // message (every frame) so it naturally retries after the cooldown.
+    if (!g_pending_game_attack && g_deferred_attack_cid) {
+        DWORD now = GetTickCount();
+        DWORD scan_av = g_last_scan_av_tick;
+        DWORD atk_av  = g_last_attack_av_tick;
+        DWORD count_chg = g_last_count_change_tick;
+        BOOL stable = TRUE;
+        if (scan_av && (now - scan_av) < MAP_STABILITY_COOLDOWN_MS) stable = FALSE;
+        if (atk_av && (now - atk_av) < MAP_STABILITY_COOLDOWN_MS) stable = FALSE;
+        if (count_chg && (now - count_chg) < COUNT_CHANGE_COOLDOWN_MS) stable = FALSE;
+
+        if (stable) {
+            uint32_t deferred_cid = g_deferred_attack_cid;
+            g_deferred_attack_cid = 0;
+            g_deferred_attack_tick = 0;
+            dbg("[GTUPD] retrying deferred attack 0x%08X (map stabilized)", deferred_cid);
+            // Re-queue: set pending fields so the code below picks it up
+            g_pending_creature_id = deferred_cid;
+            g_pending_creature_ptr = 0;  // will re-lookup on game thread
+            InterlockedExchange(&g_pending_game_attack, 1);
+        }
+    }
+
     // Fast path: nothing pending — just return immediately
     if (!g_pending_game_attack)
         return;
@@ -1306,24 +1334,30 @@ static void __cdecl do_game_target_update(void) {
     // ── Fix 11: Skip attack if map is unstable ──
     // If a scan thread AV, attack AV, or big creature count change happened
     // recently, the creature map is in flux and Game::attack is likely to AV
-    // (which corrupts Lua state via longjmp recovery).  Better to skip.
+    // (which corrupts Lua state via longjmp recovery).  Better to skip and defer.
     {
         DWORD now = GetTickCount();
         DWORD scan_av = g_last_scan_av_tick;
         DWORD atk_av  = g_last_attack_av_tick;
         DWORD count_chg = g_last_count_change_tick;
         if (scan_av && (now - scan_av) < MAP_STABILITY_COOLDOWN_MS) {
-            dbg("[GTUPD] SKIP attack 0x%08X — map unstable (scan AV %ums ago)", cid, now - scan_av);
+            dbg("[GTUPD] DEFER attack 0x%08X — map unstable (scan AV %ums ago)", cid, now - scan_av);
+            g_deferred_attack_cid = cid;
+            g_deferred_attack_tick = now;
             g_last_attack_target_cid = 0;
             return;
         }
         if (atk_av && (now - atk_av) < MAP_STABILITY_COOLDOWN_MS) {
-            dbg("[GTUPD] SKIP attack 0x%08X — map unstable (attack AV %ums ago)", cid, now - atk_av);
+            dbg("[GTUPD] DEFER attack 0x%08X — map unstable (attack AV %ums ago)", cid, now - atk_av);
+            g_deferred_attack_cid = cid;
+            g_deferred_attack_tick = now;
             g_last_attack_target_cid = 0;
             return;
         }
         if (count_chg && (now - count_chg) < COUNT_CHANGE_COOLDOWN_MS) {
-            dbg("[GTUPD] SKIP attack 0x%08X — map unstable (count change %ums ago)", cid, now - count_chg);
+            dbg("[GTUPD] DEFER attack 0x%08X — map unstable (count change %ums ago)", cid, now - count_chg);
+            g_deferred_attack_cid = cid;
+            g_deferred_attack_tick = now;
             g_last_attack_target_cid = 0;
             return;
         }
@@ -1927,6 +1961,14 @@ static LRESULT CALLBACK bot_wndproc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             g_attack_thread_id = GetCurrentThreadId();
         do_game_target_update();
         return 0;
+    }
+    // Check deferred attack retry on every message (game sends many WM_PAINT,
+    // WM_TIMER, etc. per frame).  The check inside do_game_target_update is
+    // cheap — just reads a volatile and returns if nothing is deferred.
+    if (g_deferred_attack_cid && !g_pending_game_attack) {
+        if (!g_attack_thread_id)
+            g_attack_thread_id = GetCurrentThreadId();
+        do_game_target_update();
     }
     return CallWindowProc(g_orig_wndproc, hwnd, msg, wParam, lParam);
 }
