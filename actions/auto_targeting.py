@@ -17,6 +17,9 @@ async def run(bot):
     gs = state.game_state
 
     last_target = None
+    last_send_time = 0.0
+    RESEND_INTERVAL = 0.5  # re-send same target every 500ms (DLL dedup is cheap)
+
     while True:
         if bot.is_connected:
             bridge = getattr(gs, "dll_bridge", None)
@@ -42,17 +45,20 @@ async def run(bot):
                 ))
 
             if target is not None:
-                if target != last_target:
+                new_target = target != last_target
+                if new_target:
                     dist = max(abs(monsters[target].get("x", 0) - px),
                                abs(monsters[target].get("y", 0) - py))
                     bot.log(f"attacking {monsters[target].get('name','?')} "
                             f"(0x{target:08X}) hp={monsters[target]['health']}% "
                             f"dist={dist}")
-                    # DLL calls Game::attack (UI) + sendAttackCreature (network).
-                    # The network packet flows through the proxy, so other actions
-                    # (e.g. auto_rune) can intercept the ATTACK opcode.
-                    bridge.send_command({"cmd": "game_attack", "creature_id": target})
                     last_target = target
+                # Send immediately on new target, or re-send every 500ms
+                # to recover if the game cleared the target (out of range,
+                # floor change).  DLL dedup skips if game is still targeting.
+                if new_target or (now - last_send_time) >= RESEND_INTERVAL:
+                    bridge.send_command({"cmd": "game_attack", "creature_id": target})
+                    last_send_time = now
             else:
                 last_target = None
 

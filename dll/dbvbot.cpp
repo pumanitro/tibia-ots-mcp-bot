@@ -144,6 +144,21 @@ static volatile DWORD g_last_count_change_tick = 0; // when creature count chang
 static volatile uint32_t g_deferred_attack_cid = 0; // creature to retry after cooldown
 static volatile DWORD    g_deferred_attack_tick = 0; // when the deferred attack was queued
 
+// ── Fix 12: Better pre-validation ───────────────────────────────────
+// Track player position from scan to validate creature distance/floor.
+// Blacklist creatures that caused VEH recovery to prevent re-triggering.
+static volatile uint32_t g_player_x = 0;
+static volatile uint32_t g_player_y = 0;
+static volatile uint32_t g_player_z = 0;
+static volatile DWORD    g_last_good_scan_tick = 0;  // last successful scan timestamp
+#define SCAN_FRESHNESS_MS 2000  // don't attack if scan is older than 2s
+#define ATTACK_BLACKLIST_SIZE 8
+#define ATTACK_BLACKLIST_DURATION_MS 3000  // blacklist creature for 3s after VEH recovery
+static struct {
+    volatile uint32_t cid;
+    volatile DWORD    tick;
+} g_attack_blacklist[ATTACK_BLACKLIST_SIZE] = {};
+
 // ── WndProc hook state ──────────────────────────────────────────────
 #define WM_BOT_TARGET (WM_USER + 100)
 static HWND    g_game_hwnd = NULL;
@@ -1292,6 +1307,39 @@ static uintptr_t find_creature_ptr(uint32_t creature_id) {
 
 static volatile uint32_t g_last_attack_target_cid = 0; // track what we last attacked
 
+// ── Fix 12: Blacklist helpers ────────────────────────────────────────
+static void blacklist_creature(uint32_t cid) {
+    DWORD now = GetTickCount();
+    int oldest_idx = 0;
+    DWORD oldest_age = 0;
+    for (int i = 0; i < ATTACK_BLACKLIST_SIZE; i++) {
+        if (g_attack_blacklist[i].cid == cid || g_attack_blacklist[i].cid == 0) {
+            g_attack_blacklist[i].cid = cid;
+            g_attack_blacklist[i].tick = now;
+            return;
+        }
+        DWORD age = now - g_attack_blacklist[i].tick;
+        if (age > oldest_age) {
+            oldest_age = age;
+            oldest_idx = i;
+        }
+    }
+    // All slots full — replace oldest
+    g_attack_blacklist[oldest_idx].cid = cid;
+    g_attack_blacklist[oldest_idx].tick = now;
+}
+
+static BOOL is_blacklisted(uint32_t cid) {
+    DWORD now = GetTickCount();
+    for (int i = 0; i < ATTACK_BLACKLIST_SIZE; i++) {
+        if (g_attack_blacklist[i].cid == cid &&
+            (now - g_attack_blacklist[i].tick) < ATTACK_BLACKLIST_DURATION_MS) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
 static void __cdecl do_game_target_update(void) {
     // ── Check deferred retry first ──
     // If a previous attack was skipped due to instability, check if the
@@ -1397,6 +1445,50 @@ static void __cdecl do_game_target_update(void) {
         return;
     }
 
+    // ── Fix 12: Better pre-validation ──
+    // 12a: Check creature blacklist (VEH-recovered creatures blocked for 3s)
+    if (is_blacklisted(cid)) {
+        dbg("[GTUPD] SKIP attack 0x%08X — blacklisted (caused VEH recovery recently)", cid);
+        return;
+    }
+
+    // 12b: Check scan freshness (don't attack if scan thread is stuck/failing)
+    {
+        DWORD last_scan = g_last_good_scan_tick;
+        if (last_scan != 0) {
+            DWORD now = GetTickCount();
+            if ((now - last_scan) > SCAN_FRESHNESS_MS) {
+                dbg("[GTUPD] SKIP attack 0x%08X — scan stale (%ums ago)", cid, now - last_scan);
+                return;
+            }
+        }
+    }
+
+    // 12c: Position validation (same floor + within 8 tiles)
+    {
+        uint8_t* id_ptr = (uint8_t*)(creature_ptr + OFF_CREATURE_ID);
+        uint32_t cx = 0, cy = 0, cz = 0;
+        if (read_position(id_ptr, cid, &cx, &cy, &cz)) {
+            uint32_t px = g_player_x, py = g_player_y, pz = g_player_z;
+            if (px != 0 || py != 0) {  // have player position
+                if (cz != pz) {
+                    dbg("[GTUPD] SKIP attack 0x%08X — different floor (cz=%u pz=%u)", cid, cz, pz);
+                    return;
+                }
+                int dx = (int)cx - (int)px;
+                int dy = (int)cy - (int)py;
+                if (dx < 0) dx = -dx;
+                if (dy < 0) dy = -dy;
+                int dist = (dx > dy) ? dx : dy;  // Chebyshev distance
+                if (dist > 8) {
+                    dbg("[GTUPD] SKIP attack 0x%08X — too far (dist=%d, c=(%u,%u) p=(%u,%u))",
+                        cid, dist, cx, cy, px, py);
+                    return;
+                }
+            }
+        }
+    }
+
     HMODULE game_mod = GetModuleHandle(NULL);
     uintptr_t base = (uintptr_t)game_mod;
     uintptr_t game_obj = base + OFF_GAME_SINGLETON_RVA;
@@ -1426,7 +1518,11 @@ static void __cdecl do_game_target_update(void) {
     g_attack_recovery = TRUE;
     if (setjmp(g_attack_jmpbuf) != 0) {
         // VEH caught a Lua C++ exception during Game::attack/sendAttackCreature
-        dbg("[GTUPD] VEH caught Lua exception during Game::attack for 0x%08X — swallowed", cid);
+        dbg("[GTUPD] VEH caught exception during Game::attack for 0x%08X — blacklisting", cid);
+        // Fix 12: Blacklist this creature so we don't re-trigger the same exception
+        blacklist_creature(cid);
+        g_deferred_attack_cid = 0;  // don't defer-retry a blacklisted creature
+        g_deferred_attack_tick = 0;
         g_last_attack_target_cid = 0;
         return;
     }
@@ -1831,6 +1927,13 @@ static int walk_creature_map_inner(void) {
                     uint32_t cx = 0, cy = 0, cz = 0;
                     read_position(id_ptr, key, &cx, &cy, &cz);
 
+                    // Fix 12: Track player position for attack distance validation
+                    if (g_player_id != 0 && key == g_player_id && cx != 0) {
+                        g_player_x = cx;
+                        g_player_y = cy;
+                        g_player_z = cz;
+                    }
+
                     CachedCreature* c = &found[found_count++];
                     c->addr = id_ptr;
                     c->id = key;
@@ -1894,6 +1997,7 @@ static int walk_creature_map(void) {
 
     // Fix 11: Track creature count changes for stability detection
     if (result >= 0) {
+        g_last_good_scan_tick = GetTickCount();  // Fix 12: scan freshness
         int prev = g_prev_creature_count;
         int delta = result - prev;
         if (delta < 0) delta = -delta;
@@ -3603,11 +3707,13 @@ static LONG WINAPI crash_handler(EXCEPTION_POINTERS* ep) {
     // ── Fix 9: Catch MSVC C++ exceptions during Game::attack ─────────
     // MinGW try/catch can't catch MSVC exceptions (incompatible ABI).
     // VEH sees 0xE06D7363 before MSVC's handler, so we can longjmp.
-    // Safe: Lua has already cleaned up its state before throwing.
+    // longjmp skips MSVC destructors but prevents immediate crash.
+    // Fix 11 cooldown prevents re-attack while game state recovers.
     if (code == 0xE06D7363) {
         DWORD tid = GetCurrentThreadId();
         if (g_attack_recovery && tid == g_attack_thread_id) {
             g_attack_recovery = FALSE;
+            g_last_attack_av_tick = GetTickCount();  // Fix 11: cooldown on C++ exceptions too
             dbg("[VEH] catching MSVC C++ exception during Game::attack at EIP=0x%08X",
                 (unsigned)ep->ContextRecord->Eip);
             longjmp(g_attack_jmpbuf, 1);
