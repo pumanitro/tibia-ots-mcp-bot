@@ -7,7 +7,7 @@ from protocol import ClientOpcode, build_use_on_creature_packet
 from constants import ITEM_RUNE_3165
 
 RUNE_ID = ITEM_RUNE_3165
-INTERVAL = 1.0  # seconds between casts
+INTERVAL = 0.2  # seconds between checks (max 0.2s for combat actions)
 SPELL_TEXT = "Kiaiho"
 SPELL_MANA_PCT_THRESHOLD = 5  # cast spell when mana >= 5%
 

@@ -271,11 +271,10 @@ async def run(bot):
                                     ppx, ppy, _ = gs.packet_position
                                     gs.packet_position = (ppx, ppy, cz)
                                     # Generate floor_change event for cavebot recording
-                                    import time as _time
                                     direction = "up" if cz < old[2] else "down"
                                     evt_type = f"floor_change_{direction}"
                                     gs.server_events.append((
-                                        _time.time(), evt_type,
+                                        time.time(), evt_type,
                                         {"pos": [cx, cy, cz], "z": cz}
                                     ))
                         # Update HP from memory (creature health %) — much more

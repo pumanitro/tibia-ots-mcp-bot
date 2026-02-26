@@ -915,11 +915,6 @@ async def start_bot() -> str:
         state.ready = True
         log.info("=== BOT READY — game session established ===")
 
-        # Ghost mode: actions already running, skip auto-start
-        if state.game_proxy and getattr(state.game_proxy, '_ghost_mode', False):
-            log.info("[GHOST] Reconnect login — skipping action auto-start")
-            return
-
         # Signal the login-wait task immediately (no polling delay)
         event = getattr(state, '_login_event', None)
         if event:

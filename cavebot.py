@@ -288,17 +288,28 @@ def stop_recording(state, *, discard: bool = False) -> dict | None:
 
 # ── File I/O ─────────────────────────────────────────────────────────
 
+def _safe_recording_path(name: str) -> Path | None:
+    """Resolve recording path and validate it stays within RECORDINGS_DIR."""
+    path = (RECORDINGS_DIR / f"{name}.json").resolve()
+    if not path.is_relative_to(RECORDINGS_DIR.resolve()):
+        log.warning(f"Path traversal attempt blocked: '{name}'")
+        return None
+    return path
+
+
 def save_recording(recording: dict) -> None:
     """Write recording dict to recordings/<name>.json."""
     RECORDINGS_DIR.mkdir(exist_ok=True)
-    path = RECORDINGS_DIR / f"{recording['name']}.json"
+    path = _safe_recording_path(recording['name'])
+    if path is None:
+        return
     path.write_text(json.dumps(recording, indent=2), encoding="utf-8")
 
 
 def load_recording(name: str) -> dict | None:
     """Load a recording by name.  Returns None if not found."""
-    path = RECORDINGS_DIR / f"{name}.json"
-    if not path.exists():
+    path = _safe_recording_path(name)
+    if path is None or not path.exists():
         return None
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -326,8 +337,8 @@ def list_recordings() -> list[dict]:
 
 def delete_recording(name: str) -> bool:
     """Delete a recording file.  Returns True if deleted."""
-    path = RECORDINGS_DIR / f"{name}.json"
-    if path.exists():
+    path = _safe_recording_path(name)
+    if path is not None and path.exists():
         path.unlink()
         log.info(f"Deleted recording '{name}'")
         return True

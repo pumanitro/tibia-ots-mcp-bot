@@ -1307,6 +1307,18 @@ static uintptr_t find_creature_ptr(uint32_t creature_id) {
 
 static volatile uint32_t g_last_attack_target_cid = 0; // track what we last attacked
 
+// ── Fix 11/12 helpers ────────────────────────────────────────────────
+static BOOL is_map_stable(void) {
+    DWORD now = GetTickCount();
+    DWORD scan_av = g_last_scan_av_tick;
+    DWORD atk_av  = g_last_attack_av_tick;
+    DWORD count_chg = g_last_count_change_tick;
+    if (scan_av && (now - scan_av) < MAP_STABILITY_COOLDOWN_MS) return FALSE;
+    if (atk_av && (now - atk_av) < MAP_STABILITY_COOLDOWN_MS) return FALSE;
+    if (count_chg && (now - count_chg) < COUNT_CHANGE_COOLDOWN_MS) return FALSE;
+    return TRUE;
+}
+
 // ── Fix 12: Blacklist helpers ────────────────────────────────────────
 static void blacklist_creature(uint32_t cid) {
     DWORD now = GetTickCount();
@@ -1346,16 +1358,7 @@ static void __cdecl do_game_target_update(void) {
     // cooldown has expired and re-queue it.  This runs on every WndProc
     // message (every frame) so it naturally retries after the cooldown.
     if (!g_pending_game_attack && g_deferred_attack_cid) {
-        DWORD now = GetTickCount();
-        DWORD scan_av = g_last_scan_av_tick;
-        DWORD atk_av  = g_last_attack_av_tick;
-        DWORD count_chg = g_last_count_change_tick;
-        BOOL stable = TRUE;
-        if (scan_av && (now - scan_av) < MAP_STABILITY_COOLDOWN_MS) stable = FALSE;
-        if (atk_av && (now - atk_av) < MAP_STABILITY_COOLDOWN_MS) stable = FALSE;
-        if (count_chg && (now - count_chg) < COUNT_CHANGE_COOLDOWN_MS) stable = FALSE;
-
-        if (stable) {
+        if (is_map_stable()) {
             uint32_t deferred_cid = g_deferred_attack_cid;
             g_deferred_attack_cid = 0;
             g_deferred_attack_tick = 0;
@@ -1383,32 +1386,12 @@ static void __cdecl do_game_target_update(void) {
     // If a scan thread AV, attack AV, or big creature count change happened
     // recently, the creature map is in flux and Game::attack is likely to AV
     // (which corrupts Lua state via longjmp recovery).  Better to skip and defer.
-    {
-        DWORD now = GetTickCount();
-        DWORD scan_av = g_last_scan_av_tick;
-        DWORD atk_av  = g_last_attack_av_tick;
-        DWORD count_chg = g_last_count_change_tick;
-        if (scan_av && (now - scan_av) < MAP_STABILITY_COOLDOWN_MS) {
-            dbg("[GTUPD] DEFER attack 0x%08X — map unstable (scan AV %ums ago)", cid, now - scan_av);
-            g_deferred_attack_cid = cid;
-            g_deferred_attack_tick = now;
-            g_last_attack_target_cid = 0;
-            return;
-        }
-        if (atk_av && (now - atk_av) < MAP_STABILITY_COOLDOWN_MS) {
-            dbg("[GTUPD] DEFER attack 0x%08X — map unstable (attack AV %ums ago)", cid, now - atk_av);
-            g_deferred_attack_cid = cid;
-            g_deferred_attack_tick = now;
-            g_last_attack_target_cid = 0;
-            return;
-        }
-        if (count_chg && (now - count_chg) < COUNT_CHANGE_COOLDOWN_MS) {
-            dbg("[GTUPD] DEFER attack 0x%08X — map unstable (count change %ums ago)", cid, now - count_chg);
-            g_deferred_attack_cid = cid;
-            g_deferred_attack_tick = now;
-            g_last_attack_target_cid = 0;
-            return;
-        }
+    if (!is_map_stable()) {
+        dbg("[GTUPD] DEFER attack 0x%08X — map unstable", cid);
+        g_deferred_attack_cid = cid;
+        g_deferred_attack_tick = GetTickCount();
+        g_last_attack_target_cid = 0;
+        return;
     }
 
     // ── Fix 7: Re-lookup Creature* on game thread ──
@@ -1416,9 +1399,21 @@ static void __cdecl do_game_target_update(void) {
     // fires (~16ms later), the creature may have been freed/moved.
     // Re-finding on the game thread eliminates the race: the game thread
     // owns the creature map so it can't be modified mid-lookup.
+    // Guard with setjmp — tree may contain stale pointers during floor changes.
     uintptr_t creature_ptr = 0;
     if (g_map_addr) {
+        g_attack_thread_id = GetCurrentThreadId();
+        g_attack_recovery = TRUE;
+        if (setjmp(g_attack_jmpbuf) != 0) {
+            // VEH caught AV during tree lookup
+            g_attack_recovery = FALSE;
+            g_last_attack_av_tick = GetTickCount();
+            dbg("[GTUPD] VEH recovered from AV during creature lookup for 0x%08X — blacklisting", cid);
+            blacklist_creature(cid);
+            return;
+        }
         creature_ptr = find_creature_in_map(cid);
+        g_attack_recovery = FALSE;
     }
     // Fallback to pipe thread's cached pointer if map lookup fails
     if (!creature_ptr) {
