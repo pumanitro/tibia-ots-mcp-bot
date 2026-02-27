@@ -1,4 +1,12 @@
-"""Auto-targeting: targets nearest alive monster using DLL internal attack call."""
+"""Auto-targeting: targets nearest alive monster.
+
+Two-phase attack:
+  1. DLL game_attack → Game::attack() → UI selection (red square, battle list)
+  2. Proxy inject    → ATTACK packet   → network combat (server-side targeting)
+
+Phase 1 gives the player visual feedback (red square).
+Phase 2 tells the server to start combat so spells/runes can target the creature.
+"""
 import sys
 import os
 import time
@@ -6,8 +14,9 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from constants import MONSTER_ID_MIN
+from protocol import build_attack_packet
 
-INTERVAL = 0.1  # 100ms loop (map scan provides data every 100ms)
+INTERVAL = 0.1  # 100ms loop
 MONSTER_MIN = MONSTER_ID_MIN
 MAX_AGE = 60
 
@@ -15,10 +24,11 @@ MAX_AGE = 60
 async def run(bot):
     state = sys.modules["__main__"].state
     gs = state.game_state
+    proxy = state.game_proxy
 
     last_target = None
     last_send_time = 0.0
-    RESEND_INTERVAL = 0.5  # re-send same target every 500ms (DLL dedup is cheap)
+    RESEND_INTERVAL = 0.5  # re-send same target every 500ms
 
     while True:
         if bot.is_connected:
@@ -63,12 +73,19 @@ async def run(bot):
                             f"dist={dist}")
                     last_target = target
                 # Send immediately on new target, or re-send every 500ms
-                # to recover if the game cleared the target (out of range,
-                # floor change).  DLL dedup skips if game is still targeting.
                 if new_target or (now - last_send_time) >= RESEND_INTERVAL:
+                    # Phase 1: DLL UI selection (red square)
                     bridge.send_command({"cmd": "game_attack", "creature_id": target})
+                    # Phase 2: Network attack via proxy (server-side combat)
+                    if proxy and proxy.logged_in:
+                        await bot.inject_to_server(build_attack_packet(target))
                     last_send_time = now
+
+                # Publish target for other actions (auto_rune_and_spell, aoe_spell)
+                gs.attack_target = target
             else:
+                if last_target is not None:
+                    gs.attack_target = None
                 last_target = None
 
         await bot.sleep(INTERVAL)

@@ -243,6 +243,11 @@ async def run(bot):
                 # Get player position from packet-based game state (reliable)
                 px, py, pz = gs.position if gs.position else (0, 0, 0)
 
+                # Fix 19: Send accurate player position to DLL for attack distance check.
+                # The creature struct position is stale for the local player.
+                if px > 0 and py > 0 and poll_count % 6 == 0:  # ~every 100ms
+                    bridge.send_command({"cmd": "set_player_pos", "x": px, "y": py, "z": pz})
+
                 dll_creatures = {}
                 raw_count = 0
                 for c in creatures:

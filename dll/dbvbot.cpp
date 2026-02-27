@@ -58,10 +58,10 @@ static BOOL safe_memcpy(void* dst, const void* src, size_t len) {
 #define MAX_CREATURE_ID 0x80000000u
 #define PIPE_NAME       "\\\\.\\pipe\\dbvbot"
 #define PIPE_BUF_SIZE   65536
-#define MAX_CREATURES   200
+#define MAX_CREATURES   500
 #define MAX_NAME_LEN    63
-#define FULL_SCAN_INTERVAL 5000  // ms between full VirtualQuery scans
-#define FAST_SCAN_INTERVAL 200   // ms between fast re-reads of cached addrs
+#define FULL_SCAN_INTERVAL 1000  // ms between full VirtualQuery scans (was 5000)
+#define FAST_SCAN_INTERVAL 50    // ms between fast re-reads of cached addrs (was 200)
 #define MAP_SCAN_INTERVAL  16    // ms between creature map tree walks (~60 FPS)
 #define SEND_INTERVAL      16    // ms between JSON sends (~60 FPS)
 
@@ -361,6 +361,7 @@ static void fast_scan(void) {
     }
     g_addr_count = valid;
     copy_to_output();
+    g_last_good_scan_tick = GetTickCount();  // Fix 17c: keep scan freshness alive
 }
 
 // ── Full memory scan ────────────────────────────────────────────────
@@ -435,6 +436,12 @@ static void full_scan(void) {
                     uint32_t cx = 0, cy = 0, cz = 0;
                     read_position(id_ptr, id, &cx, &cy, &cz);
 
+                    // Fix 17: Skip stale cached creatures (dead + no position)
+                    BOOL is_player = (g_player_id != 0 && id == g_player_id);
+                    if (!is_player && hp_word == 0 && cx == 0 && cy == 0) {
+                        continue;
+                    }
+
                     CachedCreature* c = &found[found_count++];
                     c->addr = id_ptr;  // cache the memory address!
                     c->id = id;
@@ -461,6 +468,11 @@ static void full_scan(void) {
 
     // Apply proximity filter to update output
     copy_to_output();
+
+    // Fix 17c: Update scan freshness for VirtualQuery mode too.
+    // Without this, Fix 12b (scan stale check) blocks ALL attacks after
+    // auto-reverting from map scan to VirtualQuery mode.
+    g_last_good_scan_tick = GetTickCount();
 
     dbg("full_scan#%d: raw=%d nearby=%d regions=%d pages=%d bad_pages=%d maxaddr=0x%08X",
         g_scan_count, found_count, g_output_count,
@@ -1381,7 +1393,25 @@ static BOOL is_blacklisted(uint32_t cid) {
 }
 
 // Inner function with the actual targeting logic (all return paths are safe)
+// Fix 18: Track last Game::attack call time for cooldown
+static volatile DWORD g_last_game_attack_tick = 0;
+#define ATTACK_MIN_INTERVAL_MS 150  // minimum ms between Game::attack calls (was 300)
+
 static void __cdecl do_game_target_update_inner(void) {
+    // ── Fix 18: Minimum cooldown between consecutive Game::attack calls ──
+    // Rapid-fire targeting (multiple different creatures per second) overwhelms
+    // the Lua VM, causing AV at RVA +0x47FB21 and similar Lua-area crashes.
+    // Enforce 300ms gap between calls to let Lua callbacks complete.
+    {
+        DWORD last = g_last_game_attack_tick;
+        if (last) {
+            DWORD elapsed = GetTickCount() - last;
+            if (elapsed < ATTACK_MIN_INTERVAL_MS) {
+                return;  // too soon since last Game::attack, skip this frame
+            }
+        }
+    }
+
     // ── Check deferred retry first ──
     // If a previous attack was skipped due to instability, check if the
     // cooldown has expired and re-queue it.  This runs on every WndProc
@@ -1528,7 +1558,7 @@ static void __cdecl do_game_target_update_inner(void) {
         dbg("[GTUPD] re-target 0x%08X (game cleared target)", cid);
     }
 
-    dbg("[GTUPD] Game::attack(&%p) id=0x%08X hp=%u", (void*)creature_ptr, cid, hp);
+    dbg("[GTUPD] ui_select(&%p) id=0x%08X hp=%u", (void*)creature_ptr, cid, hp);
 
     // ── Fix 7+15: Safe Game::attack() call ──
     // Fix 7: Re-lookup on game thread prevents stale pointers (above).
@@ -1550,36 +1580,17 @@ static void __cdecl do_game_target_update_inner(void) {
         return;
     }
 
-    // 1. Call Game::attack for UI (red square, battle list, Lua callback)
-    //    Fix 13: Mark that we're inside Game::attack so VEH knows not to
-    //    longjmp from AV (would corrupt Lua VM).  C++ exceptions still recovered.
+    // Fix 20: DLL only handles UI selection (red square, battle list, Lua callback).
+    // Network combat (ATTACK packet to server) is now handled by Python auto_targeting
+    // via proxy injection — more reliable than calling sendAttackCreature from DLL
+    // (which had seq counter issues at game_obj+0x70).
     uintptr_t creature_ref = creature_ptr;
-    typedef void (__attribute__((thiscall)) *Game_attack_fn)(void* game_this, uintptr_t* creature_ref);
-    Game_attack_fn attack_fn = (Game_attack_fn)func_addr;
+    typedef void (__attribute__((thiscall)) *GameAttack_ui_select_fn)(void* game_this, uintptr_t* creature_ref);
+    GameAttack_ui_select_fn ui_select_fn = (GameAttack_ui_select_fn)func_addr;
     g_in_game_attack_call = TRUE;
-    attack_fn((void*)game_obj, &creature_ref);
+    ui_select_fn((void*)game_obj, &creature_ref);
     g_in_game_attack_call = FALSE;
-
-    // 2. Call sendAttackCreature for network (actual combat + follow).
-    //    In DBVictory, Game::attack() only updates UI — it does NOT send
-    //    the network packet internally (unlike standard OTClient).
-    //    This explicit call is required for combat to work and for the
-    //    proxy to see ATTACK packets (used by auto_rune, etc.).
-    uintptr_t proto = 0;
-    safe_memcpy(&proto, (void*)(game_obj + OFF_GAME_PROTOCOL), 4);
-    if (proto > 0x10000) {
-        volatile uint32_t* seq_ptr = (volatile uint32_t*)(game_obj + OFF_GAME_SEQ);
-        uint32_t seq = InterlockedIncrement((volatile LONG*)seq_ptr);
-
-        typedef void (__attribute__((thiscall)) *SendAttack_fn)(void* proto_this, uint32_t creature_id, uint32_t seq);
-        SendAttack_fn send_fn = (SendAttack_fn)(base + OFF_SEND_ATTACK_RVA);
-        g_in_game_attack_call = TRUE;
-        send_fn((void*)proto, cid, seq);
-        g_in_game_attack_call = FALSE;
-        dbg("[GTUPD] sendAttackCreature(0x%08X, seq=%u) via protocol=%p", cid, seq, (void*)proto);
-    } else {
-        dbg("[GTUPD] no protocol — skipped sendAttackCreature");
-    }
+    g_last_game_attack_tick = GetTickCount();  // Fix 18: record time for cooldown
 
     g_attack_recovery = FALSE;  // disarm
 
@@ -1986,6 +1997,21 @@ static int walk_creature_map_inner(void) {
                     uint32_t hp = 0;
                     safe_memcpy(&hp, (void*)(creature_ptr + OFF_CREATURE_HP), 4);
 
+                    // Read position (using id_ptr = Creature* + OFF_CREATURE_ID)
+                    uint8_t* id_ptr = (uint8_t*)(creature_ptr + OFF_CREATURE_ID);
+                    uint32_t cx = 0, cy = 0, cz = 0;
+                    read_position(id_ptr, key, &cx, &cy, &cz);
+
+                    // Fix 17: Skip stale cached creatures to prevent buffer overflow.
+                    // The knownCreatures map grows to 200+ entries as the player
+                    // explores. Dead creatures (hp=0) with no position (0,0,0) are
+                    // old cache junk — skip them to save buffer space for visible ones.
+                    // Always keep the player's own creature.
+                    BOOL is_player = (g_player_id != 0 && key == g_player_id);
+                    if (!is_player && (hp == 0 || hp > 100) && cx == 0 && cy == 0) {
+                        continue;  // stale cached creature, skip
+                    }
+
                     // Read name from object (name field is at Creature* + OFF_CREATURE_NAME)
                     char name[64] = {0};
                     uint8_t name_raw[24];
@@ -1994,17 +2020,9 @@ static int walk_creature_map_inner(void) {
                         try_read_name(name_raw, name, sizeof(name));
                     }
 
-                    // Read position (using id_ptr = Creature* + OFF_CREATURE_ID)
-                    uint8_t* id_ptr = (uint8_t*)(creature_ptr + OFF_CREATURE_ID);
-                    uint32_t cx = 0, cy = 0, cz = 0;
-                    read_position(id_ptr, key, &cx, &cy, &cz);
-
-                    // Fix 12: Track player position for attack distance validation
-                    if (g_player_id != 0 && key == g_player_id && cx != 0) {
-                        g_player_x = cx;
-                        g_player_y = cy;
-                        g_player_z = cz;
-                    }
+                    // Fix 19: Player position now comes from proxy via set_player_pos command.
+                    // The creature struct position is stale for the local player
+                    // (doesn't update in real-time), so we no longer read it from here.
 
                     CachedCreature* c = &found[found_count++];
                     c->addr = id_ptr;
@@ -2762,6 +2780,25 @@ static void parse_command(const char* line) {
                         }
                         dbg("  0x%08X: %s", (unsigned)(addr + i), hex);
                     }
+                }
+            }
+        }
+    } else if (strstr(line, "\"set_player_pos\"")) {
+        // Fix 19: Accept player position from proxy (creature struct is stale for local player)
+        // Format: {"cmd":"set_player_pos","x":539,"y":952,"z":6}
+        const char* xs = strstr(line, "\"x\"");
+        const char* ys = strstr(line, "\"y\"");
+        const char* zs = strstr(line, "\"z\"");
+        if (xs && ys && zs) {
+            xs = strchr(xs + 3, ':'); ys = strchr(ys + 3, ':'); zs = strchr(zs + 3, ':');
+            if (xs && ys && zs) {
+                uint32_t px = (uint32_t)strtoul(xs + 1, NULL, 10);
+                uint32_t py = (uint32_t)strtoul(ys + 1, NULL, 10);
+                uint32_t pz = (uint32_t)strtoul(zs + 1, NULL, 10);
+                if (px > 0 && py > 0 && pz <= 15) {
+                    g_player_x = px;
+                    g_player_y = py;
+                    g_player_z = pz;
                 }
             }
         }
@@ -3644,6 +3681,7 @@ static DWORD WINAPI pipe_thread(LPVOID param) {
                 if (g_use_map_scan && g_map_addr) {
                     // Map scan mode: walk the creature tree every 100ms
                     if (now - last_map_scan > MAP_SCAN_INTERVAL) {
+                        static int low_creature_streak = 0;
                         int result = walk_creature_map();
                         last_map_scan = GetTickCount();
                         if (result < 0) {
@@ -3651,10 +3689,28 @@ static DWORD WINAPI pipe_thread(LPVOID param) {
                             dbg("[MAP] tree walk failed — reverting to VirtualQuery scan");
                             g_use_map_scan = FALSE;
                             g_map_addr = 0;
+                            low_creature_streak = 0;
                         } else {
                             g_map_scan_count++;
                             if (g_map_scan_count <= 3 || g_map_scan_count % 100 == 0) {
                                 dbg("[MAP] scan#%d: %d creatures", g_map_scan_count, result);
+                            }
+                            // Fix 17b: Auto-revert if map scan finds too few creatures.
+                            // If scan_gmap locked onto the wrong std::map, the tree walk
+                            // will consistently return very few creatures (e.g. just the player).
+                            // After 50 consecutive low-result scans (~5s), revert to
+                            // VirtualQuery which finds creatures via heap pattern matching.
+                            if (result <= 1) {
+                                low_creature_streak++;
+                                if (low_creature_streak >= 50) {
+                                    dbg("[MAP] only %d creature(s) for %d consecutive scans — wrong map, reverting to VirtualQuery",
+                                        result, low_creature_streak);
+                                    g_use_map_scan = FALSE;
+                                    g_map_addr = 0;
+                                    low_creature_streak = 0;
+                                }
+                            } else {
+                                low_creature_streak = 0;
                             }
                         }
                     }
