@@ -308,6 +308,45 @@ async def run(bot):
 
                 if poll_count % 30 == 1:
                     _dbg(f"filter: raw={raw_count} nearby={len(dll_creatures)} player=({px},{py},{pz})")
+                # ID RANGE diagnostic: every 600 polls (~60s) show creature IDs vs MONSTER_ID_MIN
+                if poll_count % 600 == 1 and raw_count > 0:
+                    below = []
+                    above = []
+                    for c in creatures:
+                        cid = c.get("id", 0)
+                        if cid == 0 or cid == bot.player_id:
+                            continue
+                        if not (0x10000000 <= cid < 0x80000000):
+                            continue
+                        name = c.get("name", "?")[:12]
+                        hp = c.get("hp", 0)
+                        cx, cy, cz = c.get("x", 0), c.get("y", 0), c.get("z", 0)
+                        entry = f"0x{cid:08X}({name} hp={hp} @{cx},{cy},{cz})"
+                        if cid >= 0x40000000:
+                            above.append(entry)
+                        else:
+                            below.append(entry)
+                    _dbg(f"ID_RANGE: MONSTER(>=0x40M)={len(above)} {above[:5]} "
+                         f"PLAYER/NPC(<0x40M)={len(below)} {below[:5]}")
+                # Position diagnostic: every 300 polls (~30s), show z-dist and closest
+                if poll_count % 300 == 1 and raw_count > 0 and px > 0:
+                    z_dist = {}
+                    closest = 9999
+                    closest_info = ""
+                    for c in creatures:
+                        cid = c.get("id", 0)
+                        if cid == bot.player_id or c.get("hp", 0) <= 0:
+                            continue
+                        cx, cy, cz = c.get("x", 0), c.get("y", 0), c.get("z", 0)
+                        if cx == 0 and cy == 0:
+                            continue
+                        z_dist[cz] = z_dist.get(cz, 0) + 1
+                        if cz == pz:
+                            d = max(abs(cx - px), abs(cy - py))
+                            if d < closest:
+                                closest = d
+                                closest_info = f"0x{cid:X} ({cx},{cy},{cz}) d={d} hp={c.get('hp',0)}"
+                    _dbg(f"DIAG: z-dist={dict(sorted(z_dist.items()))} closest_same_z={closest_info or 'none'}")
 
                 if dll_creatures:
                     for cid, info in dll_creatures.items():

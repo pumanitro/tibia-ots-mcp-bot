@@ -22,6 +22,11 @@ async def run(bot):
             if pos and pos[0] > 0 and pos[1] > 0:
                 px, py, pz = pos
                 now = time.time()
+                # Periodic ID diagnostic
+                if int(now) % 15 == 0 and gs.creatures:
+                    ids = sorted(gs.creatures.keys())
+                    bot.log(f"[AOE DIAG] {len(ids)} creatures: "
+                            + " ".join(f"0x{c:X}({gs.creatures[c].get('name','?')[:8]})" for c in ids[:8]))
                 count = 0
                 for cid, info in gs.creatures.items():
                     if (cid >= MONSTER_ID_MIN

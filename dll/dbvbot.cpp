@@ -144,6 +144,26 @@ static volatile DWORD g_last_count_change_tick = 0; // when creature count chang
 static volatile uint32_t g_deferred_attack_cid = 0; // creature to retry after cooldown
 static volatile DWORD    g_deferred_attack_tick = 0; // when the deferred attack was queued
 
+// ── Fix 13: Distinguish tree-walk AV (safe to recover) from
+// Game::attack AV (Lua corruption — must NOT longjmp) ────────────────
+static volatile BOOL g_in_game_attack_call = FALSE;  // TRUE only during attack_fn()
+
+// Cascade detection: terminate cleanly if same crash repeats in a loop
+#define CRASH_CASCADE_LIMIT     5
+#define CRASH_CASCADE_WINDOW_MS 2000
+static volatile uintptr_t g_last_crash_eip      = 0;
+static volatile int       g_crash_repeat_count   = 0;
+static volatile DWORD     g_first_crash_tick     = 0;
+
+// ── Fix 14: Global crash cooldown ────────────────────────────────────
+// After ANY unrecovered AV crash, pause attacks so the game can stabilize.
+static volatile DWORD g_last_any_crash_tick = 0;
+#define CRASH_ATTACK_COOLDOWN_MS 5000  // 5s cooldown after any crash
+// Track WndProc delivery: if pending attack not consumed in N seconds,
+// the game thread is dead/frozen — stop queueing more.
+static volatile DWORD g_pending_queued_tick = 0;
+#define WNDPROC_DELIVERY_TIMEOUT_MS 5000  // 5s before giving up on delivery
+
 // ── Fix 12: Better pre-validation ───────────────────────────────────
 // Track player position from scan to validate creature distance/floor.
 // Blacklist creatures that caused VEH recovery to prevent re-triggering.
@@ -272,11 +292,13 @@ static BOOL read_position_at(const uint8_t* id_ptr, int offset, uint32_t* x, uin
     uint8_t pos_buf[12];
     if (!safe_memcpy(pos_buf, pos_ptr, 12)) return FALSE;
 
-    memcpy(x, pos_buf, 4);
-    memcpy(y, pos_buf + 4, 4);
-    memcpy(z, pos_buf + 8, 4);
+    uint32_t rx, ry, rz;
+    memcpy(&rx, pos_buf, 4);
+    memcpy(&ry, pos_buf + 4, 4);
+    memcpy(&rz, pos_buf + 8, 4);
 
-    if (*x > 65535 || *y > 65535 || *z > 15) return FALSE;
+    if (rx > 65535 || ry > 65535 || rz > 15) return FALSE;
+    *x = rx; *y = ry; *z = rz;
     return TRUE;
 }
 
@@ -1187,6 +1209,12 @@ static volatile uintptr_t g_pending_creature_ptr = 0;
 static volatile uint32_t  g_pending_creature_id  = 0;
 static volatile LONG g_pending_game_attack = 0;
 
+// Fix 16: Re-entrancy guard for do_game_target_update().
+// Game::attack() triggers Lua callbacks which can pump messages internally
+// (SendMessage, UI updates, etc.) → WndProc fires again → recursive
+// do_game_target_update() → re-entrant Lua → fatal error.
+static volatile BOOL g_in_target_update = FALSE;
+
 // Cache: last successfully found Creature*
 static uint32_t  g_cached_target_cid = 0;
 static uintptr_t g_cached_target_ptr = 0;
@@ -1352,7 +1380,8 @@ static BOOL is_blacklisted(uint32_t cid) {
     return FALSE;
 }
 
-static void __cdecl do_game_target_update(void) {
+// Inner function with the actual targeting logic (all return paths are safe)
+static void __cdecl do_game_target_update_inner(void) {
     // ── Check deferred retry first ──
     // If a previous attack was skipped due to instability, check if the
     // cooldown has expired and re-queue it.  This runs on every WndProc
@@ -1377,6 +1406,7 @@ static void __cdecl do_game_target_update(void) {
     if (!InterlockedExchange(&g_pending_game_attack, 0))
         return;
 
+    g_pending_queued_tick = 0;  // Fix 14: delivery succeeded
     uint32_t cid = g_pending_creature_id;
     g_pending_creature_ptr = 0;
     g_pending_creature_id  = 0;
@@ -1500,33 +1530,35 @@ static void __cdecl do_game_target_update(void) {
 
     dbg("[GTUPD] Game::attack(&%p) id=0x%08X hp=%u", (void*)creature_ptr, cid, hp);
 
-    // ── Fix 7+9: Safe Game::attack() call ──
+    // ── Fix 7+15: Safe Game::attack() call ──
     // Fix 7: Re-lookup on game thread prevents stale pointers (above).
-    // Fix 9: VEH-based catch for MSVC C++ exceptions (0xE06D7363).
-    //   MinGW's try/catch can't catch MSVC exceptions (incompatible ABI).
-    //   Instead, arm setjmp + VEH handler to longjmp on 0xE06D7363.
-    //   Safe because Lua cleans up its state BEFORE throwing the C++ exception,
-    //   unlike an AV mid-Lua-call where longjmp corrupts Lua state.
-    //   AVs (0xC0000005) are NOT caught here — let them crash cleanly.
+    // Fix 15: NO longjmp recovery during Game::attack — neither AVs nor C++ exceptions.
+    //   longjmp across MSVC frames ALWAYS skips destructors → Lua VM corruption.
+    //   setjmp is still here ONLY to recover from AV during tree walk (find_creature_in_map).
+    //   If Game::attack itself crashes or throws, MSVC handlers deal with it natively.
 
     g_attack_thread_id = GetCurrentThreadId();
     g_attack_recovery = TRUE;
     if (setjmp(g_attack_jmpbuf) != 0) {
-        // VEH caught a Lua C++ exception during Game::attack/sendAttackCreature
-        dbg("[GTUPD] VEH caught exception during Game::attack for 0x%08X — blacklisting", cid);
-        // Fix 12: Blacklist this creature so we don't re-trigger the same exception
+        // VEH caught an AV during find_creature_in_map (tree walk, no Lua)
+        g_in_game_attack_call = FALSE;
+        dbg("[GTUPD] VEH recovered from AV during creature lookup for 0x%08X — blacklisting", cid);
         blacklist_creature(cid);
-        g_deferred_attack_cid = 0;  // don't defer-retry a blacklisted creature
+        g_deferred_attack_cid = 0;
         g_deferred_attack_tick = 0;
         g_last_attack_target_cid = 0;
         return;
     }
 
     // 1. Call Game::attack for UI (red square, battle list, Lua callback)
+    //    Fix 13: Mark that we're inside Game::attack so VEH knows not to
+    //    longjmp from AV (would corrupt Lua VM).  C++ exceptions still recovered.
     uintptr_t creature_ref = creature_ptr;
     typedef void (__attribute__((thiscall)) *Game_attack_fn)(void* game_this, uintptr_t* creature_ref);
     Game_attack_fn attack_fn = (Game_attack_fn)func_addr;
+    g_in_game_attack_call = TRUE;
     attack_fn((void*)game_obj, &creature_ref);
+    g_in_game_attack_call = FALSE;
 
     // 2. Call sendAttackCreature for network (actual combat + follow).
     //    In DBVictory, Game::attack() only updates UI — it does NOT send
@@ -1541,7 +1573,9 @@ static void __cdecl do_game_target_update(void) {
 
         typedef void (__attribute__((thiscall)) *SendAttack_fn)(void* proto_this, uint32_t creature_id, uint32_t seq);
         SendAttack_fn send_fn = (SendAttack_fn)(base + OFF_SEND_ATTACK_RVA);
+        g_in_game_attack_call = TRUE;
         send_fn((void*)proto, cid, seq);
+        g_in_game_attack_call = FALSE;
         dbg("[GTUPD] sendAttackCreature(0x%08X, seq=%u) via protocol=%p", cid, seq, (void*)proto);
     } else {
         dbg("[GTUPD] no protocol — skipped sendAttackCreature");
@@ -1553,9 +1587,51 @@ static void __cdecl do_game_target_update(void) {
     dbg("[GTUPD] target locked 0x%08X", cid);
 }
 
+// ── Fix 16: Re-entrancy guard wrapper ──
+// Game::attack() triggers Lua callbacks which can internally pump messages
+// (SendMessage, UI updates).  If WndProc fires during that, the deferred
+// attack check would call us recursively → re-entrant Lua invocation
+// → "Critical lua error! C++ call failed: unknown|fatal error".
+static void __cdecl do_game_target_update(void) {
+    if (g_in_target_update) return;
+    g_in_target_update = TRUE;
+    do_game_target_update_inner();
+    g_in_target_update = FALSE;
+}
+
 // Request an attack (called from pipe thread).
 // Finds the Creature* via scan cache / heap scan and queues for game thread.
 static void request_game_attack(uint32_t creature_id) {
+    // ── Fix 14: Skip attacks during post-crash cooldown ──
+    {
+        DWORD crash_tick = g_last_any_crash_tick;
+        if (crash_tick) {
+            DWORD now = GetTickCount();
+            if ((now - crash_tick) < CRASH_ATTACK_COOLDOWN_MS) return;
+        }
+    }
+
+    // ── Fix 14: Detect WndProc delivery failure ──
+    // If a pending attack hasn't been consumed in 5s, game thread is
+    // dead/frozen. Stop queueing more attacks to avoid spam loop.
+    if (g_pending_game_attack) {
+        DWORD queued = g_pending_queued_tick;
+        if (queued) {
+            DWORD now = GetTickCount();
+            if ((now - queued) > WNDPROC_DELIVERY_TIMEOUT_MS) {
+                // Game thread not processing — clear and log once
+                if (g_pending_game_attack) {
+                    InterlockedExchange(&g_pending_game_attack, 0);
+                    dbg("[GATK] WndProc delivery timeout (%ums) — game thread frozen, clearing queue",
+                        now - queued);
+                    g_pending_queued_tick = 0;
+                }
+                return;
+            }
+        }
+        return;  // still pending from last call
+    }
+
     // Skip if already attacking this creature (unless game cleared it)
     if (creature_id == g_last_attack_target_cid) {
         HMODULE gm = GetModuleHandle(NULL);
@@ -1589,6 +1665,7 @@ static void request_game_attack(uint32_t creature_id) {
     // Queue for game thread (pass both ID and ptr — game thread will re-lookup)
     g_pending_creature_id  = creature_id;
     g_pending_creature_ptr = creature_ptr;
+    g_pending_queued_tick  = GetTickCount();  // Fix 14: track queue time
     InterlockedExchange(&g_pending_game_attack, 1);
 
     // Trigger immediate execution via WndProc hook (~16ms) instead of
@@ -3683,36 +3760,45 @@ static LONG WINAPI crash_handler(EXCEPTION_POINTERS* ep) {
             longjmp(g_scan_jmpbuf, 1);
             // NOT REACHED
         }
-        // ── Fix 10: Also recover AVs during Game::attack ──
-        // Fix 7 removed AV recovery (longjmp corrupts Lua state).
-        // But Game::attack Lua callbacks can ALSO crash with AV (e.g.,
-        // Lua traceback code hits corrupted data → EIP="trac").
-        // Without recovery → 100% game crash. With recovery → game may
-        // get Lua errors later but has a chance to survive.
+        // ── Fix 13: Split AV recovery — tree walk (safe) vs Game::attack (unsafe) ──
+        // Fix 7/10 history: longjmp from AV during Game::attack corrupts Lua VM
+        // because Lua callbacks have stack frames that longjmp skips over.
+        // Tree walk (find_creature_in_map) has NO Lua involvement → safe to recover.
         if (g_attack_recovery && tid == g_attack_thread_id) {
+            if (!g_in_game_attack_call) {
+                // AV during tree walk (before attack_fn) → safe to longjmp
+                g_attack_recovery = FALSE;
+                g_last_attack_av_tick = GetTickCount();
+                dbg("[VEH] recovering game thread from AV during tree walk at EIP=0x%08X",
+                    (unsigned)ep->ContextRecord->Eip);
+                longjmp(g_attack_jmpbuf, 1);
+                // NOT REACHED
+            }
+            // AV during Game::attack (Lua active) → do NOT longjmp (corrupts Lua VM)
+            // Disarm recovery and fall through to crash logging
             g_attack_recovery = FALSE;
-            g_last_attack_av_tick = GetTickCount();  // Fix 11: record for stability check
-            dbg("[VEH] recovering game thread from AV during Game::attack at EIP=0x%08X",
+            g_in_game_attack_call = FALSE;
+            g_last_attack_av_tick = GetTickCount();
+            dbg("[VEH] AV during Game::attack at EIP=0x%08X — NOT recovering (Lua corruption risk)",
                 (unsigned)ep->ContextRecord->Eip);
-            longjmp(g_attack_jmpbuf, 1);
-            // NOT REACHED
         }
     }
 
-    // ── Fix 9: Catch MSVC C++ exceptions during Game::attack ─────────
-    // MinGW try/catch can't catch MSVC exceptions (incompatible ABI).
-    // VEH sees 0xE06D7363 before MSVC's handler, so we can longjmp.
-    // longjmp skips MSVC destructors but prevents immediate crash.
-    // Fix 11 cooldown prevents re-attack while game state recovers.
+    // ── Fix 9→15: C++ exceptions during Game::attack ────────────────
+    // Fix 9 originally longjmp'd here, but Fix 15 removes this:
+    // longjmp across MSVC C++ frames skips destructors (undefined behavior),
+    // leaving Lua VM resources dangling → delayed "Critical lua error!" fatal.
+    // Instead: disarm recovery and let MSVC's own try/catch handle it natively.
+    // The game's exception handler further up the call stack will catch it.
     if (code == 0xE06D7363) {
         DWORD tid = GetCurrentThreadId();
         if (g_attack_recovery && tid == g_attack_thread_id) {
             g_attack_recovery = FALSE;
-            g_last_attack_av_tick = GetTickCount();  // Fix 11: cooldown on C++ exceptions too
-            dbg("[VEH] catching MSVC C++ exception during Game::attack at EIP=0x%08X",
+            g_in_game_attack_call = FALSE;
+            g_last_attack_av_tick = GetTickCount();
+            dbg("[VEH] MSVC C++ exception during Game::attack at EIP=0x%08X — letting game handle it",
                 (unsigned)ep->ContextRecord->Eip);
-            longjmp(g_attack_jmpbuf, 1);
-            // NOT REACHED
+            // Do NOT longjmp — let MSVC exception handling unwind properly
         }
     }
 
@@ -3730,6 +3816,30 @@ static LONG WINAPI crash_handler(EXCEPTION_POINTERS* ep) {
         HMODULE game = GetModuleHandle(NULL);
         uintptr_t base = (uintptr_t)game;
         uintptr_t eip = ep->ContextRecord->Eip;
+
+        // ── Fix 14: Global crash cooldown ──
+        // Any unrecovered AV pauses attacks for 5s so game can stabilize.
+        g_last_any_crash_tick = GetTickCount();
+
+        // ── Fix 13: Cascade detection ──
+        // If the same crash address repeats rapidly, terminate cleanly instead
+        // of stack-overflowing from nested exception handler frames.
+        DWORD now = GetTickCount();
+        if (eip == g_last_crash_eip && (now - g_first_crash_tick) < CRASH_CASCADE_WINDOW_MS) {
+            g_crash_repeat_count++;
+            if (g_crash_repeat_count >= CRASH_CASCADE_LIMIT) {
+                fprintf(g_crash_log,
+                    "!!! CRASH CASCADE (%d repeats at RVA +0x%X in %ums) — TERMINATING\n",
+                    g_crash_repeat_count, (unsigned)(eip - base), now - g_first_crash_tick);
+                fflush(g_crash_log);
+                TerminateProcess(GetCurrentProcess(), 1);
+            }
+        } else {
+            g_last_crash_eip = eip;
+            g_crash_repeat_count = 1;
+            g_first_crash_tick = now;
+        }
+
         fprintf(g_crash_log, "!!! CRASH code=0x%08X addr=0x%08X (RVA +0x%X)\n",
             (unsigned)ep->ExceptionRecord->ExceptionCode,
             (unsigned)eip, (unsigned)(eip - base));

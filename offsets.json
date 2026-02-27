@@ -14,7 +14,7 @@
     "id": "0x34",
     "name": "0x38",
     "health": "0x50",
-    "npc_position_from_id": 576,
+    "npc_position_from_id": -40,
     "player_position_from_id": -40
   },
   "creature_vtable_rva_range": [

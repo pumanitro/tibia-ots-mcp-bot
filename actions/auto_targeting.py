@@ -30,6 +30,15 @@ async def run(bot):
             now = time.time()
             px, py, pz = gs.position if gs.position else (0, 0, 0)
 
+            # Log all creature IDs periodically to diagnose ID range issues
+            if int(now) % 10 == 0 and now - last_send_time > 2 and gs.creatures:
+                all_ids = sorted(gs.creatures.keys())
+                below = [f"0x{c:08X}({gs.creatures[c].get('name','?')})" for c in all_ids if c < MONSTER_MIN]
+                above = [f"0x{c:08X}({gs.creatures[c].get('name','?')})" for c in all_ids if c >= MONSTER_MIN]
+                bot.log(f"[DIAG] creatures={len(all_ids)} "
+                        f"below_threshold({len(below)})={below[:5]} "
+                        f"above_threshold({len(above)})={above[:5]}")
+
             monsters = {
                 cid: info for cid, info in gs.creatures.items()
                 if cid >= MONSTER_MIN

@@ -47,9 +47,13 @@ async def run(bot):
         while True:
             if bot.is_connected and state.game_proxy and current_target[0]:
                 cid = current_target[0]
-                # Verify target is still alive before wasting a rune/spell
+                # Check if target is alive if we have creature data,
+                # but still fire if creature data is unavailable (e.g.,
+                # proximity filter rejected it or DLL bridge not connected)
                 creature = gs.creatures.get(cid)
-                if creature and creature.get("health", 0) > 0:
+                if creature and creature.get("health", 0) <= 0:
+                    pass  # confirmed dead — skip
+                else:
                     mana_pct = (gs.mana / gs.max_mana * 100) if gs.max_mana > 0 else 100
                     if mana_pct >= SPELL_MANA_PCT_THRESHOLD:
                         await bot.say(SPELL_TEXT)
