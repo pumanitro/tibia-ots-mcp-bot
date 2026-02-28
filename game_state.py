@@ -53,6 +53,9 @@ class GameState:
         # Current attack target (creature ID from client ATTACK opcode, 0 = none)
         self.attack_target_id: int = 0
 
+        # Lure mode flag — when True, auto_targeting suppresses attacks
+        self.lure_active: bool = False
+
         # Timestamp of last "You can't throw there" server message
         self.last_cant_throw: float = 0
 

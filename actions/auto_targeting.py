@@ -39,6 +39,16 @@ async def run(bot):
                 await bot.sleep(1)
                 continue
 
+            # Lure mode: suppress targeting while cavebot is luring
+            if gs.lure_active:
+                if last_target is not None:
+                    bridge.send_command({"cmd": "game_cancel_attack"})
+                    gs.attack_target = None
+                    gs.attack_target_id = 0
+                    last_target = None
+                await bot.sleep(INTERVAL)
+                continue
+
             now = time.time()
             px, py, pz = gs.position if gs.position else (0, 0, 0)
 

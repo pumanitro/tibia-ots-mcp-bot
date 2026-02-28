@@ -964,6 +964,7 @@ function CavebotPanel({
             >
               <option value="none">None</option>
               <option value="pause_on_monster">Pause on Monster</option>
+              <option value="lure">Lure</option>
             </select>
           </div>
         </div>

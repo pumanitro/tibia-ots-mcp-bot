@@ -42,6 +42,50 @@ def _get_targeting_strategy():
     return cfg.get("targeting_strategy", "none")
 
 
+def _get_lure_settings():
+    """Read lure_count and lure_distance from bot_settings.json cavebot config."""
+    state = _get_state()
+    cfg = state.settings.get("actions", {}).get("cavebot", {})
+    return cfg.get("lure_count", 3), cfg.get("lure_distance", 3)
+
+
+def _count_nearby_monsters(gs, distance):
+    """Count alive monsters within Chebyshev distance on the same floor."""
+    px, py, pz = gs.position if gs.position else (0, 0, 0)
+    if px == 0 and py == 0:
+        return 0
+    now = time.time()
+    count = 0
+    for cid, info in gs.creatures.items():
+        if (cid >= MONSTER_ID_MIN
+                and 0 < info.get("health", 0) <= 100
+                and info.get("z") == pz
+                and now - info.get("t", 0) < 60):
+            dist = max(abs(info.get("x", 0) - px),
+                       abs(info.get("y", 0) - py))
+            if dist <= distance:
+                count += 1
+    return count
+
+
+def _is_next_node_floor_change(actions_map, i, player_z):
+    """Return True if the node at i+1 is a floor change."""
+    if i + 1 >= len(actions_map):
+        return False
+    next_node = actions_map[i + 1]
+    ntype = next_node["type"]
+    if ntype == "walk_steps":
+        return True  # walk_steps are always floor transitions
+    target = next_node.get("target")
+    if target and target[2] != player_z:
+        return True
+    if ntype == "use_item_ex":
+        to_z = next_node.get("to_z")
+        if to_z is not None and to_z != player_z:
+            return True
+    return False
+
+
 def _get_nearby_monsters(gs):
     """Return list of alive monsters from game_state.creatures.
 
@@ -239,6 +283,20 @@ async def _execute_walk_to(bot, node, prefix="", exact=False):
                         last_cancel_pos = None
                         break
                 if not escaped:
+                    # Body-block during lure: kill blockers then retry
+                    gs_walk = _get_state().game_state
+                    if gs_walk.lure_active and _count_nearby_monsters(gs_walk, 3) > 0:
+                        bot.log(f"{prefix}   body-blocked while luring, fighting blockers")
+                        gs_walk.lure_active = False
+                        fight_start = time.time()
+                        while time.time() - fight_start < PAUSE_MAX_TIMEOUT:
+                            if _count_nearby_monsters(gs_walk, 3) == 0:
+                                break
+                            await bot.sleep(0.2)
+                        gs_walk.lure_active = True
+                        cancel_count = 0
+                        last_cancel_pos = None
+                        continue  # retry walk after killing blockers
                     bot.log(f"{prefix}   escape failed, skipping node")
                     return False
             else:
@@ -572,6 +630,12 @@ async def run(bot):
         )
         bot.log(actions_map_to_text(actions_map))
 
+        # Initialize lure mode if strategy is "lure"
+        strategy_init = _get_targeting_strategy()
+        if strategy_init == "lure":
+            state.game_state.lure_active = True
+            bot.log("Lure strategy active — suppressing auto-targeting while walking")
+
         aborted = False
         i = 0
         while i < len(actions_map):
@@ -658,6 +722,50 @@ async def run(bot):
                                 # Unreachable — keep it targeted, just don't pause
                                 bot.log(f"{prefix} Monster {name} unreachable, continuing path")
 
+            elif strategy == "lure":
+                gs = state.game_state
+                lure_count, lure_distance = _get_lure_settings()
+
+                if not gs.in_protection_zone:
+                    nearby = _count_nearby_monsters(gs, lure_distance)
+                    player_z_lure = bot.position[2]
+                    floor_change_ahead = _is_next_node_floor_change(actions_map, i, player_z_lure)
+
+                    should_fight = (nearby >= lure_count
+                                    or (nearby > 0 and floor_change_ahead))
+
+                    if should_fight:
+                        reason = (f"floor change ahead ({nearby} mobs)"
+                                  if floor_change_ahead and nearby < lure_count
+                                  else f"{nearby} monsters nearby")
+                        bot.log(f"{prefix} Lure fight: {reason}")
+                        gs.lure_active = False  # enable auto_targeting
+
+                        fight_start = time.time()
+                        while state.playback_active and bot.is_connected:
+                            remaining = _count_nearby_monsters(gs, lure_distance)
+                            if remaining == 0:
+                                bot.log(f"{prefix} All monsters dead, resuming lure")
+                                break
+                            elapsed = time.time() - fight_start
+                            if elapsed > PAUSE_MAX_TIMEOUT:
+                                bot.log(f"{prefix} Lure fight timeout ({PAUSE_MAX_TIMEOUT}s), resuming")
+                                break
+                            if gs.in_protection_zone:
+                                bot.log(f"{prefix} Entered PZ, resuming lure")
+                                break
+                            await bot.sleep(0.2)
+
+                        gs.lure_active = True  # suppress targeting, resume luring
+                    else:
+                        gs.lure_active = True  # keep luring
+
+            # Safety: clear lure flag if strategy changed away from lure
+            if strategy != "lure":
+                gs_check = state.game_state
+                if gs_check.lure_active:
+                    gs_check.lure_active = False
+
             # ── Floor skip: if player Z doesn't match what this node expects,
             #    skip ahead to the first node matching current floor.
             player_z = bot.position[2]
@@ -717,4 +825,5 @@ async def run(bot):
     state.playback_actions_map = []
     state.playback_minimap = None
     state.playback_failed_nodes = set()
+    state.game_state.lure_active = False  # always clear on playback end
     bot.log("Playback finished")
