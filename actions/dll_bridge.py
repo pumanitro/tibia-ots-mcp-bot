@@ -116,14 +116,17 @@ def _send_init_commands(bridge, player_id):
     bridge.send_command({"cmd": "hook_xtea"})
     bridge.send_command({"cmd": "scan_game_attack"})
 
-    # 3. WndProc hook for fast targeting (~16ms instead of ~1s XTEA)
+    # 3. PeekMessage hook for safe targeting at game loop boundary
+    # (replaces WndProc-based targeting which crashed Lua VM)
+    bridge.send_command({"cmd": "hook_peekmsg"})
+    # WndProc hook kept as fallback (auto-skips targeting if PeekMsg active)
     bridge.send_command({"cmd": "hook_wndproc"})
 
     # 4. Creature map scanning (replaces VirtualQuery)
     bridge.send_command({"cmd": "scan_gmap"})
     bridge.send_command({"cmd": "use_map_scan", "enabled": True})
 
-    _dbg("sent full init: offsets + hooks + wndproc + gmap")
+    _dbg("sent full init: offsets + hooks + peekmsg + gmap")
 
 
 async def _connect_with_inject(bridge, bot):

@@ -1,10 +1,12 @@
 """Auto-targeting: targets nearest alive monster.
 
 Two-phase attack:
-  1. DLL game_attack → Game::attack() → UI selection (red square, battle list)
-  2. Proxy inject    → ATTACK packet   → network combat (server-side targeting)
+  1. DLL game_attack → direct memory write to m_attackingCreature → red square
+  2. Proxy inject    → ATTACK packet → network combat (server-side targeting)
 
-Phase 1 gives the player visual feedback (red square).
+Phase 1 writes the creature pointer directly to game memory (Fix 24: no Game::attack()
+call, no Lua VM involvement, zero crash risk). The game's render loop reads this field
+every frame to draw the red square border.
 Phase 2 tells the server to start combat so spells/runes can target the creature.
 """
 import sys
@@ -16,7 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from constants import MONSTER_ID_MIN
 from protocol import build_attack_packet
 
-INTERVAL = 0.1  # 100ms loop
+INTERVAL = 0.05  # 50ms loop
 MONSTER_MIN = MONSTER_ID_MIN
 MAX_AGE = 60
 
@@ -72,11 +74,16 @@ async def run(bot):
                             f"(0x{target:08X}) hp={monsters[target]['health']}% "
                             f"dist={dist}")
                     last_target = target
-                # Send immediately on new target, or re-send every 500ms
-                if new_target or (now - last_send_time) >= RESEND_INTERVAL:
-                    # Phase 1: DLL UI selection (red square)
+                # Phase 1: DLL writes creature pointer to m_attackingCreature (red square).
+                # Fix 24: Memory write is always safe (no Lua VM), so resend on every cycle.
+                if new_target:
                     bridge.send_command({"cmd": "game_attack", "creature_id": target})
-                    # Phase 2: Network attack via proxy (server-side combat)
+                    if proxy and proxy.logged_in:
+                        await bot.inject_to_server(build_attack_packet(target))
+                    last_send_time = now
+                # Resend both DLL + network every 500ms (DLL re-write is safe & idempotent)
+                elif (now - last_send_time) >= RESEND_INTERVAL:
+                    bridge.send_command({"cmd": "game_attack", "creature_id": target})
                     if proxy and proxy.logged_in:
                         await bot.inject_to_server(build_attack_packet(target))
                     last_send_time = now
@@ -85,6 +92,8 @@ async def run(bot):
                 gs.attack_target = target
             else:
                 if last_target is not None:
+                    # Clear red square in game UI
+                    bridge.send_command({"cmd": "game_cancel_attack"})
                     gs.attack_target = None
                 last_target = None
 

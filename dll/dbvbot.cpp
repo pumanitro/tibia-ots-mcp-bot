@@ -60,7 +60,7 @@ static BOOL safe_memcpy(void* dst, const void* src, size_t len) {
 #define PIPE_BUF_SIZE   65536
 #define MAX_CREATURES   500
 #define MAX_NAME_LEN    63
-#define FULL_SCAN_INTERVAL 1000  // ms between full VirtualQuery scans (was 5000)
+#define FULL_SCAN_INTERVAL 200   // ms between full VirtualQuery scans (was 5000)
 #define FAST_SCAN_INTERVAL 50    // ms between fast re-reads of cached addrs (was 200)
 #define MAP_SCAN_INTERVAL  16    // ms between creature map tree walks (~60 FPS)
 #define SEND_INTERVAL      16    // ms between JSON sends (~60 FPS)
@@ -184,6 +184,15 @@ static struct {
 static HWND    g_game_hwnd = NULL;
 static WNDPROC g_orig_wndproc = NULL;
 static volatile BOOL g_wndproc_hooked = FALSE;
+
+// ── PeekMessage IAT hook state (Approach 9: game loop hook) ─────────
+// Instead of calling Game::attack from WndProc (mid-dispatch, Lua may be
+// dirty), we hook PeekMessageW via IAT. When PeekMessage returns FALSE
+// (message queue drained), we are at the exact boundary between "all input
+// processed" and "g_dispatcher.poll() runs Lua events" — Lua VM is idle.
+typedef BOOL (WINAPI *PeekMessageW_fn)(LPMSG, HWND, UINT, UINT, UINT);
+static PeekMessageW_fn g_original_PeekMessageW = NULL;
+static volatile BOOL   g_peekmsg_hooked = FALSE;
 
 // ── Full light state ─────────────────────────────────────────────────
 static volatile BOOL g_full_light = FALSE;
@@ -1395,7 +1404,7 @@ static BOOL is_blacklisted(uint32_t cid) {
 // Inner function with the actual targeting logic (all return paths are safe)
 // Fix 18: Track last Game::attack call time for cooldown
 static volatile DWORD g_last_game_attack_tick = 0;
-#define ATTACK_MIN_INTERVAL_MS 150  // minimum ms between Game::attack calls (was 300)
+#define ATTACK_MIN_INTERVAL_MS 200  // minimum ms between Game::attack calls (was 300)
 
 static void __cdecl do_game_target_update_inner(void) {
     // ── Fix 18: Minimum cooldown between consecutive Game::attack calls ──
@@ -1500,6 +1509,7 @@ static void __cdecl do_game_target_update_inner(void) {
         return;
     }
 
+
     // ── Fix 12: Better pre-validation ──
     // 12a: Check creature blacklist (VEH-recovered creatures blocked for 3s)
     if (is_blacklisted(cid)) {
@@ -1547,55 +1557,60 @@ static void __cdecl do_game_target_update_inner(void) {
     HMODULE game_mod = GetModuleHandle(NULL);
     uintptr_t base = (uintptr_t)game_mod;
     uintptr_t game_obj = base + OFF_GAME_SINGLETON_RVA;
-    uintptr_t func_addr = base + OFF_GAME_ATTACK_RVA;
 
     // Check if game still has our target — if game cleared it (Z change, etc.), re-target
     if (cid == g_last_attack_target_cid) {
         uintptr_t cur = 0;
         safe_memcpy(&cur, (void*)(game_obj + OFF_GAME_ATTACKING), 4);
-        if (cur != 0) return;  // game still targeting something, skip
-        // Game cleared the target — re-send
-        dbg("[GTUPD] re-target 0x%08X (game cleared target)", cid);
+        if (cur == creature_ptr) return;  // already targeting this creature, skip
+        // Game cleared the target or pointer changed — re-write
+        dbg("[GTUPD] re-target 0x%08X (game_obj.attacking=%p, want %p)",
+            cid, (void*)cur, (void*)creature_ptr);
     }
 
-    dbg("[GTUPD] ui_select(&%p) id=0x%08X hp=%u", (void*)creature_ptr, cid, hp);
+    dbg("[GTUPD] mem_write id=0x%08X ptr=%p", cid, (void*)creature_ptr);
 
-    // ── Fix 7+15: Safe Game::attack() call ──
-    // Fix 7: Re-lookup on game thread prevents stale pointers (above).
-    // Fix 15: NO longjmp recovery during Game::attack — neither AVs nor C++ exceptions.
-    //   longjmp across MSVC frames ALWAYS skips destructors → Lua VM corruption.
-    //   setjmp is still here ONLY to recover from AV during tree walk (find_creature_in_map).
-    //   If Game::attack itself crashes or throws, MSVC handlers deal with it natively.
+    // ── Fix 24: Direct memory write (Approach 8) ──
+    // Instead of calling Game::attack() (which triggers Lua callbacks and crashes),
+    // write the creature pointer directly to m_attackingCreature.
+    // Offset +0x14 confirmed by disassembling setAttackingCreature at RVA 0x8F3D0:
+    //   mov eax, [ecx+0x14]  ; read old
+    //   mov [ecx+0x14], eax  ; write new
+    // The game's render loop checks this field every frame to draw the red square.
+    // No Lua VM involvement = zero crash risk.
 
-    g_attack_thread_id = GetCurrentThreadId();
-    g_attack_recovery = TRUE;
-    if (setjmp(g_attack_jmpbuf) != 0) {
-        // VEH caught an AV during find_creature_in_map (tree walk, no Lua)
-        g_in_game_attack_call = FALSE;
-        dbg("[GTUPD] VEH recovered from AV during creature lookup for 0x%08X — blacklisting", cid);
-        blacklist_creature(cid);
-        g_deferred_attack_cid = 0;
-        g_deferred_attack_tick = 0;
-        g_last_attack_target_cid = 0;
+    // Read old creature pointer
+    uintptr_t old_ptr = 0;
+    safe_memcpy(&old_ptr, (void*)(game_obj + OFF_GAME_ATTACKING), 4);
+
+    if (old_ptr == creature_ptr) {
+        // Already targeting this creature
+        g_last_attack_target_cid = cid;
         return;
     }
 
-    // Fix 20: DLL only handles UI selection (red square, battle list, Lua callback).
-    // Network combat (ATTACK packet to server) is now handled by Python auto_targeting
-    // via proxy injection — more reliable than calling sendAttackCreature from DLL
-    // (which had seq counter issues at game_obj+0x70).
-    uintptr_t creature_ref = creature_ptr;
-    typedef void (__attribute__((thiscall)) *GameAttack_ui_select_fn)(void* game_this, uintptr_t* creature_ref);
-    GameAttack_ui_select_fn ui_select_fn = (GameAttack_ui_select_fn)func_addr;
-    g_in_game_attack_call = TRUE;
-    ui_select_fn((void*)game_obj, &creature_ref);
-    g_in_game_attack_call = FALSE;
-    g_last_game_attack_tick = GetTickCount();  // Fix 18: record time for cooldown
+    // Increment new creature's refcount BEFORE writing (prevent premature free).
+    // shared_object_ptr uses intrusive refcount at creature + OFF_CREATURE_REFS (0x04).
+    if (creature_ptr && safe_readable((void*)(creature_ptr + OFF_CREATURE_REFS), 4)) {
+        InterlockedIncrement((volatile LONG*)(creature_ptr + OFF_CREATURE_REFS));
+    }
 
-    g_attack_recovery = FALSE;  // disarm
+    // Write new creature pointer to m_attackingCreature
+    // game_obj is in .data section, already writable
+    *(uintptr_t*)(game_obj + OFF_GAME_ATTACKING) = creature_ptr;
+
+    // Decrement old creature's refcount (balance the increment from previous write)
+    if (old_ptr && old_ptr != creature_ptr &&
+        safe_readable((void*)(old_ptr + OFF_CREATURE_REFS), 4)) {
+        InterlockedDecrement((volatile LONG*)(old_ptr + OFF_CREATURE_REFS));
+    }
+
+    g_last_game_attack_tick = GetTickCount();
+
+    dbg("[GTUPD] target set 0x%08X — wrote %p to game_obj+0x%X (was %p)",
+        cid, (void*)creature_ptr, OFF_GAME_ATTACKING, (void*)old_ptr);
 
     g_last_attack_target_cid = cid;
-    dbg("[GTUPD] target locked 0x%08X", cid);
 }
 
 // ── Fix 16: Re-entrancy guard wrapper ──
@@ -1679,9 +1694,12 @@ static void request_game_attack(uint32_t creature_id) {
     g_pending_queued_tick  = GetTickCount();  // Fix 14: track queue time
     InterlockedExchange(&g_pending_game_attack, 1);
 
-    // Trigger immediate execution via WndProc hook (~16ms) instead of
-    // waiting for next XTEA hook fire (~1s). XTEA hook remains as backup.
-    if (g_wndproc_hooked && g_game_hwnd) {
+    // Trigger execution on game thread:
+    // - PeekMessage hook (preferred): fires automatically every frame when
+    //   message queue drains — no PostMessage needed, ~0ms latency
+    // - WndProc fallback: PostMessage → next DispatchMessage → ~16ms latency
+    // - XTEA hook backup: fires on keepalive ~every 1s
+    if (!g_peekmsg_hooked && g_wndproc_hooked && g_game_hwnd) {
         PostMessage(g_game_hwnd, WM_BOT_TARGET, 0, 0);
     }
 }
@@ -2146,23 +2164,186 @@ static uintptr_t find_creature_in_map(uint32_t creature_id) {
     return 0;
 }
 
-// ── WndProc hook: execute targeting on the game thread in ~16ms ─────
+// ── PeekMessage IAT hook: execute targeting at safe game loop boundary ──
+// Fires when message queue is drained (PeekMessage returns FALSE).
+// At this point: all Windows messages processed, Lua VM idle, about to run
+// g_dispatcher.poll() → safest place to call Game::attack().
+
+// Main game thread ID — set by WndProc hook (known-good thread).
+// PeekMessage hook uses this to filter out calls from worker threads.
+static volatile DWORD g_main_thread_id = 0;
+
+static BOOL WINAPI hooked_PeekMessageW(LPMSG lpMsg, HWND hWnd,
+                                         UINT wMsgFilterMin, UINT wMsgFilterMax,
+                                         UINT wRemoveMsg) {
+    BOOL result = g_original_PeekMessageW(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, wRemoveMsg);
+
+    // When queue is empty (FALSE) and we're removing messages (PM_REMOVE),
+    // we've just drained all pending messages — safe to run targeting.
+    // Only act on the unfiltered poll (hWnd==NULL, no filter) to avoid
+    // firing on game's internal filtered PeekMessage calls.
+    // CRITICAL: Only execute on the main game thread — other threads
+    // (audio, network) may also call PeekMessage.
+    if (!result && hWnd == NULL && wMsgFilterMin == 0 && wMsgFilterMax == 0) {
+        DWORD tid = GetCurrentThreadId();
+
+        // Auto-detect main thread: the first thread to call PeekMessage with
+        // our game window's message queue is the main thread. Alternatively,
+        // use the thread ID captured by WndProc hook.
+        if (g_main_thread_id == 0) {
+            // If WndProc already identified the main thread, use that
+            if (g_attack_thread_id)
+                g_main_thread_id = g_attack_thread_id;
+            else
+                g_main_thread_id = tid;  // first caller — assume main thread
+            dbg("[PEEK] main thread ID set to %lu", g_main_thread_id);
+        }
+
+        if (tid != g_main_thread_id)
+            return result;  // wrong thread — skip
+
+        if (!g_attack_thread_id)
+            g_attack_thread_id = tid;
+
+        // Process pending attack + deferred retries
+        do_game_target_update();
+    }
+
+    return result;
+}
+
+static BOOL install_peekmsg_hook(void) {
+    if (g_peekmsg_hooked) return TRUE;
+
+    HMODULE game = GetModuleHandle(NULL);
+    if (!game) return FALSE;
+
+    PIMAGE_DOS_HEADER dos = (PIMAGE_DOS_HEADER)game;
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE) return FALSE;
+
+    PIMAGE_NT_HEADERS nt = (PIMAGE_NT_HEADERS)((BYTE*)game + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE) return FALSE;
+
+    DWORD import_rva = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
+    if (import_rva == 0) return FALSE;
+
+    PIMAGE_IMPORT_DESCRIPTOR imports = (PIMAGE_IMPORT_DESCRIPTOR)((BYTE*)game + import_rva);
+
+    // Get real addresses for both PeekMessageW and PeekMessageA
+    HMODULE u32 = GetModuleHandleA("user32.dll");
+    FARPROC real_peekW = u32 ? GetProcAddress(u32, "PeekMessageW") : NULL;
+    FARPROC real_peekA = u32 ? GetProcAddress(u32, "PeekMessageA") : NULL;
+    dbg("[PEEK] real PeekMessageW=%p PeekMessageA=%p", real_peekW, real_peekA);
+
+    // Scan ALL import DLLs (not just user32.dll) — the game may import
+    // PeekMessage through a CRT wrapper or the linker may merge imports.
+    for (PIMAGE_IMPORT_DESCRIPTOR imp = imports; imp->Name; imp++) {
+        const char* dll_name = (const char*)((BYTE*)game + imp->Name);
+
+        PIMAGE_THUNK_DATA thunk = (PIMAGE_THUNK_DATA)((BYTE*)game + imp->FirstThunk);
+        PIMAGE_THUNK_DATA orig  = imp->OriginalFirstThunk
+            ? (PIMAGE_THUNK_DATA)((BYTE*)game + imp->OriginalFirstThunk)
+            : thunk;
+
+        // Method 1: scan by name — look for PeekMessageW or PeekMessageA
+        PIMAGE_THUNK_DATA t = thunk;
+        PIMAGE_THUNK_DATA o = orig;
+        for (; t->u1.Function; t++, o++) {
+            if (o->u1.Ordinal & IMAGE_ORDINAL_FLAG) continue;
+
+            PIMAGE_IMPORT_BY_NAME name_entry =
+                (PIMAGE_IMPORT_BY_NAME)((BYTE*)game + o->u1.AddressOfData);
+
+            BOOL is_W = (strcmp(name_entry->Name, "PeekMessageW") == 0);
+            BOOL is_A = (strcmp(name_entry->Name, "PeekMessageA") == 0);
+            if (is_W || is_A) {
+                dbg("[PEEK] found %s in '%s' IAT (by name)", name_entry->Name, dll_name);
+                DWORD old_prot;
+                VirtualProtect(&t->u1.Function, sizeof(void*), PAGE_READWRITE, &old_prot);
+                g_original_PeekMessageW = (PeekMessageW_fn)t->u1.Function;
+                t->u1.Function = (DWORD_PTR)hooked_PeekMessageW;
+                VirtualProtect(&t->u1.Function, sizeof(void*), old_prot, &old_prot);
+
+                g_peekmsg_hooked = TRUE;
+                dbg("[PEEK] IAT hook installed (by name): %s at %p via '%s'",
+                    name_entry->Name, g_original_PeekMessageW, dll_name);
+                return TRUE;
+            }
+
+            // Log user32 imports for diagnostics
+            if (_stricmp(dll_name, "user32.dll") == 0) {
+                // Log PeekMessage-related names
+                if (strstr(name_entry->Name, "Peek") || strstr(name_entry->Name, "Message")) {
+                    dbg("[PEEK] user32 import: %s", name_entry->Name);
+                }
+            }
+        }
+
+        // Method 2: scan by resolved address — match PeekMessageW or PeekMessageA
+        t = thunk;
+        for (int idx = 0; t->u1.Function; t++, idx++) {
+            if (real_peekW && (FARPROC)t->u1.Function == real_peekW) {
+                dbg("[PEEK] found PeekMessageW in '%s' IAT idx=%d (by addr)", dll_name, idx);
+                DWORD old_prot;
+                VirtualProtect(&t->u1.Function, sizeof(void*), PAGE_READWRITE, &old_prot);
+                g_original_PeekMessageW = (PeekMessageW_fn)t->u1.Function;
+                t->u1.Function = (DWORD_PTR)hooked_PeekMessageW;
+                VirtualProtect(&t->u1.Function, sizeof(void*), old_prot, &old_prot);
+
+                g_peekmsg_hooked = TRUE;
+                dbg("[PEEK] IAT hook installed (by addr): PeekMessageW via '%s'", dll_name);
+                return TRUE;
+            }
+            if (real_peekA && (FARPROC)t->u1.Function == real_peekA) {
+                dbg("[PEEK] found PeekMessageA in '%s' IAT idx=%d (by addr)", dll_name, idx);
+                DWORD old_prot;
+                VirtualProtect(&t->u1.Function, sizeof(void*), PAGE_READWRITE, &old_prot);
+                g_original_PeekMessageW = (PeekMessageW_fn)t->u1.Function;
+                t->u1.Function = (DWORD_PTR)hooked_PeekMessageW;
+                VirtualProtect(&t->u1.Function, sizeof(void*), old_prot, &old_prot);
+
+                g_peekmsg_hooked = TRUE;
+                dbg("[PEEK] IAT hook installed (by addr): PeekMessageA via '%s'", dll_name);
+                return TRUE;
+            }
+        }
+    }
+
+    // Last resort: log all imported DLL names for diagnostics
+    dbg("[PEEK] Listing all imported DLLs:");
+    for (PIMAGE_IMPORT_DESCRIPTOR imp = imports; imp->Name; imp++) {
+        const char* dll_name = (const char*)((BYTE*)game + imp->Name);
+        int count = 0;
+        PIMAGE_THUNK_DATA t = (PIMAGE_THUNK_DATA)((BYTE*)game + imp->FirstThunk);
+        for (; t->u1.Function; t++) count++;
+        dbg("[PEEK]   '%s' (%d imports)", dll_name, count);
+    }
+
+    dbg("[PEEK] IAT hook FAILED: PeekMessageW/A not found in any import table");
+    return FALSE;
+}
+
+// ── WndProc hook: legacy — kept for thread ID capture + deferred retry ───
 
 static LRESULT CALLBACK bot_wndproc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    // WndProc always runs on the main game thread — capture its ID
+    // for PeekMessage hook to filter out worker thread calls.
+    if (!g_main_thread_id)
+        g_main_thread_id = GetCurrentThreadId();
+    if (!g_attack_thread_id)
+        g_attack_thread_id = GetCurrentThreadId();
+
     if (msg == WM_BOT_TARGET) {
-        // Capture game thread ID on first call (WndProc runs on the game's UI thread)
-        if (!g_attack_thread_id)
-            g_attack_thread_id = GetCurrentThreadId();
-        do_game_target_update();
+        // If PeekMessage hook is active, targeting runs there — skip WndProc path
+        if (!g_peekmsg_hooked)
+            do_game_target_update();
         return 0;
     }
-    // Check deferred attack retry on every message (game sends many WM_PAINT,
-    // WM_TIMER, etc. per frame).  The check inside do_game_target_update is
-    // cheap — just reads a volatile and returns if nothing is deferred.
-    if (g_deferred_attack_cid && !g_pending_game_attack) {
-        if (!g_attack_thread_id)
-            g_attack_thread_id = GetCurrentThreadId();
-        do_game_target_update();
+    // If PeekMessage hook is active, all targeting runs there — don't duplicate
+    if (!g_peekmsg_hooked) {
+        if (g_deferred_attack_cid && !g_pending_game_attack) {
+            do_game_target_update();
+        }
     }
     return CallWindowProc(g_orig_wndproc, hwnd, msg, wParam, lParam);
 }
@@ -2812,6 +2993,23 @@ static void parse_command(const char* line) {
                 request_game_attack(creature_id);
             }
         }
+    } else if (strstr(line, "\"game_cancel_attack\"")) {
+        // Clear m_attackingCreature (remove red square) — direct memory write
+        HMODULE gm = GetModuleHandle(NULL);
+        uintptr_t go = (uintptr_t)gm + OFF_GAME_SINGLETON_RVA;
+        uintptr_t old_ptr = 0;
+        safe_memcpy(&old_ptr, (void*)(go + OFF_GAME_ATTACKING), 4);
+        if (old_ptr) {
+            *(uintptr_t*)(go + OFF_GAME_ATTACKING) = 0;
+            // Decrement old creature's refcount
+            if (safe_readable((void*)(old_ptr + OFF_CREATURE_REFS), 4)) {
+                InterlockedDecrement((volatile LONG*)(old_ptr + OFF_CREATURE_REFS));
+            }
+            dbg("[CANCEL] cleared m_attackingCreature (was %p)", (void*)old_ptr);
+        }
+        g_last_attack_target_cid = 0;
+        g_deferred_attack_cid = 0;
+        dbg("[CANCEL] game_cancel_attack done (was %p)", (void*)old_ptr);
     } else if (strstr(line, "\"scan_game_attack\"")) {
         // Runs on PIPE THREAD (not game thread) — safe to do slow scans
         dbg("[SCAN] v35 scanning for Game::attack function (pipe thread)...");
@@ -3006,6 +3204,11 @@ static void parse_command(const char* line) {
         } else {
             g_use_map_scan = enable;
             dbg("CMD use_map_scan: %s", enable ? "ENABLED" : "DISABLED");
+        }
+    } else if (strstr(line, "\"hook_peekmsg\"")) {
+        dbg("CMD hook_peekmsg");
+        if (install_peekmsg_hook()) {
+            dbg("[PEEK] PeekMessage game loop hook active — targeting at safe boundary");
         }
     } else if (strstr(line, "\"hook_wndproc\"")) {
         dbg("CMD hook_wndproc");

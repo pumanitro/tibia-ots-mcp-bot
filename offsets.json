@@ -3,7 +3,7 @@
   "note": "DBVictory client offsets \u00e2\u20ac\u201d update after game patches",
   "game_singleton_rva": "0xB2E970",
   "game_offsets": {
-    "attacking_creature": "0x0C",
+    "attacking_creature": "0x14",
     "protocol_game": "0x18",
     "attack_flag": "0x34",
     "seq_counter": "0x70"
