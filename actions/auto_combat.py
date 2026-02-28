@@ -75,8 +75,16 @@ async def run(bot):
             if bot.is_connected and state.game_proxy:
                 # Respect lure mode — only fight when cavebot allows it
                 if gs.lure_active:
+                    # Log once when lure starts suppressing combat
+                    if not getattr(gs, '_lure_combat_logged', False):
+                        bot.log("[COMBAT] lure_active=True, suppressing all combat (spell/rune/AOE)")
+                        gs._lure_combat_logged = True
                     await bot.sleep(INTERVAL)
                     continue
+                else:
+                    if getattr(gs, '_lure_combat_logged', False):
+                        bot.log("[COMBAT] lure_active=False, combat resumed")
+                        gs._lure_combat_logged = False
 
                 now = time.time()
                 nearby = _count_nearby_monsters(gs, now)

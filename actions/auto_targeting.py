@@ -42,6 +42,7 @@ async def run(bot):
             # Lure mode: suppress targeting while cavebot is luring
             if gs.lure_active:
                 if last_target is not None:
+                    bot.log("[TARGET] lure_active=True, cancelling target and suppressing attacks")
                     bridge.send_command({"cmd": "game_cancel_attack"})
                     gs.attack_target = None
                     gs.attack_target_id = 0

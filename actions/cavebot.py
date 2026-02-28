@@ -819,6 +819,11 @@ async def run(bot):
 
                         gs.lure_active = True  # suppress targeting, resume luring
                         lure_with_monsters_since = 0.0  # reset timer after fight
+                    elif nearby > 0:
+                        elapsed = now - lure_with_monsters_since if lure_with_monsters_since > 0 else 0
+                        bot.log(f"{prefix} Lure: {nearby}/{lure_count} mobs (need {lure_count}), "
+                                f"timeout {elapsed:.1f}/{lure_timeout}s, lure_active=True")
+                        gs.lure_active = True  # keep luring
                     else:
                         gs.lure_active = True  # keep luring
 
@@ -866,10 +871,12 @@ async def run(bot):
                 # Lure mode walk failed — if monsters nearby, fight then retry
                 gs_retry = state.game_state
                 if not gs_retry.in_protection_zone:
-                    _, lure_dist = _get_lure_settings()
+                    _, lure_dist, _ = _get_lure_settings()
                     retry_nearby = _count_nearby_monsters(gs_retry, lure_dist)
                     retry_has_target = (gs_retry.attack_target_id
                                         and gs_retry.attack_target_id >= MONSTER_ID_MIN)
+                    bot.log(f"{prefix} Walk failed in lure mode: {retry_nearby} mobs within {lure_dist}, "
+                            f"has_target={retry_has_target}, lure_active={gs_retry.lure_active}")
                     if retry_nearby > 0 or retry_has_target:
                         bot.log(f"{prefix} Walk blocked, fighting {retry_nearby} creatures")
                         gs_retry.lure_active = False
