@@ -68,7 +68,7 @@ static BOOL safe_memcpy(void* dst, const void* src, size_t len) {
 // ── Configurable offsets (loaded from pipe "set_offsets" command) ────
 // Defaults match known DBVictory layout; overridden at runtime.
 static uint32_t OFF_GAME_SINGLETON_RVA   = 0xB2E970u;
-static uint32_t OFF_GAME_ATTACKING       = 0x0C;
+static uint32_t OFF_GAME_ATTACKING       = 0x10;
 static uint32_t OFF_GAME_PROTOCOL        = 0x18;
 static uint32_t OFF_GAME_ATKFLAG         = 0x34;
 static uint32_t OFF_GAME_SEQ             = 0x70;
@@ -1573,9 +1573,11 @@ static void __cdecl do_game_target_update_inner(void) {
     // ── Fix 24: Direct memory write (Approach 8) ──
     // Instead of calling Game::attack() (which triggers Lua callbacks and crashes),
     // write the creature pointer directly to m_attackingCreature.
-    // Offset +0x14 confirmed by disassembling setAttackingCreature at RVA 0x8F3D0:
-    //   mov eax, [ecx+0x14]  ; read old
-    //   mov [ecx+0x14], eax  ; write new
+    // Offset +0x10 confirmed by tracing Game::attack at RVA 0x8F220:
+    //   add ecx, 0x10              ; ecx = &game_obj->m_attackingCreature
+    //   call 0x0601F0              ; generic shared_ptr assign at [ecx+0]
+    //   push "onAttackingCreatureChange" ; Lua callback string ref
+    // +0x14 is m_followingCreature (green square), confirmed at RVA 0x8F3D0.
     // The game's render loop checks this field every frame to draw the red square.
     // No Lua VM involvement = zero crash risk.
 
@@ -2025,32 +2027,35 @@ static int walk_creature_map_inner(void) {
                     // explores. Dead creatures (hp=0) with no position (0,0,0) are
                     // old cache junk — skip them to save buffer space for visible ones.
                     // Always keep the player's own creature.
+                    // IMPORTANT: Do NOT use 'continue' here — it skips the in-order
+                    // successor logic at the bottom of the loop, causing the tree
+                    // walk to get stuck on this node and exhaust the iteration limit.
                     BOOL is_player = (g_player_id != 0 && key == g_player_id);
-                    if (!is_player && (hp == 0 || hp > 100) && cx == 0 && cy == 0) {
-                        continue;  // stale cached creature, skip
-                    }
+                    BOOL is_stale = (!is_player && (hp == 0 || hp > 100) && cx == 0 && cy == 0);
 
-                    // Read name from object (name field is at Creature* + OFF_CREATURE_NAME)
-                    char name[64] = {0};
-                    uint8_t name_raw[24];
-                    uintptr_t name_addr = creature_ptr + OFF_CREATURE_NAME;
-                    if (safe_memcpy(name_raw, (void*)name_addr, 24)) {
-                        try_read_name(name_raw, name, sizeof(name));
-                    }
+                    if (!is_stale) {
+                        // Read name from object (name field is at Creature* + OFF_CREATURE_NAME)
+                        char name[64] = {0};
+                        uint8_t name_raw[24];
+                        uintptr_t name_addr = creature_ptr + OFF_CREATURE_NAME;
+                        if (safe_memcpy(name_raw, (void*)name_addr, 24)) {
+                            try_read_name(name_raw, name, sizeof(name));
+                        }
 
-                    // Fix 19: Player position now comes from proxy via set_player_pos command.
-                    // The creature struct position is stale for the local player
-                    // (doesn't update in real-time), so we no longer read it from here.
+                        // Fix 19: Player position now comes from proxy via set_player_pos command.
+                        // The creature struct position is stale for the local player
+                        // (doesn't update in real-time), so we no longer read it from here.
 
-                    CachedCreature* c = &found[found_count++];
-                    c->addr = id_ptr;
-                    c->id = key;
+                        CachedCreature* c = &found[found_count++];
+                        c->addr = id_ptr;
+                        c->id = key;
                     strncpy(c->name, name, MAX_NAME_LEN);
                     c->name[MAX_NAME_LEN] = '\0';
                     c->health = (hp <= 100) ? (uint8_t)hp : 0;
                     c->x = cx;
                     c->y = cy;
                     c->z = cz;
+                    } // end if (!is_stale)
                 }
             }
         }

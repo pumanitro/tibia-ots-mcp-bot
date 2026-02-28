@@ -89,12 +89,15 @@ async def run(bot):
                     last_send_time = now
 
                 # Publish target for other actions (auto_rune_and_spell, aoe_spell)
+                # and cavebot pause-on-monster
                 gs.attack_target = target
+                gs.attack_target_id = target
             else:
                 if last_target is not None:
                     # Clear red square in game UI
                     bridge.send_command({"cmd": "game_cancel_attack"})
                     gs.attack_target = None
+                    gs.attack_target_id = 0
                 last_target = None
 
         await bot.sleep(INTERVAL)
