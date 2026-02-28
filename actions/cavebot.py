@@ -43,10 +43,12 @@ def _get_targeting_strategy():
 
 
 def _get_lure_settings():
-    """Read lure_count and lure_distance from bot_settings.json cavebot config."""
+    """Read lure_count, lure_distance, and lure_timeout from bot_settings.json."""
     state = _get_state()
     cfg = state.settings.get("actions", {}).get("cavebot", {})
-    return cfg.get("lure_count", 3), cfg.get("lure_distance", 3)
+    return (cfg.get("lure_count", 3),
+            cfg.get("lure_distance", 3),
+            cfg.get("lure_timeout", 8))
 
 
 def _count_nearby_monsters(gs, distance):
@@ -267,6 +269,29 @@ async def _execute_walk_to(bot, node, prefix="", exact=False):
             cur_pos = (pos[0], pos[1], pos[2])
             cancel_count += 1
             bot.log(f"{prefix}   cancel_walk #{cancel_count} at ({pos[0]},{pos[1]},{pos[2]})")
+
+            # Lure mode: fight immediately on first cancel_walk — skip escape dance
+            gs_lure_cancel = _get_state().game_state
+            if gs_lure_cancel.lure_active:
+                lure_nearby = _count_nearby_monsters(gs_lure_cancel, 7)
+                lure_has_target = (gs_lure_cancel.attack_target_id
+                                   and gs_lure_cancel.attack_target_id >= MONSTER_ID_MIN)
+                if lure_nearby > 0 or lure_has_target:
+                    bot.log(f"{prefix}   lure blocked, fighting {lure_nearby} creatures immediately")
+                    gs_lure_cancel.lure_active = False
+                    fight_start = time.time()
+                    while time.time() - fight_start < PAUSE_MAX_TIMEOUT:
+                        rem = _count_nearby_monsters(gs_lure_cancel, 7)
+                        has_t = (gs_lure_cancel.attack_target_id
+                                 and gs_lure_cancel.attack_target_id >= MONSTER_ID_MIN)
+                        if rem == 0 and not has_t:
+                            break
+                        await bot.sleep(0.2)
+                    gs_lure_cancel.lure_active = True
+                    cancel_count = 0
+                    last_cancel_pos = None
+                    continue  # retry walk after killing
+
             # After CANCEL_ESCAPE_THRESHOLD at same position: try directional escape
             if cancel_count >= CANCEL_ESCAPE_THRESHOLD and last_cancel_pos == cur_pos:
                 bot.log(f"{prefix}   stuck, trying directional escape")
@@ -638,6 +663,7 @@ async def run(bot):
 
         # Initialize lure mode if strategy is "lure"
         strategy_init = _get_targeting_strategy()
+        lure_with_monsters_since = 0.0  # timestamp when we first saw mobs while luring
         if strategy_init == "lure":
             state.game_state.lure_active = True
             bot.log("Lure strategy active — suppressing auto-targeting while walking")
@@ -739,20 +765,37 @@ async def run(bot):
 
             elif strategy == "lure":
                 gs = state.game_state
-                lure_count, lure_distance = _get_lure_settings()
+                lure_count, lure_distance, lure_timeout = _get_lure_settings()
 
                 if not gs.in_protection_zone:
                     nearby = _count_nearby_monsters(gs, lure_distance)
                     player_z_lure = bot.position[2]
                     floor_change_ahead = _is_next_node_floor_change(actions_map, i, player_z_lure)
+                    now = time.time()
+
+                    # Track how long we've been walking with monsters
+                    if nearby > 0:
+                        if lure_with_monsters_since == 0.0:
+                            lure_with_monsters_since = now
+                    else:
+                        lure_with_monsters_since = 0.0
+
+                    # Timeout: been dragging mobs for too long without reaching lure_count
+                    timed_out = (nearby > 0
+                                 and lure_with_monsters_since > 0
+                                 and now - lure_with_monsters_since >= lure_timeout)
 
                     should_fight = (nearby >= lure_count
-                                    or (nearby > 0 and floor_change_ahead))
+                                    or (nearby > 0 and floor_change_ahead)
+                                    or timed_out)
 
                     if should_fight:
-                        reason = (f"floor change ahead ({nearby} mobs)"
-                                  if floor_change_ahead and nearby < lure_count
-                                  else f"{nearby} monsters nearby")
+                        if timed_out and nearby < lure_count and not floor_change_ahead:
+                            reason = f"lure timeout {lure_timeout}s ({nearby} mobs)"
+                        elif floor_change_ahead and nearby < lure_count:
+                            reason = f"floor change ahead ({nearby} mobs)"
+                        else:
+                            reason = f"{nearby} monsters nearby"
                         bot.log(f"{prefix} Lure fight: {reason}")
                         gs.lure_active = False  # enable auto_targeting
 
@@ -775,6 +818,7 @@ async def run(bot):
                             await bot.sleep(0.2)
 
                         gs.lure_active = True  # suppress targeting, resume luring
+                        lure_with_monsters_since = 0.0  # reset timer after fight
                     else:
                         gs.lure_active = True  # keep luring
 
