@@ -331,6 +331,10 @@ The cavebot is a first working version but not yet fully functional:
 - [ ] **Floor skip on Z mismatch** — if player is on a different Z level than the current node, skip ahead to the first node matching the current floor instead of waiting for the full sequence to repeat
 - [ ] **Door auto-open script** — either smart recording that captures door interactions, or a background action that automatically opens doors when the player walks into one
 - [ ] **Intelligent targeting (lure mode)** — instead of pausing on monster, lure it to the closest waypoint while maintaining ~3 sq distance, then continue pathing. Handle exceptions for doors and floor changes
+- [ ] **Targeting with lure mob count** — configure how many monsters to lure before stopping to fight (e.g. lure 3 mobs then AoE them down)
+- [ ] **Auto-attack prioritize lowest HP** — auto_targeting should prefer the monster with the lowest health percentage to finish off wounded targets first
+- [ ] **Action priority ordering** — allow prioritizing looped action scripts by execution order, with drag-and-drop reordering in the dashboard
+- [ ] **Cavebot preview search** — textual search in the cavebot minimap preview to find specific waypoints, actions, or node labels
 - [ ] **Auto-retarget on deselect** — when user manually deselects a monster and auto_targeting is enabled, retarget that same creature again
 - [ ] **AOE spell on mob clusters** — cast area-of-effect spell when 2+ monsters are within ~3 squares of the player
 - [ ] **Monster combat strategies** — move-and-attack behavior that keeps 1 square distance from the monster while fighting
