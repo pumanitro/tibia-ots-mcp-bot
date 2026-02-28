@@ -285,12 +285,18 @@ async def _execute_walk_to(bot, node, prefix="", exact=False):
                 if not escaped:
                     # Body-block during lure: kill blockers then retry
                     gs_walk = _get_state().game_state
-                    if gs_walk.lure_active and _count_nearby_monsters(gs_walk, 3) > 0:
-                        bot.log(f"{prefix}   body-blocked while luring, fighting blockers")
+                    nearby_block = _count_nearby_monsters(gs_walk, 7)
+                    has_block_target = (gs_walk.attack_target_id
+                                        and gs_walk.attack_target_id >= MONSTER_ID_MIN)
+                    if gs_walk.lure_active and (nearby_block > 0 or has_block_target):
+                        bot.log(f"{prefix}   body-blocked while luring, fighting {nearby_block} blockers")
                         gs_walk.lure_active = False
                         fight_start = time.time()
                         while time.time() - fight_start < PAUSE_MAX_TIMEOUT:
-                            if _count_nearby_monsters(gs_walk, 3) == 0:
+                            rem = _count_nearby_monsters(gs_walk, 7)
+                            has_t = (gs_walk.attack_target_id
+                                     and gs_walk.attack_target_id >= MONSTER_ID_MIN)
+                            if rem == 0 and not has_t:
                                 break
                             await bot.sleep(0.2)
                         gs_walk.lure_active = True
@@ -688,35 +694,44 @@ async def run(bot):
                                         bot.log(f"{prefix} Entered protection zone, resuming path")
                                         break
                                     target_id = gs.attack_target_id
-                                    if not target_id:
+                                    has_target = target_id and target_id >= MONSTER_ID_MIN
+                                    nearby = _count_nearby_monsters(gs, 7)
+                                    # Only break when BOTH signals agree: no target AND no nearby monsters
+                                    if not has_target and nearby == 0:
                                         break
-                                    creature = gs.creatures.get(target_id)
-                                    if not creature or creature.get("health", 0) <= 0:
-                                        break
-                                    cur_hp = creature.get("health", 100)
-                                    elapsed = time.time() - pause_start
-                                    # No damage timeout — fallback if PZ not detected
-                                    # via text messages
-                                    if elapsed > NO_DAMAGE_TIMEOUT and cur_hp >= initial_hp:
-                                        bot.log(f"{prefix} No damage in {NO_DAMAGE_TIMEOUT}s, resuming (PZ?)")
-                                        break
-                                    # Track damage progress — reset timer if HP dropped
-                                    if cur_hp < initial_hp:
-                                        initial_hp = cur_hp
-                                        pause_start = time.time()
+                                    # If target died or cleared but monsters remain, just continue —
+                                    # auto_targeting will pick the next one on its own tick
+                                    if has_target:
+                                        creature = gs.creatures.get(target_id)
+                                        if creature and 0 < creature.get("health", 0) <= 100:
+                                            cur_hp = creature.get("health", 100)
+                                            elapsed = time.time() - pause_start
+                                            # No damage timeout — fallback if PZ not detected
+                                            if elapsed > NO_DAMAGE_TIMEOUT and cur_hp >= initial_hp:
+                                                bot.log(f"{prefix} No damage in {NO_DAMAGE_TIMEOUT}s, resuming (PZ?)")
+                                                break
+                                            # Track damage progress — reset timer if HP dropped
+                                            if cur_hp < initial_hp:
+                                                initial_hp = cur_hp
+                                                pause_start = time.time()
+                                            # New target from auto_targeting — re-check reachability
+                                            if target_id != last_checked_target:
+                                                nx = creature.get("x", 0)
+                                                ny = creature.get("y", 0)
+                                                nz = creature.get("z", 0)
+                                                if not await _is_reachable(bot, nx, ny, nz):
+                                                    bot.log(f"{prefix} New target unreachable, resuming path")
+                                                    break
+                                                name = creature.get("name", "?")
+                                                hp = creature.get("health", 100)
+                                                bot.log(f"{prefix} Switched to {name} (0x{target_id:08X}) hp={hp}%")
+                                                initial_hp = hp
+                                                pause_start = time.time()
+                                                last_checked_target = target_id
                                     # Safety timeout
-                                    if elapsed > PAUSE_MAX_TIMEOUT:
+                                    if time.time() - pause_start > PAUSE_MAX_TIMEOUT:
                                         bot.log(f"{prefix} Resuming — pause timeout ({PAUSE_MAX_TIMEOUT}s)")
                                         break
-                                    # New target from auto_targeting — re-check
-                                    if target_id != last_checked_target:
-                                        new_c = gs.creatures.get(target_id)
-                                        if new_c:
-                                            nx, ny, nz = new_c.get("x", 0), new_c.get("y", 0), new_c.get("z", 0)
-                                            if not await _is_reachable(bot, nx, ny, nz):
-                                                bot.log(f"{prefix} New target unreachable, resuming path")
-                                                break
-                                        last_checked_target = target_id
                                     await bot.sleep(0.2)
                             else:
                                 # Unreachable — keep it targeted, just don't pause
@@ -744,7 +759,10 @@ async def run(bot):
                         fight_start = time.time()
                         while state.playback_active and bot.is_connected:
                             remaining = _count_nearby_monsters(gs, lure_distance)
-                            if remaining == 0:
+                            has_target = (gs.attack_target_id
+                                          and gs.attack_target_id >= MONSTER_ID_MIN)
+                            # Only break when BOTH signals agree: no nearby AND no target
+                            if remaining == 0 and not has_target:
                                 bot.log(f"{prefix} All monsters dead, resuming lure")
                                 break
                             elapsed = time.time() - fight_start
@@ -799,6 +817,31 @@ async def run(bot):
             else:
                 bot.log(f"{prefix} Unknown node type: {ntype}")
                 success = True
+
+            if not success and strategy == "lure" and ntype == "walk_to":
+                # Lure mode walk failed — if monsters nearby, fight then retry
+                gs_retry = state.game_state
+                if not gs_retry.in_protection_zone:
+                    _, lure_dist = _get_lure_settings()
+                    retry_nearby = _count_nearby_monsters(gs_retry, lure_dist)
+                    retry_has_target = (gs_retry.attack_target_id
+                                        and gs_retry.attack_target_id >= MONSTER_ID_MIN)
+                    if retry_nearby > 0 or retry_has_target:
+                        bot.log(f"{prefix} Walk blocked, fighting {retry_nearby} creatures")
+                        gs_retry.lure_active = False
+                        fight_start = time.time()
+                        while state.playback_active and bot.is_connected:
+                            rem = _count_nearby_monsters(gs_retry, lure_dist)
+                            has_t = (gs_retry.attack_target_id
+                                     and gs_retry.attack_target_id >= MONSTER_ID_MIN)
+                            if rem == 0 and not has_t:
+                                break
+                            if time.time() - fight_start > PAUSE_MAX_TIMEOUT:
+                                break
+                            await bot.sleep(0.2)
+                        gs_retry.lure_active = True
+                        # Don't increment i — retry the same walk node
+                        continue
 
             if not success:
                 state.playback_failed_nodes.add(i)
