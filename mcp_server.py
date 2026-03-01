@@ -321,6 +321,11 @@ def _stop_action(name: str) -> bool:
     task = state._action_tasks.pop(name, None)
     if task and not task.done():
         task.cancel()
+        # Always clear lure_active when cavebot is stopped — the try/finally
+        # in cavebot.run() also does this, but task.cancel() is async so the
+        # finally block may not have run yet when callers check lure_active.
+        if name == "cavebot":
+            state.game_state.lure_active = False
         return True
     return False
 
@@ -1505,6 +1510,9 @@ async def _async_play_recording(name: str, loop: bool = False) -> str:
 
 async def _async_stop_playback() -> str:
     """Stop playback (shared by MCP tool and dashboard API)."""
+    # Always clear lure_active, even if playback_active is already False
+    # (cavebot may have crashed/ended without clearing it)
+    state.game_state.lure_active = False
     if not state.playback_active:
         return "No playback in progress."
     _stop_action("cavebot")
