@@ -803,12 +803,13 @@ async def _run_playback(bot):
         )
         bot.log(actions_map_to_text(actions_map))
 
-        # Initialize lure mode if strategy is "lure"
+        # Initialize lure mode if strategy is "lure" or "lure4"
         strategy_init = _get_targeting_strategy()
         lure_with_monsters_since = 0.0  # timestamp when we first saw mobs while luring
-        if strategy_init == "lure":
+        if strategy_init.startswith("lure"):
             state.game_state.lure_active = True
-            bot.log("Lure strategy active — suppressing auto-targeting while walking")
+            lure_label = "Lure4" if strategy_init == "lure4" else "Lure"
+            bot.log(f"{lure_label} strategy active — suppressing auto-targeting while walking")
 
         aborted = False
         i = 0
@@ -906,9 +907,12 @@ async def _run_playback(bot):
                                 # Unreachable — keep it targeted, just don't pause
                                 bot.log(f"{prefix} Monster {name} unreachable, continuing path")
 
-            elif strategy == "lure":
+            elif strategy.startswith("lure"):
                 gs = state.game_state
                 lure_count, lure_distance, lure_timeout = _get_lure_settings()
+                # "lure4" overrides lure_count to 4
+                if strategy == "lure4":
+                    lure_count = 4
 
                 if not gs.in_protection_zone:
                     nearby = _count_nearby_monsters(gs, lure_distance)
@@ -970,8 +974,8 @@ async def _run_playback(bot):
                     else:
                         gs.lure_active = True  # keep luring
 
-            # Safety: clear lure flag if strategy changed away from lure
-            if strategy != "lure":
+            # Safety: clear lure flag if strategy changed away from lure/lure4
+            if not strategy.startswith("lure"):
                 gs_check = state.game_state
                 if gs_check.lure_active:
                     gs_check.lure_active = False
@@ -1010,7 +1014,7 @@ async def _run_playback(bot):
                 bot.log(f"{prefix} Unknown node type: {ntype}")
                 success = True
 
-            if not success and strategy == "lure" and ntype == "walk_to":
+            if not success and strategy.startswith("lure") and ntype == "walk_to":
                 # Lure mode walk failed — if monsters nearby, fight then retry
                 gs_retry = state.game_state
                 if not gs_retry.in_protection_zone:
