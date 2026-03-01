@@ -47,14 +47,64 @@ def _save_stats(rec_name):
     xp_gained = gs.experience - state.playback_start_experience if state.playback_start_experience else 0
     xp_per_hour = int(xp_gained / elapsed_hours)
     senzu_per_hour = round(state.playback_senzu_used / elapsed_hours, 1)
+
+    # Build per-segment analysis from accumulated stats
+    segment_analysis = _build_segment_analysis(state)
+
     from datetime import datetime, timezone
-    save_recording_stats(rec_name, {
+    stats_dict = {
         "xp_per_hour": xp_per_hour,
         "kills_per_hour": round(gs.session_kills / elapsed_hours, 1),
         "senzu_per_hour": senzu_per_hour,
         "session_seconds": int(elapsed),
         "timestamp": datetime.now(timezone.utc).isoformat(),
-    })
+    }
+    if segment_analysis:
+        stats_dict["segment_analysis"] = segment_analysis
+    save_recording_stats(rec_name, stats_dict)
+
+
+def _build_segment_analysis(state) -> list[dict]:
+    """Build per-segment analysis from accumulated segment_stats."""
+    if not state.segment_stats:
+        return []
+    actions_map = state.playback_actions_map
+    analysis = []
+    # Compute average XP/s across all segments for rating thresholds
+    total_xp = sum(s["xp"] for s in state.segment_stats.values())
+    total_time = sum(s["time_total"] for s in state.segment_stats.values())
+    avg_xps = total_xp / total_time if total_time > 0 else 0
+
+    for seg_idx in sorted(state.segment_stats.keys()):
+        stats = state.segment_stats[seg_idx]
+        node = actions_map[seg_idx] if seg_idx < len(actions_map) else {}
+        entries = max(stats["entries"], 1)
+        avg_time = stats["time_total"] / entries
+        xps = stats["xp"] / stats["time_total"] if stats["time_total"] > 0 else 0
+        avg_kills = stats["kills"] / entries
+
+        # Rating based on XP/s relative to average
+        if stats["kills"] == 0:
+            rating = "dead"
+        elif xps >= avg_xps * 1.2:
+            rating = "high"
+        elif xps >= avg_xps * 0.5:
+            rating = "medium"
+        else:
+            rating = "low"
+
+        entry = {
+            "index": seg_idx,
+            "type": node.get("type", "?"),
+            "target": node.get("target"),
+            "kills": round(avg_kills, 1),
+            "xp": stats["xp"],
+            "avg_time": round(avg_time, 1),
+            "xp_per_second": round(xps, 1),
+            "rating": rating,
+        }
+        analysis.append(entry)
+    return analysis
 
 
 def _get_targeting_strategy():
@@ -134,6 +184,59 @@ def _get_nearby_monsters(gs):
 def _distance(a, b):
     """Manhattan distance (ignoring z)."""
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+
+def _accumulate_segment_stats():
+    """Process kill_log entries from the current loop into segment_stats.
+
+    Groups kills by segment index, computes time spent per segment from
+    segment_enter_time, and merges into state.segment_stats.
+    """
+    state = _get_state()
+    gs = state.game_state
+    segment_enter_time = state.segment_enter_time
+
+    # Group kills by segment
+    kills_by_seg: dict[int, list[dict]] = {}
+    for kill in gs.kill_log:
+        seg = kill.get("segment")
+        if seg is not None:
+            kills_by_seg.setdefault(seg, []).append(kill)
+
+    # Compute time per segment from enter timestamps
+    sorted_segs = sorted(segment_enter_time.keys())
+    now = time.time()
+    seg_durations: dict[int, float] = {}
+    for idx, seg_idx in enumerate(sorted_segs):
+        enter_t = segment_enter_time[seg_idx]
+        # Duration = time until next segment entered, or until now for last
+        if idx + 1 < len(sorted_segs):
+            exit_t = segment_enter_time[sorted_segs[idx + 1]]
+        else:
+            exit_t = now
+        seg_durations[seg_idx] = exit_t - enter_t
+
+    # Merge into persistent segment_stats
+    for seg_idx in set(list(kills_by_seg.keys()) + sorted_segs):
+        kills = kills_by_seg.get(seg_idx, [])
+        xp = sum(k.get("xp", 0) for k in kills)
+        duration = seg_durations.get(seg_idx, 0)
+
+        if seg_idx not in state.segment_stats:
+            state.segment_stats[seg_idx] = {
+                "kills": 0,
+                "xp": 0,
+                "time_total": 0.0,
+                "entries": 0,
+            }
+        stats = state.segment_stats[seg_idx]
+        stats["kills"] += len(kills)
+        stats["xp"] += xp
+        stats["time_total"] += duration
+        stats["entries"] += 1
+
+    # Clear processed kills
+    gs.kill_log.clear()
 
 
 async def _is_reachable(bot, target_x, target_y, target_z):
@@ -715,6 +818,7 @@ async def _run_playback(bot):
                 break
 
             state.playback_index = i
+            state.segment_enter_time[i] = time.time()
             state.playback_minimap = build_sequence_minimaps(
                 actions_map, i, bot.position,
                 failed_nodes=state.playback_failed_nodes,
@@ -947,12 +1051,16 @@ async def _run_playback(bot):
 
         if state.playback_active and state.playback_loop and not aborted:
             state.playback_loop_count += 1
+            _accumulate_segment_stats()
+            state.segment_enter_time.clear()
             _save_stats(rec_name)
             bot.log(f"Looping '{rec_name}'... (loop #{state.playback_loop_count})")
             continue
         else:
             break
 
+    # Final accumulate for any remaining kills from last (partial) loop
+    _accumulate_segment_stats()
     _save_stats(rec_name)
     state.playback_active = False
     state.playback_recording_name = ""
@@ -969,6 +1077,9 @@ async def _run_playback(bot):
     state.playback_start_level = 0
     state.playback_senzu_series = []
     state._last_senzu_sample_time = 0
+    state.segment_stats = {}
+    state.segment_enter_time = {}
+    state.game_state.kill_log.clear()
     state.game_state.lure_active = False  # always clear on playback end
     bot.log("Playback finished")
 

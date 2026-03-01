@@ -129,6 +129,10 @@ class BotState:
         self.playback_senzu_series: list[list] = []     # [[elapsed_sec, senzu_per_hour], ...]
         self._last_senzu_sample_time: float = 0
 
+        # Route telemetry — per-segment timing and kill stats
+        self.segment_enter_time: dict[int, float] = {}   # {segment_index: enter_timestamp}
+        self.segment_stats: dict[int, dict] = {}          # accumulated per-segment stats
+
     @property
     def connected(self) -> bool:
         return self.ready and self.game_proxy is not None
@@ -1509,6 +1513,12 @@ async def _async_play_recording(name: str, loop: bool = False) -> str:
     state.playback_start_level = state.game_state.level
     state.game_state.session_kills = 0
 
+    # Initialize route telemetry
+    state.game_state.kill_log.clear()
+    state.game_state._prev_experience = state.game_state.experience
+    state.segment_enter_time = {}
+    state.segment_stats = {}
+
     # Start the cavebot action
     err = _start_action("cavebot")
     if err:
@@ -1546,6 +1556,9 @@ async def _async_stop_playback() -> str:
     state.playback_start_level = 0
     state.playback_senzu_series = []
     state._last_senzu_sample_time = 0
+    state.segment_enter_time = {}
+    state.segment_stats = {}
+    state.game_state.kill_log.clear()
     state.game_state.lure_active = False
     return f"Playback of '{name}' stopped."
 
@@ -1565,6 +1578,104 @@ async def play_recording(name: str, loop: bool = False) -> str:
 async def stop_playback() -> str:
     """Stop cavebot playback."""
     return await _async_stop_playback()
+
+
+@mcp.tool()
+async def analyze_route() -> str:
+    """Analyze route efficiency from kill telemetry collected during cavebot playback.
+
+    Requires active playback with at least 1 completed loop. Returns per-segment
+    kill counts, XP rates, time spent, and efficiency ratings (hot/warm/cold/dead).
+    Includes recommendations for segments that could be skipped.
+    """
+    if not state.playback_active:
+        return "No playback in progress. Start a looping playback first."
+    if state.playback_loop_count < 1:
+        return (f"Need at least 1 completed loop for analysis. "
+                f"Currently on first pass (loop_count={state.playback_loop_count}).")
+
+    seg_stats = state.segment_stats
+    actions_map = state.playback_actions_map
+    gs = state.game_state
+
+    if not seg_stats:
+        return "No segment stats collected yet. Kills may not have been detected."
+
+    loops = state.playback_loop_count
+    elapsed = _time.time() - state.playback_start_time if state.playback_start_time else 0
+    elapsed_min = elapsed / 60
+    xp_gained = gs.experience - state.playback_start_experience if state.playback_start_experience else 0
+    xp_per_hour = int(xp_gained / (elapsed / 3600)) if elapsed > 0 else 0
+    total_kills = sum(s["kills"] for s in seg_stats.values())
+    kills_per_loop = round(total_kills / max(loops, 1), 1)
+
+    lines = []
+    lines.append(f"Route Analysis ({loops} loops, {elapsed_min:.0f}min):")
+    lines.append(f"Overall: {xp_per_hour:,} XP/h, {kills_per_loop} kills/loop, {gs.session_kills} total kills")
+    lines.append("")
+
+    # Header
+    total_segs = len(actions_map)
+    lines.append(f"{'Seg':<8} {'Type':<12} {'Target':<18} {'Kills':<7} {'XP/s':<7} {'AvgT':<7} {'Rating'}")
+    lines.append("-" * 70)
+
+    # Compute average XP/s for rating thresholds
+    total_xp = sum(s["xp"] for s in seg_stats.values())
+    total_time = sum(s["time_total"] for s in seg_stats.values())
+    avg_xps = total_xp / total_time if total_time > 0 else 0
+
+    cold_segments = []
+    dead_segments = []
+
+    for seg_idx in sorted(seg_stats.keys()):
+        stats = seg_stats[seg_idx]
+        node = actions_map[seg_idx] if seg_idx < len(actions_map) else {}
+        entries = max(stats["entries"], 1)
+        avg_time = stats["time_total"] / entries
+        xps = stats["xp"] / stats["time_total"] if stats["time_total"] > 0 else 0
+        avg_kills = stats["kills"] / entries
+
+        ntype = node.get("type", "?")
+        target = node.get("target")
+        target_str = f"({target[0]},{target[1]},{target[2]})" if target else "--"
+
+        if stats["kills"] == 0:
+            rating = "--"
+            dead_segments.append((seg_idx, avg_time))
+        elif xps >= avg_xps * 1.2:
+            rating = "HOT"
+        elif xps >= avg_xps * 0.5:
+            rating = "WARM"
+        else:
+            rating = "COLD"
+            cold_segments.append((seg_idx, avg_kills, avg_time))
+
+        lines.append(
+            f"{seg_idx+1}/{total_segs:<5} {ntype:<12} {target_str:<18} "
+            f"{avg_kills:<7.1f} {xps:<7.1f} {avg_time:<7.1f} {rating}"
+        )
+
+    # Recommendations
+    if cold_segments or dead_segments:
+        lines.append("")
+        lines.append("Recommendations:")
+        wasted = 0
+        for seg_idx, avg_kills, avg_time in cold_segments:
+            lines.append(f"  - Segment {seg_idx+1} is COLD ({avg_kills:.1f} kills/loop, {avg_time:.0f}s)")
+            wasted += avg_time
+        for seg_idx, avg_time in dead_segments:
+            node = actions_map[seg_idx] if seg_idx < len(actions_map) else {}
+            ntype = node.get("type", "?")
+            # Don't flag stairs/use_item as dead — they're navigation, not hunting
+            if ntype in ("use_item", "use_item_ex", "walk_steps"):
+                continue
+            lines.append(f"  - Segment {seg_idx+1} is DEAD (0 kills, {avg_time:.0f}s)")
+            wasted += avg_time
+        if wasted > 0 and total_time > 0:
+            pct = wasted / (total_time / max(loops, 1)) * 100
+            lines.append(f"  - Estimated wasted time: {wasted:.0f}s/loop ({pct:.0f}% of loop)")
+
+    return "\n".join(lines)
 
 
 # ── Entry point ─────────────────────────────────────────────────────

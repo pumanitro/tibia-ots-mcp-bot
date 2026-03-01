@@ -7,6 +7,7 @@ Called from the proxy callbacks on every server packet.
 
 import logging
 import struct
+import sys
 import time
 from collections import deque
 
@@ -96,6 +97,10 @@ class GameState:
 
         # Session kill counter (set by cavebot/mcp_server, read by dashboard)
         self.session_kills: int = 0
+
+        # Kill telemetry — kill events with metadata for route analysis
+        self.kill_log: list[dict] = []
+        self._prev_experience: int = 0
 
 
 _stats_debug_file = None
@@ -300,6 +305,37 @@ def _search_for_icons(data: bytes, start: int, gs: GameState) -> None:
             return
 
 
+def _record_kill(gs: GameState, cid: int) -> None:
+    """Record a monster kill event with position and playback context."""
+    creature = gs.creatures.get(cid, {})
+    # Playback context from BotState (if available)
+    segment = None
+    loop_count = 0
+    try:
+        main_state = sys.modules.get("__main__")
+        if main_state:
+            bot_state = getattr(main_state, "state", None)
+            if bot_state and getattr(bot_state, "playback_active", False):
+                segment = getattr(bot_state, "playback_index", None)
+                loop_count = getattr(bot_state, "playback_loop_count", 0)
+    except Exception:
+        pass
+    gs.kill_log.append({
+        "t": time.time(),
+        "name": creature.get("name", ""),
+        "cid": cid,
+        "x": creature.get("x", 0),
+        "y": creature.get("y", 0),
+        "z": creature.get("z", 0),
+        "px": gs.position[0],
+        "py": gs.position[1],
+        "pz": gs.position[2],
+        "segment": segment,
+        "loop": loop_count,
+    })
+    gs.session_kills += 1
+
+
 def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
     """Parse one message at `pos` (after opcode byte).
 
@@ -330,6 +366,14 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
         gs.soul = data[pos + _st.get("soul", 33)]
         # stamina at _st.get("stamina", 34)
         gs.stats_updated_at = time.time()
+        # XP delta attribution — attach to most recent kill (within 2s)
+        if gs._prev_experience > 0:
+            xp_delta = gs.experience - gs._prev_experience
+            if xp_delta > 0 and gs.kill_log:
+                last_kill = gs.kill_log[-1]
+                if time.time() - last_kill["t"] < 2.0 and "xp" not in last_kill:
+                    last_kill["xp"] = xp_delta
+        gs._prev_experience = gs.experience
         log.info(
             f"Stats: HP={gs.hp}/{gs.max_hp} MP={gs.mana}/{gs.max_mana} "
             f"Lv={gs.level} XP={gs.experience} ML={gs.magic_level}"
@@ -347,8 +391,12 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
         cid = struct.unpack_from('<I', data, pos + _ch.get("creature_id", 0))[0]
         health = data[pos + _ch.get("health", 4)]
         if cid in gs.creatures:
+            old_health = gs.creatures[cid].get("health", -1)
             gs.creatures[cid]["health"] = health
             gs.creatures[cid]["t"] = time.time()
+            # Kill detection: monster health dropped to 0
+            if health == 0 and old_health > 0 and cid >= 0x40000000:
+                _record_kill(gs, cid)
         return pos + _ch_size
 
     # CREATURE_MOVE — 11 bytes: pos(5) + u8 + pos(5)

@@ -400,6 +400,7 @@ def _build_playback_stats(st, gs) -> dict:
         "session_seconds": int(elapsed),
         "senzu_per_hour": senzu_per_hour,
         "senzu_series": st.playback_senzu_series,
+        "segment_stats": dict(getattr(st, "segment_stats", {})),
     }
 
 

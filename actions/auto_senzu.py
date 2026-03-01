@@ -18,4 +18,11 @@ async def run(bot):
                 pkt = build_use_item_packet(0xFFFF, 0, 0, SENZU_ID, 0, 0)
                 await bot.inject_to_server(pkt)
                 bot.log(f"Used Senzu (HP {bot.hp}/{bot.max_hp} = {hp_pct:.0%})")
+                # Track senzu usage for dashboard stats
+                try:
+                    st = sys.modules["__main__"].state
+                    if getattr(st, "playback_active", False):
+                        st.playback_senzu_used += 1
+                except Exception:
+                    pass
         await bot.sleep(INTERVAL)
