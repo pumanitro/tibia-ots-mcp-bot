@@ -527,9 +527,10 @@ static int build_json(char* buf, size_t buf_sz) {
             buf[pos++] = ',';
         }
         written = _snprintf(buf + pos, buf_sz - pos,
-            "{\"id\":%u,\"name\":\"%s\",\"hp\":%d,\"x\":%u,\"y\":%u,\"z\":%u,\"refs\":%u}",
+            "{\"id\":%u,\"name\":\"%s\",\"hp\":%d,\"x\":%u,\"y\":%u,\"z\":%u,\"refs\":%u,\"addr\":%u}",
             g_output[i].id, g_output[i].name, g_output[i].health,
-            g_output[i].x, g_output[i].y, g_output[i].z, g_output[i].refs);
+            g_output[i].x, g_output[i].y, g_output[i].z, g_output[i].refs,
+            (unsigned)(uintptr_t)g_output[i].addr);
         if (written < 0 || written >= (int)(buf_sz - pos)) break;
         pos += written;
     }
@@ -3018,6 +3019,111 @@ static void parse_command(const char* line) {
                     g_player_x = px;
                     g_player_y = py;
                     g_player_z = pz;
+                }
+            }
+        }
+    } else if (strstr(line, "\"probe_pos\"")) {
+        // Scan the player creature struct for the known position (from set_player_pos).
+        // Reads 512 bytes centered on the ID field and searches for uint32 matches.
+        // Returns results via pipe JSON so Python can discover the correct offset.
+        uint32_t px = g_player_x, py = g_player_y, pz = g_player_z;
+        dbg("CMD probe_pos: looking for (%u,%u,%u) in player creature struct", px, py, pz);
+        if (px == 0 || py == 0) {
+            dbg("  ERROR: player position not set (call set_player_pos first)");
+        } else {
+            // Find player creature in cache
+            uint8_t* player_addr = NULL;
+            EnterCriticalSection(&g_cs);
+            for (int i = 0; i < g_addr_count; i++) {
+                if (g_addrs[i].id == g_player_id) {
+                    player_addr = g_addrs[i].addr;  // points to ID field
+                    break;
+                }
+            }
+            LeaveCriticalSection(&g_cs);
+
+            if (!player_addr) {
+                dbg("  ERROR: player creature not in cache");
+            } else {
+                // Scan 256 bytes before and 256 bytes after the ID field
+                const int SCAN_BEFORE = 256;
+                const int SCAN_AFTER = 256;
+                const int SCAN_TOTAL = SCAN_BEFORE + SCAN_AFTER;
+                uint8_t scan_buf[512];
+                uint8_t* scan_start = player_addr - SCAN_BEFORE;
+
+                if (safe_memcpy(scan_buf, scan_start, SCAN_TOTAL)) {
+                    // Search for x, y, z as uint32 at every 4-byte aligned offset
+                    char resp[4096];
+                    int rpos = _snprintf(resp, sizeof(resp), "{\"probe_pos\":{\"id_addr\":%u,\"player\":\"(%u,%u,%u)\",\"matches\":[",
+                        (unsigned)(uintptr_t)player_addr, px, py, pz);
+                    int match_count = 0;
+
+                    for (int off = 0; off + 12 <= SCAN_TOTAL; off += 4) {
+                        uint32_t vx, vy, vz;
+                        memcpy(&vx, scan_buf + off, 4);
+                        memcpy(&vy, scan_buf + off + 4, 4);
+                        memcpy(&vz, scan_buf + off + 8, 4);
+                        if (vx == px && vy == py && vz == pz) {
+                            int offset_from_id = off - SCAN_BEFORE;  // relative to ID field
+                            if (match_count > 0) resp[rpos++] = ',';
+                            rpos += _snprintf(resp + rpos, sizeof(resp) - rpos,
+                                "{\"off_from_id\":%d,\"off_from_base\":%d,\"hex_base\":\"0x%02X\"}",
+                                offset_from_id, (int)(OFF_CREATURE_ID + offset_from_id),
+                                (unsigned)(OFF_CREATURE_ID + offset_from_id));
+                            match_count++;
+                            dbg("  MATCH at id%+d (base+0x%02X): (%u,%u,%u)",
+                                offset_from_id, (unsigned)(OFF_CREATURE_ID + offset_from_id), vx, vy, vz);
+                        }
+                    }
+
+                    // Also search for x,y as uint16 pairs (OT Position might be u16,u16,u8)
+                    for (int off = 0; off + 5 <= SCAN_TOTAL; off += 2) {
+                        uint16_t sx, sy;
+                        uint8_t sz;
+                        memcpy(&sx, scan_buf + off, 2);
+                        memcpy(&sy, scan_buf + off + 2, 2);
+                        sz = scan_buf[off + 4];
+                        if (sx == (uint16_t)px && sy == (uint16_t)py && sz == (uint8_t)pz) {
+                            int offset_from_id = off - SCAN_BEFORE;
+                            if (match_count > 0) resp[rpos++] = ',';
+                            rpos += _snprintf(resp + rpos, sizeof(resp) - rpos,
+                                "{\"off_from_id\":%d,\"off_from_base\":%d,\"hex_base\":\"0x%02X\",\"fmt\":\"u16u16u8\"}",
+                                offset_from_id, (int)(OFF_CREATURE_ID + offset_from_id),
+                                (unsigned)(OFF_CREATURE_ID + offset_from_id));
+                            match_count++;
+                            dbg("  MATCH u16 at id%+d (base+0x%02X): (%u,%u,%u)",
+                                offset_from_id, (unsigned)(OFF_CREATURE_ID + offset_from_id), sx, sy, sz);
+                        }
+                    }
+
+                    rpos += _snprintf(resp + rpos, sizeof(resp) - rpos, "],\"count\":%d}}\n", match_count);
+                    dbg("  probe_pos: %d matches found", match_count);
+
+                    // Also dump a hex region around the ID field for manual analysis
+                    dbg("  Hex dump around ID field (-64 to +96):");
+                    int dump_start = SCAN_BEFORE - 64;  // 64 bytes before ID
+                    int dump_end = SCAN_BEFORE + 96;    // 96 bytes after ID
+                    if (dump_start < 0) dump_start = 0;
+                    if (dump_end > SCAN_TOTAL) dump_end = SCAN_TOTAL;
+                    for (int i = dump_start; i < dump_end; i += 16) {
+                        char hex[80] = {0};
+                        int hp = 0;
+                        int rel = i - SCAN_BEFORE;  // offset relative to ID field
+                        hp += _snprintf(hex, sizeof(hex), "  id%+4d (base+0x%02X): ",
+                            rel, (int)(OFF_CREATURE_ID + rel));
+                        for (int j = 0; j < 16 && i + j < dump_end; j++) {
+                            hp += _snprintf(hex + hp, sizeof(hex) - hp, "%02X ", scan_buf[i + j]);
+                        }
+                        dbg("%s", hex);
+                    }
+
+                    if (g_active_pipe != INVALID_HANDLE_VALUE) {
+                        DWORD written = 0;
+                        WriteFile(g_active_pipe, resp, (DWORD)rpos, &written, NULL);
+                    }
+                } else {
+                    dbg("  ERROR: cannot read memory around player creature");
                 }
             }
         }

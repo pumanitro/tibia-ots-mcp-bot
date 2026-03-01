@@ -78,7 +78,7 @@ def _find_latest_dll():
 
 
 def _dbg(msg):
-    with open(DEBUG_LOG, "a") as f:
+    with open(DEBUG_LOG, "a", encoding="utf-8") as f:
         f.write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
 
 
@@ -214,9 +214,22 @@ async def run(bot):
     # Expose bridge on game_state so other actions (auto_targeting) can send commands
     gs.dll_bridge = bridge
 
+    # Save player_id locally — gs.player_id can get corrupted mid-session
+    # by mis-parsed packets (byte that looks like LOGIN_OR_PENDING opcode).
+    my_player_id = bot.player_id
+    _dbg(f"saved player_id=0x{my_player_id:08X} (will NOT re-read from gs)")
+
+    # Wait for a valid position from packets before probing, then send probe_pos
+    # to discover the correct creature struct position offset
+    probe_sent = False
+    probe_result = None
+
     poll_count = 0
     last_data_time = time.time()  # when we last got actual data
+    last_heartbeat = time.time()  # for periodic status logging
     STALE_TIMEOUT = 30  # seconds without data before considering pipe dead
+    HEARTBEAT_INTERVAL = 1  # seconds between heartbeat logs
+    pipe_was_connected = True  # track transitions for disconnect alert
 
     try:
         while bot.is_connected:
@@ -226,33 +239,84 @@ async def run(bot):
             if creatures is not None:
                 last_data_time = time.time()
 
-            # Log summary every 100 polls (~10s)
-            if poll_count % 100 == 0:
+            # Detect pipe disconnect transition
+            pipe_ok = bridge.connected
+            if pipe_was_connected and not pipe_ok:
                 age = time.time() - last_data_time
-                _dbg(f"poll#{poll_count}: gs.creatures={len(gs.creatures)} "
-                     f"last_data={age:.0f}s ago")
+                _dbg(f"PIPE DISCONNECTED at poll#{poll_count} — last data {age:.1f}s ago")
+                bot.log(f"[DLL] PIPE LOST at poll#{poll_count} — last data {age:.1f}s ago")
+            pipe_was_connected = pipe_ok
+
+            # Heartbeat every 3 seconds
+            now_hb = time.time()
+            if now_hb - last_heartbeat >= HEARTBEAT_INTERVAL:
+                last_heartbeat = now_hb
+                data_age = now_hb - last_data_time
+                status = "OK" if pipe_ok else "DISCONNECTED"
+                _dbg(f"HEARTBEAT pipe={status} creatures={len(gs.creatures)} "
+                     f"data_age={data_age:.1f}s poll#{poll_count}")
+                if not pipe_ok:
+                    bot.log(f"[DLL] heartbeat: pipe={status} creatures={len(gs.creatures)} "
+                            f"data_age={data_age:.0f}s")
 
             # Only consider pipe dead after long silence
             if time.time() - last_data_time > STALE_TIMEOUT:
                 _dbg(f"pipe dead — no data for {STALE_TIMEOUT}s — re-injecting DLL")
+                bot.log(f"[DLL] STALE {STALE_TIMEOUT}s — attempting re-inject")
                 bridge.disconnect()
                 if await _connect_with_inject(bridge, bot):
                     last_data_time = time.time()
+                    pipe_was_connected = True
+                    bot.log("[DLL] re-inject SUCCESS — pipe reconnected")
                 else:
                     _dbg("re-injection failed — will keep trying")
+                    bot.log("[DLL] re-inject FAILED — game restart needed")
 
             now = time.time()
             if creatures is not None and len(creatures) > 0:
-                # Get player position from packet-based game state (reliable)
-                px, py, pz = gs.position if gs.position else (0, 0, 0)
+                # Player position comes from gs.position (set by DLL below).
+                # For probe_pos, use packet_position (clean, never corrupted by DLL).
+                px, py, pz = gs.position if gs.position[0] > 0 else (0, 0, 0)
 
-                # Fix 19: Send accurate player position to DLL for attack distance check.
-                # The creature struct position is stale for the local player.
-                if px > 0 and py > 0 and poll_count % 6 == 0:  # ~every 100ms
+                # Send gs.position (DLL-derived, current Z) to DLL for attack distance/floor check.
+                if px > 0 and py > 0 and poll_count % 6 == 0:
                     bridge.send_command({"cmd": "set_player_pos", "x": px, "y": py, "z": pz})
+
+                # Probe position offset: send once using packet_position (clean reference).
+                # Temporarily override set_player_pos with packet values so probe searches correctly.
+                pkt_pos = gs.packet_position if gs.packet_position[0] > 0 else gs.position
+                if not probe_sent and pkt_pos[0] > 0 and pkt_pos[1] > 0 and poll_count > 30:
+                    # Send packet pos so probe searches for the correct values
+                    bridge.send_command({"cmd": "set_player_pos",
+                                         "x": pkt_pos[0], "y": pkt_pos[1], "z": pkt_pos[2]})
+                    bridge.send_command({"cmd": "probe_pos"})
+                    # Restore DLL position immediately after
+                    bridge.send_command({"cmd": "set_player_pos", "x": px, "y": py, "z": pz})
+                    probe_sent = True
+                    _dbg(f"PROBE_POS sent — looking for pkt=({pkt_pos[0]},{pkt_pos[1]},{pkt_pos[2]}) "
+                         f"dll=({px},{py},{pz}) in player creature struct")
+                    bot.log(f"[DLL] probe_pos sent — scanning for ({pkt_pos[0]},{pkt_pos[1]},{pkt_pos[2]})")
+
+                # Check for probe_pos results in extras
+                if probe_sent and probe_result is None:
+                    extras = bridge.pop_extras()
+                    for ex in extras:
+                        if "probe_pos" in ex:
+                            probe_result = ex["probe_pos"]
+                            _dbg(f"PROBE_POS result: {json.dumps(probe_result)}")
+                            matches = probe_result.get("matches", [])
+                            bot.log(f"[DLL] probe_pos: {len(matches)} position matches found")
+                            for m in matches:
+                                _dbg(f"  MATCH: off_from_id={m['off_from_id']} "
+                                     f"off_from_base={m['off_from_base']} "
+                                     f"hex_base={m.get('hex_base','?')} "
+                                     f"fmt={m.get('fmt','u32u32u32')}")
+                                bot.log(f"[DLL]   offset from base: {m.get('hex_base','?')} "
+                                        f"(from id: {m['off_from_id']}) fmt={m.get('fmt','u32u32u32')}")
 
                 dll_creatures = {}
                 raw_count = 0
+                player_found = False
                 for c in creatures:
                     cid = c.get("id", 0)
                     if cid == 0:
@@ -262,31 +326,22 @@ async def run(bot):
                         continue
                     raw_count += 1
                     cx, cy, cz = c.get("x", 0), c.get("y", 0), c.get("z", 0)
-                    # Use player's own creature to keep gs.position and HP updated
-                    if cid == bot.player_id:
-                        if 0 < cx < 65535 and 0 < cy < 65535 and cz < 16:
-                            if gs.position != (cx, cy, cz):
-                                old = gs.position
-                                gs.position = (cx, cy, cz)
-                                try:
-                                    gs.dll_position_active = True
-                                except AttributeError:
-                                    pass
+                    # Player creature: use DLL memory as authoritative position source.
+                    if cid == my_player_id:
+                        player_found = True
+                        # Update position from DLL memory
+                        if poll_count % 300 == 1:
+                            _dbg(f"PLAYER FOUND: cid=0x{cid:08X} my_pid=0x{my_player_id:08X} "
+                                 f"gs.pid=0x{gs.player_id:08X} dll=({cx},{cy},{cz}) gs=({px},{py},{pz})")
+                        if cx > 0 and cy > 0 and 0 < cz < 16:
+                            new_pos = (cx, cy, cz)
+                            if new_pos != (px, py, pz):
+                                if poll_count % 60 == 1:
+                                    _dbg(f"PLAYER POS from DLL: ({cx},{cy},{cz}) was ({px},{py},{pz})")
+                                gs.position = new_pos
+                                gs.dll_position_active = True
                                 px, py, pz = cx, cy, cz
-                                if old[2] != cz:
-                                    _dbg(f"player z changed: {old} -> ({cx},{cy},{cz})")
-                                    # Sync packet_position z (MAP_SLICE only tracks x/y)
-                                    ppx, ppy, _ = gs.packet_position
-                                    gs.packet_position = (ppx, ppy, cz)
-                                    # Generate floor_change event for cavebot recording
-                                    direction = "up" if cz < old[2] else "down"
-                                    evt_type = f"floor_change_{direction}"
-                                    gs.server_events.append((
-                                        time.time(), evt_type,
-                                        {"pos": [cx, cy, cz], "z": cz}
-                                    ))
-                        # Update HP from memory (creature health %) — much more
-                        # reliable than packet parsing during combat
+                        # Update HP from memory (creature health %)
                         hp_pct = c.get("hp", 0)
                         if gs.max_hp > 0 and 0 <= hp_pct <= 100:
                             new_hp = round(hp_pct / 100 * gs.max_hp)
@@ -314,29 +369,47 @@ async def run(bot):
                         "source": "dll",
                     }
 
+                # Warn if player creature not found in DLL data
+                if not player_found and poll_count % 60 == 1:
+                    all_ids = [f"0x{c.get('id',0):08X}" for c in creatures if c.get("id", 0)]
+                    ids_str = ",".join(all_ids[:8])
+                    _dbg(f"PLAYER NOT FOUND! my_pid=0x{my_player_id:08X} "
+                         f"gs.pid=0x{gs.player_id:08X} creature_ids=[{ids_str}]")
+
                 if poll_count % 30 == 1:
-                    refs_info = ", ".join(f"0x{c.get('id',0):X}(r={c.get('refs',0)})" for c in creatures[:5] if c.get("id",0) != bot.player_id)
+                    refs_info = ", ".join(f"0x{c.get('id',0):X}(r={c.get('refs',0)})" for c in creatures[:5] if c.get("id",0) != my_player_id)
                     _dbg(f"filter: raw={raw_count} nearby={len(dll_creatures)} player=({px},{py},{pz}) refs=[{refs_info}]")
-                # ID RANGE diagnostic: every 600 polls (~60s) show creature IDs vs MONSTER_ID_MIN
-                if poll_count % 600 == 1 and raw_count > 0:
-                    below = []
-                    above = []
+                # Detailed creature dump: every 5 seconds, show ALL creatures with filter reasons
+                if poll_count % 300 == 1 and raw_count > 0:
+                    _dbg(f"=== CREATURE DUMP (player=({px},{py},{pz})) my_pid=0x{my_player_id:08X} gs.pid=0x{gs.player_id:08X} raw={len(creatures)} ===")
                     for c in creatures:
                         cid = c.get("id", 0)
-                        if cid == 0 or cid == bot.player_id:
-                            continue
-                        if not (0x10000000 <= cid < 0x80000000):
+                        if cid == 0 or cid == my_player_id:
                             continue
                         name = c.get("name", "?")[:12]
                         hp = c.get("hp", 0)
-                        cx, cy, cz = c.get("x", 0), c.get("y", 0), c.get("z", 0)
-                        entry = f"0x{cid:08X}({name} hp={hp} @{cx},{cy},{cz})"
-                        if cid >= 0x40000000:
-                            above.append(entry)
+                        ccx, ccy, ccz = c.get("x", 0), c.get("y", 0), c.get("z", 0)
+                        refs = c.get("refs", 0)
+                        # Determine filter reason
+                        if not (0x10000000 <= cid < 0x80000000):
+                            reason = "BAD_ID"
+                        elif hp <= 0:
+                            reason = "DEAD"
+                        elif ccx == 0 and ccy == 0:
+                            reason = "POS_ZERO"
+                        elif ccx > 65535 or ccz > 15:
+                            reason = "POS_INVALID"
+                        elif ccz != pz:
+                            reason = f"WRONG_Z({ccz}!={pz})"
                         else:
-                            below.append(entry)
-                    _dbg(f"ID_RANGE: MONSTER(>=0x40M)={len(above)} {above[:5]} "
-                         f"PLAYER/NPC(<0x40M)={len(below)} {below[:5]}")
+                            dist = max(abs(ccx - px), abs(ccy - py))
+                            if dist > PROXIMITY_RANGE:
+                                reason = f"FAR(d={dist})"
+                            else:
+                                reason = f"OK(d={dist})"
+                        is_monster = "MON" if cid >= 0x40000000 else "PLR"
+                        _dbg(f"  {is_monster} 0x{cid:08X} {name:12s} hp={hp:3d} pos=({ccx},{ccy},{ccz}) refs={refs} -> {reason}")
+                    _dbg(f"=== END DUMP ===")
                 # Position diagnostic: every 300 polls (~30s), show z-dist and closest
                 if poll_count % 300 == 1 and raw_count > 0 and px > 0:
                     z_dist = {}
@@ -344,7 +417,7 @@ async def run(bot):
                     closest_info = ""
                     for c in creatures:
                         cid = c.get("id", 0)
-                        if cid == bot.player_id or c.get("hp", 0) <= 0:
+                        if cid == my_player_id or c.get("hp", 0) <= 0:
                             continue
                         cx, cy, cz = c.get("x", 0), c.get("y", 0), c.get("z", 0)
                         if cx == 0 and cy == 0:

@@ -100,7 +100,7 @@ class DllBridge:
         )
         if not ok:
             err = ctypes.get_last_error()
-            log.warning(f"PeekNamedPipe failed (error {err})")
+            log.warning(f"PeekNamedPipe failed (error {err}) — pipe broken, disconnecting")
             self.disconnect()
             return None
 
