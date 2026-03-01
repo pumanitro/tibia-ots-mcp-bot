@@ -329,10 +329,26 @@ def list_recordings() -> list[dict]:
                 "name": data.get("name", path.stem),
                 "count": len(data.get("waypoints", [])),
                 "created_at": data.get("created_at", ""),
+                "last_stats": data.get("last_stats"),
             })
         except (json.JSONDecodeError, OSError):
             continue
     return results
+
+
+def save_recording_stats(name: str, stats: dict) -> None:
+    """Persist playback stats into the recording JSON's last_stats field."""
+    rec = load_recording(name)
+    if rec is None:
+        return
+    rec["last_stats"] = stats
+    path = _safe_recording_path(name)
+    if path is None:
+        return
+    try:
+        path.write_text(json.dumps(rec, indent=2), encoding="utf-8")
+    except OSError as e:
+        log.warning(f"Failed to save stats for '{name}': {e}")
 
 
 def delete_recording(name: str) -> bool:

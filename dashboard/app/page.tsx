@@ -25,7 +25,11 @@ import type {
   MinimapData,
   MinimapSequence,
   ProxySequence,
+  RecordingInfo,
 } from "@/lib/api";
+import dynamic from "next/dynamic";
+
+const SenzuChart = dynamic(() => import("./SenzuChart"), { ssr: false });
 
 function StatusBadge({ label, connected }: { label: string; connected: boolean }) {
   return (
@@ -683,8 +687,10 @@ function CavebotPanel({
     if (!line) return "";
     if (line.includes("[SUCCESS]")) return "text-emerald-400";
     if (line.includes("[FAILURE]") || line.includes("failed:")) return "text-red-400";
+    if (line.includes("cancel_walk")) return "text-orange-400";
     if (line.includes("retry")) return "text-amber-400";
     if (line.includes("Pausing")) return "text-yellow-300";
+    if (line.includes("Lure")) return "text-violet-400";
     if (line.includes("Use item")) return "text-purple-400";
     if (line.includes("walk_to")) return "text-blue-300";
     if (line.includes("->")) return "text-gray-500";
@@ -781,6 +787,14 @@ function CavebotPanel({
                       )}
                     </div>
                   </div>
+                  {/* Last playback stats */}
+                  {r.last_stats && (
+                    <div className="px-3 pb-1 pt-0.5 text-[10px] text-gray-500 tabular-nums">
+                      XP/h: <span className="text-emerald-400">{r.last_stats.xp_per_hour >= 1_000_000 ? `${(r.last_stats.xp_per_hour / 1_000_000).toFixed(1)}M` : r.last_stats.xp_per_hour >= 1_000 ? `${(r.last_stats.xp_per_hour / 1_000).toFixed(1)}K` : r.last_stats.xp_per_hour}</span>
+                      {" | "}Senzu/h: <span className="text-amber-400">{r.last_stats.senzu_per_hour}</span>
+                      {" | "}Kills/h: <span className="text-gray-400">{r.last_stats.kills_per_hour >= 1_000 ? `${(r.last_stats.kills_per_hour / 1_000).toFixed(1)}K` : r.last_stats.kills_per_hour}</span>
+                    </div>
+                  )}
                   {/* Recording waypoint preview */}
                   {previewName === r.name && previewWaypoints.length > 0 && (
                     <div className="rounded-b-md bg-gray-950 border border-t-0 border-gray-700 p-2 max-h-48 overflow-y-auto">
@@ -1012,6 +1026,29 @@ function CavebotPanel({
                 Stop
               </button>
             </div>
+            {/* Session Stats */}
+            {playback.stats && playback.stats.session_seconds > 0 && (
+              <div className="grid grid-cols-3 gap-x-3 gap-y-1 rounded-md bg-gray-900/60 border border-gray-700 px-3 py-2 text-xs tabular-nums">
+                <div><span className="text-gray-500">Loops</span> <span className="text-gray-200">{playback.stats.loop_count}</span></div>
+                <div><span className="text-gray-500">Kills</span> <span className="text-gray-200">{playback.stats.kills}</span></div>
+                <div><span className="text-gray-500">XP/h</span> <span className="text-emerald-300">{playback.stats.xp_per_hour >= 1_000_000 ? `${(playback.stats.xp_per_hour / 1_000_000).toFixed(1)}M` : playback.stats.xp_per_hour >= 1_000 ? `${(playback.stats.xp_per_hour / 1_000).toFixed(1)}K` : playback.stats.xp_per_hour}</span></div>
+                <div><span className="text-gray-500">Lv+1h</span> <span className="text-gray-200">{playback.stats.predicted_level_1h}</span></div>
+                <div><span className="text-gray-500">Senzu/h</span> <span className="text-amber-300">{playback.stats.senzu_per_hour}</span></div>
+                <div><span className="text-gray-500">Time</span> <span className="text-gray-200">{Math.floor(playback.stats.session_seconds / 60)}m</span></div>
+              </div>
+            )}
+            {/* Senzu/h Chart */}
+            {playback.stats?.senzu_series && playback.stats.senzu_series.length >= 2 && (
+              <div className="rounded-md bg-gray-900/60 border border-gray-700 px-2 py-2">
+                <div className="text-[10px] text-gray-500 mb-1 px-1">Senzu/h over time</div>
+                <SenzuChart
+                  data={playback.stats.senzu_series.map(([sec, val]) => ({
+                    min: Math.round(sec / 60),
+                    senzu: val,
+                  }))}
+                />
+              </div>
+            )}
             {/* Live Minimap */}
             {playback.minimap && (
               <Minimap

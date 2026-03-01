@@ -355,6 +355,54 @@ class _Handler(BaseHTTPRequestHandler):
 _started = False
 
 
+# ── Playback stats helper ─────────────────────────────────────────
+
+def _build_playback_stats(st, gs) -> dict:
+    """Compute hunting session statistics for the dashboard."""
+    elapsed = time.time() - st.playback_start_time if st.playback_start_time else 0
+    elapsed_hours = elapsed / 3600 if elapsed > 0 else 0
+    xp_gained = gs.experience - st.playback_start_experience if st.playback_start_experience else 0
+    xp_per_hour = int(xp_gained / elapsed_hours) if elapsed_hours > 0 else 0
+    senzu_per_hour = round(st.playback_senzu_used / elapsed_hours, 1) if elapsed_hours > 0 else 0
+
+    # Predicted level in 1 hour: linear extrapolation from current XP rate
+    predicted_level = gs.level
+    if xp_per_hour > 0 and gs.experience > 0:
+        predicted_xp = gs.experience + xp_per_hour
+        # OT level formula: xp_for_level(n) = 50/3*(n^3 - 6*n^2 + 17*n - 12)
+        # Solve for level at predicted_xp
+        lvl = gs.level
+        while True:
+            next_lvl = lvl + 1
+            xp_needed = int(50 / 3 * (next_lvl**3 - 6 * next_lvl**2 + 17 * next_lvl - 12))
+            if xp_needed > predicted_xp:
+                break
+            lvl = next_lvl
+            if lvl > gs.level + 100:  # safety cap
+                break
+        predicted_level = lvl
+
+    # Sample senzu_per_hour into time-series (every 60s)
+    now = time.time()
+    if (st.playback_start_time
+            and elapsed > 10
+            and now - st._last_senzu_sample_time >= 60):
+        st.playback_senzu_series.append([int(elapsed), senzu_per_hour])
+        st._last_senzu_sample_time = now
+
+    return {
+        "loop_count": st.playback_loop_count,
+        "kills": gs.session_kills,
+        "senzu_used": st.playback_senzu_used,
+        "xp_gained": xp_gained,
+        "xp_per_hour": xp_per_hour,
+        "predicted_level_1h": predicted_level,
+        "session_seconds": int(elapsed),
+        "senzu_per_hour": senzu_per_hour,
+        "senzu_series": st.playback_senzu_series,
+    }
+
+
 # ── Shared state builder (used by HTTP and WebSocket) ──────────────
 
 def _build_state_json() -> str:
@@ -497,6 +545,7 @@ def _build_state_json() -> str:
             "logs": cavebot_logs[-100:],
             "minimap": st.playback_minimap,
             "actions_map_count": len(st.playback_actions_map),
+            "stats": _build_playback_stats(st, gs),
         },
         "recordings": _cb.list_recordings(),
     }

@@ -54,10 +54,19 @@ export interface WaypointInfo {
   t: number;
 }
 
+export interface RecordingLastStats {
+  xp_per_hour: number;
+  kills_per_hour: number;
+  senzu_per_hour: number;
+  session_seconds: number;
+  timestamp: string;
+}
+
 export interface RecordingInfo {
   name: string;
   count: number;
   created_at: string;
+  last_stats?: RecordingLastStats;
 }
 
 export interface MinimapNodeInfo {
@@ -122,6 +131,17 @@ export interface CavebotState {
     logs: string[];
     minimap: MinimapSequence[] | Record<string, MinimapData> | null;
     actions_map_count: number;
+    stats?: {
+      loop_count: number;
+      kills: number;
+      senzu_used: number;
+      xp_gained: number;
+      xp_per_hour: number;
+      predicted_level_1h: number;
+      session_seconds: number;
+      senzu_per_hour: number;
+      senzu_series: [number, number][];
+    };
   };
   recordings: RecordingInfo[];
 }

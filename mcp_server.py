@@ -117,6 +117,18 @@ class BotState:
         self.playback_minimap: dict | None = None
         self.playback_failed_nodes: set[int] = set()
 
+        # Playback session statistics
+        self.playback_loop_count: int = 0
+        self.playback_kills: int = 0
+        self.playback_senzu_used: int = 0
+        self.playback_start_time: float = 0       # time.time() when playback started
+        self.playback_start_experience: int = 0   # XP snapshot at playback start
+        self.playback_start_level: int = 0        # level snapshot at playback start
+
+        # Senzu/h time-series for charting
+        self.playback_senzu_series: list[list] = []     # [[elapsed_sec, senzu_per_hour], ...]
+        self._last_senzu_sample_time: float = 0
+
     @property
     def connected(self) -> bool:
         return self.ready and self.game_proxy is not None
@@ -726,6 +738,12 @@ async def _reset_bot() -> str:
     state.playback_actions_map = []
     state.playback_minimap = None
     state.playback_failed_nodes = set()
+    state.playback_loop_count = 0
+    state.playback_kills = 0
+    state.playback_senzu_used = 0
+    state.playback_start_time = 0
+    state.playback_start_experience = 0
+    state.playback_start_level = 0
 
     log.info("Bot reset complete.")
     return "Bot reset. Call start_bot to reconnect."
@@ -1465,6 +1483,15 @@ async def _async_play_recording(name: str, loop: bool = False) -> str:
     state.playback_total = len(waypoints)
     state.playback_loop = loop
 
+    # Initialize session stats
+    state.playback_loop_count = 0
+    state.playback_kills = 0
+    state.playback_senzu_used = 0
+    state.playback_start_time = _time.time()
+    state.playback_start_experience = state.game_state.experience
+    state.playback_start_level = state.game_state.level
+    state.game_state.session_kills = 0
+
     # Start the cavebot action
     err = _start_action("cavebot")
     if err:
@@ -1489,6 +1516,12 @@ async def _async_stop_playback() -> str:
     state.playback_actions_map = []
     state.playback_minimap = None
     state.playback_failed_nodes = set()
+    state.playback_loop_count = 0
+    state.playback_kills = 0
+    state.playback_senzu_used = 0
+    state.playback_start_time = 0
+    state.playback_start_experience = 0
+    state.playback_start_level = 0
     return f"Playback of '{name}' stopped."
 
 

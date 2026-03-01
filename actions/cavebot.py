@@ -12,12 +12,12 @@ from protocol import (
     build_use_item_ex_packet,
     build_walk_packet,
 )
-from cavebot import load_recording, build_actions_map, build_all_minimaps, build_sequence_minimaps, actions_map_to_text
+from cavebot import load_recording, build_actions_map, build_all_minimaps, build_sequence_minimaps, actions_map_to_text, save_recording_stats
 from constants import MONSTER_ID_MIN
 
 USE_ITEM_TIMEOUT = 5.0
 WALK_TO_TOLERANCE = 2   # tiles — close enough for walk_to nodes
-MAX_RETRIES = 2
+MAX_RETRIES = 1
 REACHABLE_PROBE_TIMEOUT = 0.4  # seconds — one walk attempt, fast bail
 PAUSE_MAX_TIMEOUT = 60  # seconds — safety cap on monster-fight pause
 NO_DAMAGE_TIMEOUT = 5.0  # seconds — if monster HP unchanged, assume PZ/can't fight
@@ -33,6 +33,27 @@ DIR_NAME_TO_ENUM = {
 
 def _get_state():
     return sys.modules["__main__"].state
+
+
+def _save_stats(rec_name):
+    """Persist current playback stats into the recording JSON."""
+    state = _get_state()
+    gs = state.game_state
+    elapsed = time.time() - state.playback_start_time if state.playback_start_time else 0
+    elapsed_hours = elapsed / 3600 if elapsed > 0 else 0
+    if elapsed_hours <= 0:
+        return
+    xp_gained = gs.experience - state.playback_start_experience if state.playback_start_experience else 0
+    xp_per_hour = int(xp_gained / elapsed_hours)
+    senzu_per_hour = round(state.playback_senzu_used / elapsed_hours, 1)
+    from datetime import datetime, timezone
+    save_recording_stats(rec_name, {
+        "xp_per_hour": xp_per_hour,
+        "kills_per_hour": round(gs.session_kills / elapsed_hours, 1),
+        "senzu_per_hour": senzu_per_hour,
+        "session_seconds": int(elapsed),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
 
 
 def _get_targeting_strategy():
@@ -649,6 +670,15 @@ async def run(bot):
         state.playback_actions_map = actions_map
         state.playback_total = len(actions_map)
 
+        # Snapshot start time/XP on first loop (not on re-loops)
+        if state.playback_start_time == 0:
+            import time as _time
+            state.playback_start_time = _time.time()
+            state.playback_start_experience = state.game_state.experience
+            state.playback_start_level = state.game_state.level
+            state.playback_senzu_series = []
+            state._last_senzu_sample_time = 0
+
         pos = bot.position
         bot.log("")
         bot.log("=" * 40)
@@ -907,11 +937,14 @@ async def run(bot):
         )
 
         if state.playback_active and state.playback_loop and not aborted:
-            bot.log(f"Looping '{rec_name}'...")
+            state.playback_loop_count += 1
+            _save_stats(rec_name)
+            bot.log(f"Looping '{rec_name}'... (loop #{state.playback_loop_count})")
             continue
         else:
             break
 
+    _save_stats(rec_name)
     state.playback_active = False
     state.playback_recording_name = ""
     state.playback_index = 0
@@ -919,5 +952,13 @@ async def run(bot):
     state.playback_actions_map = []
     state.playback_minimap = None
     state.playback_failed_nodes = set()
+    state.playback_loop_count = 0
+    state.playback_kills = 0
+    state.playback_senzu_used = 0
+    state.playback_start_time = 0
+    state.playback_start_experience = 0
+    state.playback_start_level = 0
+    state.playback_senzu_series = []
+    state._last_senzu_sample_time = 0
     state.game_state.lure_active = False  # always clear on playback end
     bot.log("Playback finished")
