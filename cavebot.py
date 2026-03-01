@@ -422,8 +422,14 @@ def _is_map_click_walk(wp: dict) -> bool:
     visible tile — which may be on a different floor than the player
     (e.g. clicking on the floor above/below).  Distance > 1 means the
     player can't be interacting with stairs/doors, so it's always a walk.
+
+    Rejects hotkey/container-style uses where x=0xFFFF (65535) — these
+    target inventory/backpack slots, not map tiles.
     """
     if wp.get("type") != "use_item":
+        return False
+    # x=0xFFFF means hotkey/container use (not a map tile click)
+    if wp["x"] == 0xFFFF or wp["x"] == 0:
         return False
     item_pos = (wp["x"], wp["y"], wp["z"])
     player_pos = wp["pos"]
@@ -482,6 +488,11 @@ def build_actions_map(recording: dict) -> list[dict]:
 
         if wp_type in ("position", "floor_change", "cancel_walk", "tile_transform_item"):
             # Informational-only waypoints; skip them.
+            i += 1
+            continue
+
+        if wp_type == "use_item" and wp.get("x") == 0xFFFF:
+            # Hotkey/container-style use (x=0xFFFF); not a map interaction, skip.
             i += 1
             continue
 
