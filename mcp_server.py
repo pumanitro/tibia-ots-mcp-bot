@@ -1522,6 +1522,9 @@ async def _async_stop_playback() -> str:
     state.playback_start_time = 0
     state.playback_start_experience = 0
     state.playback_start_level = 0
+    state.playback_senzu_series = []
+    state._last_senzu_sample_time = 0
+    state.game_state.lure_active = False
     return f"Playback of '{name}' stopped."
 
 
