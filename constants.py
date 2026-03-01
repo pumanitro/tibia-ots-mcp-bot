@@ -56,6 +56,10 @@ try:
 except (FileNotFoundError, json.JSONDecodeError):
     OFFSETS = {}
 
+# Packet format sizes and field offsets — used by game_state.py for parsing.
+# Externalised so server packet format changes only need a JSON edit.
+PACKET_FORMATS = OFFSETS.get("packet_formats", {})
+
 # g_game singleton — the Game class instance (see §4 "g_game" in source analysis)
 # Source: src/client/game.h — holds m_localPlayer, m_attackingCreature, m_protocolGame, etc.
 GAME_SINGLETON_RVA = OFFSETS.get("game_singleton_rva", "0x0")  # 0xB2E970

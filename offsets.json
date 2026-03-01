@@ -38,5 +38,39 @@
     "local_player_offset": null,
     "local_player_hp_offset": null,
     "local_player_mana_offset": null
+  },
+  "packet_formats": {
+    "player_stats": {
+      "size": 36,
+      "hp": 0, "max_hp": 4, "capacity": 8, "experience": 12,
+      "level": 20, "level_percent": 22, "mana": 23, "max_mana": 27,
+      "magic_level": 31, "magic_level_percent": 32, "soul": 33, "stamina": 34
+    },
+    "creature_health": { "size": 5, "creature_id": 0, "health": 4 },
+    "creature_move": { "size": 11 },
+    "creature_speed": { "size": 6, "creature_id": 0, "speed": 4 },
+    "creature_light": { "size": 6 },
+    "creature_skull": { "size": 5 },
+    "creature_party": { "size": 5 },
+    "text_message": { "header": 3, "type": 0, "length": 1, "text": 3 },
+    "animated_text": { "header": 8, "string_length": 6, "text": 8 },
+    "magic_effect": { "size": 6 },
+    "shoot_effect": { "size": 11 },
+    "tile_remove_thing": { "size": 6 },
+    "close_container": { "size": 1 },
+    "remove_from_container": { "size": 2 },
+    "player_icons": { "size": 2 },
+    "player_skills": { "size": 14 },
+    "player_cancel_walk": { "size": 1 },
+    "world_light": { "size": 2, "level": 0, "color": 1 },
+    "custom_0xcb": { "size": 5 },
+    "position": { "size": 5, "x": 0, "y": 2, "z": 4 },
+    "login_or_pending": {
+      "player_id_size": 4,
+      "header_before_position": 4,
+      "map_description_search_window": 10
+    },
+    "map_description": { "position_x": 0, "position_y": 2, "position_z": 4 },
+    "tile_transform_thing": { "x": 1, "y": 3, "z": 5 }
   }
 }

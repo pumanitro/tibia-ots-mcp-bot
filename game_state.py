@@ -10,6 +10,7 @@ import struct
 import time
 from collections import deque
 
+from constants import PACKET_FORMATS as PF
 from protocol import ServerOpcode
 
 log = logging.getLogger("game_state")
@@ -92,6 +93,9 @@ class GameState:
 
         # Protection Zone detection — updated by server text messages
         self.in_protection_zone: bool = False
+
+        # Session kill counter (set by cavebot/mcp_server, read by dashboard)
+        self.session_kills: int = 0
 
 
 _stats_debug_file = None
@@ -199,13 +203,17 @@ def _search_for_tile_updates(data: bytes, start: int, gs: GameState) -> None:
     while gs.tile_updates and now - gs.tile_updates[0][0] > 5.0:
         gs.tile_updates.popleft()
 
+    _tt = PF.get("tile_transform_thing", {})
+    _tt_x = _tt.get("x", 1)
+    _tt_y = _tt.get("y", 3)
+    _tt_z = _tt.get("z", 5)
     for i in range(start, len(data) - 5):
         if data[i] != ServerOpcode.TILE_TRANSFORM_THING:  # 0x6B
             continue
         try:
-            x = struct.unpack_from('<H', data, i + 1)[0]
-            y = struct.unpack_from('<H', data, i + 3)[0]
-            z = data[i + 5]
+            x = struct.unpack_from('<H', data, i + _tt_x)[0]
+            y = struct.unpack_from('<H', data, i + _tt_y)[0]
+            z = data[i + _tt_z]
         except (struct.error, IndexError):
             continue
         # Sanity-check: valid map coordinates
@@ -231,15 +239,22 @@ def _check_pz_message(text: str, gs: GameState) -> None:
 
 def _search_for_stats(data: bytes, start: int, gs: GameState) -> None:
     """Brute-force search for 0xA0 PLAYER_STATS after sequential scan stopped."""
-    STATS_SIZE = 36  # u32 format
+    _st = PF.get("player_stats", {})
+    STATS_SIZE = _st.get("size", 36)
+    _st_hp = _st.get("hp", 0)
+    _st_max_hp = _st.get("max_hp", 4)
+    _st_level = _st.get("level", 20)
+    _st_mana = _st.get("mana", 23)
+    _st_max_mana = _st.get("max_mana", 27)
+    _st_capacity = _st.get("capacity", 8)
     for i in range(start, len(data) - STATS_SIZE):
         if data[i] != ServerOpcode.PLAYER_STATS:
             continue
         p = i + 1
         try:
-            hp = struct.unpack_from('<I', data, p)[0]
-            max_hp = struct.unpack_from('<I', data, p + 4)[0]
-            level = struct.unpack_from('<H', data, p + 20)[0]
+            hp = struct.unpack_from('<I', data, p + _st_hp)[0]
+            max_hp = struct.unpack_from('<I', data, p + _st_max_hp)[0]
+            level = struct.unpack_from('<H', data, p + _st_level)[0]
         except (struct.error, IndexError):
             continue
         # Tight sanity check to avoid false positives in map data
@@ -249,9 +264,9 @@ def _search_for_stats(data: bytes, start: int, gs: GameState) -> None:
             continue
         # Additional mana/capacity checks
         try:
-            mana = struct.unpack_from('<I', data, p + 23)[0]
-            max_mana = struct.unpack_from('<I', data, p + 27)[0]
-            capacity = struct.unpack_from('<I', data, p + 8)[0]
+            mana = struct.unpack_from('<I', data, p + _st_mana)[0]
+            max_mana = struct.unpack_from('<I', data, p + _st_max_mana)[0]
+            capacity = struct.unpack_from('<I', data, p + _st_capacity)[0]
         except (struct.error, IndexError):
             continue
         if max_mana > MAX_VALID_MANA or mana > max_mana:
@@ -270,7 +285,9 @@ def _search_for_icons(data: bytes, start: int, gs: GameState) -> None:
     PLAYER_ICONS is 3 bytes total: opcode(1) + u16 icons bitmask(2).
     We validate that the icons value is a reasonable bitmask (< 0x8000).
     """
-    for i in range(start, len(data) - 2):
+    _ic = PF.get("player_icons", {})
+    _ic_size = _ic.get("size", 2)
+    for i in range(start, len(data) - _ic_size):
         if data[i] != ServerOpcode.PLAYER_ICONS:
             continue
         icons = struct.unpack_from('<H', data, i + 1)[0]
@@ -294,23 +311,24 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
     # u32 hp, u32 max_hp, u32 capacity, u64 exp, u16 level, u8 lvl%,
     # u32 mana, u32 max_mana, u8 mlvl, u8 mlvl%, u8 soul, u16 stamina
     if opcode == ServerOpcode.PLAYER_STATS:
-        needed = 36
+        _st = PF.get("player_stats", {})
+        needed = _st.get("size", 36)
         if pos + needed > len(data):
             return -1
         # Raw hex dump for HP/Mana diagnosis
         raw_hex = data[pos:pos + needed].hex()
-        gs.hp = struct.unpack_from('<I', data, pos)[0]
-        gs.max_hp = struct.unpack_from('<I', data, pos + 4)[0]
-        gs.capacity = struct.unpack_from('<I', data, pos + 8)[0]
-        gs.experience = struct.unpack_from('<Q', data, pos + 12)[0]
-        gs.level = struct.unpack_from('<H', data, pos + 20)[0]
-        # pos+22: u8 level%
-        gs.mana = struct.unpack_from('<I', data, pos + 23)[0]
-        gs.max_mana = struct.unpack_from('<I', data, pos + 27)[0]
-        gs.magic_level = data[pos + 31]
-        # pos+32: u8 mlvl%
-        gs.soul = data[pos + 33]
-        # pos+34: u16 stamina
+        gs.hp = struct.unpack_from('<I', data, pos + _st.get("hp", 0))[0]
+        gs.max_hp = struct.unpack_from('<I', data, pos + _st.get("max_hp", 4))[0]
+        gs.capacity = struct.unpack_from('<I', data, pos + _st.get("capacity", 8))[0]
+        gs.experience = struct.unpack_from('<Q', data, pos + _st.get("experience", 12))[0]
+        gs.level = struct.unpack_from('<H', data, pos + _st.get("level", 20))[0]
+        # level_percent at _st.get("level_percent", 22)
+        gs.mana = struct.unpack_from('<I', data, pos + _st.get("mana", 23))[0]
+        gs.max_mana = struct.unpack_from('<I', data, pos + _st.get("max_mana", 27))[0]
+        gs.magic_level = data[pos + _st.get("magic_level", 31)]
+        # magic_level_percent at _st.get("magic_level_percent", 32)
+        gs.soul = data[pos + _st.get("soul", 33)]
+        # stamina at _st.get("stamina", 34)
         gs.stats_updated_at = time.time()
         log.info(
             f"Stats: HP={gs.hp}/{gs.max_hp} MP={gs.mana}/{gs.max_mana} "
@@ -322,32 +340,40 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
     # CREATURE_HEALTH — 5 bytes: u32 + u8
     # Only update existing creatures — never create new entries (avoids phantoms)
     if opcode == ServerOpcode.CREATURE_HEALTH:
-        if pos + 5 > len(data):
+        _ch = PF.get("creature_health", {})
+        _ch_size = _ch.get("size", 5)
+        if pos + _ch_size > len(data):
             return -1
-        cid = struct.unpack_from('<I', data, pos)[0]
-        health = data[pos + 4]
+        cid = struct.unpack_from('<I', data, pos + _ch.get("creature_id", 0))[0]
+        health = data[pos + _ch.get("health", 4)]
         if cid in gs.creatures:
             gs.creatures[cid]["health"] = health
             gs.creatures[cid]["t"] = time.time()
-        return pos + 5
+        return pos + _ch_size
 
     # CREATURE_MOVE — 11 bytes: pos(5) + u8 + pos(5)
     if opcode == ServerOpcode.CREATURE_MOVE:
-        if pos + 11 > len(data):
+        _cm_size = PF.get("creature_move", {}).get("size", 11)
+        if pos + _cm_size > len(data):
             return -1
         # Skip — we just consume the bytes
-        return pos + 11
+        return pos + _cm_size
 
     # TEXT_MESSAGE — variable: u8 type + string(u16 len + chars)
     if opcode == ServerOpcode.TEXT_MESSAGE:
-        if pos + 3 > len(data):
+        _tm = PF.get("text_message", {})
+        _tm_hdr = _tm.get("header", 3)
+        _tm_type = _tm.get("type", 0)
+        _tm_len = _tm.get("length", 1)
+        _tm_text = _tm.get("text", 3)
+        if pos + _tm_hdr > len(data):
             return -1
-        msg_type = data[pos]
-        str_len = struct.unpack_from('<H', data, pos + 1)[0]
-        end = pos + 3 + str_len
+        msg_type = data[pos + _tm_type]
+        str_len = struct.unpack_from('<H', data, pos + _tm_len)[0]
+        end = pos + _tm_text + str_len
         if end > len(data):
             return -1
-        text = data[pos + 3:end].decode('latin-1', errors='replace')
+        text = data[pos + _tm_text:end].decode('latin-1', errors='replace')
         gs.messages.append({"type": msg_type, "text": text})
         if "can't throw there" in text.lower():
             gs.last_cant_throw = time.time()
@@ -358,13 +384,22 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
     # LOGIN_OR_PENDING — u32 player_id, u16 draw_speed, u8 can_report_bugs
     # Then MAP_DESCRIPTION with position
     if opcode == ServerOpcode.LOGIN_OR_PENDING:
-        if pos + 4 > len(data):
+        _lp = PF.get("login_or_pending", {})
+        _lp_pid = _lp.get("player_id_size", 4)
+        _lp_hdr = _lp.get("header_before_position", 4)
+        _lp_win = _lp.get("map_description_search_window", 10)
+        _pos = PF.get("position", {})
+        _pos_x = _pos.get("x", 0)
+        _pos_y = _pos.get("y", 2)
+        _pos_z = _pos.get("z", 4)
+        if pos + _lp_pid > len(data):
             return -1
         gs.player_id = struct.unpack_from('<I', data, pos)[0]
         log.info(f"LOGIN: player_id={gs.player_id}")
-        pos += 4
-        # Search for MAP_DESCRIPTION within next 10 bytes (skip draw_speed/flags)
-        search_end = min(pos + 10, len(data) - 5)
+        pos += _lp_pid
+        # Search for MAP_DESCRIPTION within next N bytes (skip draw_speed/flags)
+        search_end = min(pos + _lp_win, len(data) - 5)
+        found_pos = False
         for i in range(pos, search_end):
             if data[i] == ServerOpcode.MAP_DESCRIPTION:
                 x = struct.unpack_from('<H', data, i + 1)[0]
@@ -376,16 +411,31 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
                     gs.creatures = {cid: info for cid, info in gs.creatures.items() if info.get("source") == "dll"}
                     gs.last_map_time = time.time()
                     log.info(f"LOGIN position: ({x}, {y}, {z})")
+                    found_pos = True
                     break
+        # Fallback: server may have changed the marker byte (was 0x64, now 0x4B).
+        # Position is still at fixed offset: draw_speed(2) + flags(1) + marker(1) = +4
+        if not found_pos and pos + _lp_hdr + 5 <= len(data):
+            i = pos + _lp_hdr
+            x = struct.unpack_from('<H', data, i + _pos_x)[0]
+            y = struct.unpack_from('<H', data, i + _pos_y)[0]
+            z = data[i + _pos_z]
+            if 100 < x < 65000 and 100 < y < 65000 and z < 16:
+                gs.position = (x, y, z)
+                gs.packet_position = (x, y, z)
+                gs.creatures = {cid: info for cid, info in gs.creatures.items() if info.get("source") == "dll"}
+                gs.last_map_time = time.time()
+                log.info(f"LOGIN position (fixed offset fallback): ({x}, {y}, {z})")
         return -1  # Can't skip the rest (tile data follows)
 
     # MAP_DESCRIPTION — read position then stop (can't skip tile data)
     if opcode == ServerOpcode.MAP_DESCRIPTION:
+        _md = PF.get("map_description", {})
         if pos + 5 > len(data):
             return -1
-        x = struct.unpack_from('<H', data, pos)[0]
-        y = struct.unpack_from('<H', data, pos + 2)[0]
-        z = data[pos + 4]
+        x = struct.unpack_from('<H', data, pos + _md.get("position_x", 0))[0]
+        y = struct.unpack_from('<H', data, pos + _md.get("position_y", 2))[0]
+        z = data[pos + _md.get("position_z", 4)]
         gs.position = (x, y, z)
         gs.packet_position = (x, y, z)
         gs.creatures = {cid: info for cid, info in gs.creatures.items() if info.get("source") == "dll"}
@@ -427,61 +477,75 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
 
     # MAGIC_EFFECT — 6 bytes: pos(5) + u8 effect
     if opcode == ServerOpcode.MAGIC_EFFECT:
-        return pos + 6 if pos + 6 <= len(data) else -1
+        _me_size = PF.get("magic_effect", {}).get("size", 6)
+        return pos + _me_size if pos + _me_size <= len(data) else -1
 
     # SHOOT_EFFECT — 11 bytes: from_pos(5) + to_pos(5) + u8 effect
     if opcode == ServerOpcode.SHOOT_EFFECT:
-        return pos + 11 if pos + 11 <= len(data) else -1
+        _se_size = PF.get("shoot_effect", {}).get("size", 11)
+        return pos + _se_size if pos + _se_size <= len(data) else -1
 
     # ANIMATED_TEXT — variable: pos(5) + u8 color + string(u16 len + chars)
     # Very common during combat (damage numbers). Must handle to not break scan.
     if opcode == ServerOpcode.ANIMATED_TEXT:
-        if pos + 8 > len(data):
+        _at = PF.get("animated_text", {})
+        _at_hdr = _at.get("header", 8)
+        _at_slen = _at.get("string_length", 6)
+        _at_text = _at.get("text", 8)
+        if pos + _at_hdr > len(data):
             return -1
-        str_len = struct.unpack_from('<H', data, pos + 6)[0]
-        end = pos + 8 + str_len
+        str_len = struct.unpack_from('<H', data, pos + _at_slen)[0]
+        end = pos + _at_text + str_len
         if end > len(data):
             return -1
         return end
 
     # TILE_REMOVE_THING — 6 bytes: pos(5) + u8 stack_pos
     if opcode == ServerOpcode.TILE_REMOVE_THING:
-        return pos + 6 if pos + 6 <= len(data) else -1
+        _trt_size = PF.get("tile_remove_thing", {}).get("size", 6)
+        return pos + _trt_size if pos + _trt_size <= len(data) else -1
 
     # CLOSE_CONTAINER — 1 byte: u8 container_id
     if opcode == ServerOpcode.CLOSE_CONTAINER:
-        return pos + 1 if pos + 1 <= len(data) else -1
+        _cc_size = PF.get("close_container", {}).get("size", 1)
+        return pos + _cc_size if pos + _cc_size <= len(data) else -1
 
     # REMOVE_FROM_CONTAINER — 2 bytes: u8 container_id + u8 slot
     if opcode == ServerOpcode.REMOVE_FROM_CONTAINER:
-        return pos + 2 if pos + 2 <= len(data) else -1
+        _rfc_size = PF.get("remove_from_container", {}).get("size", 2)
+        return pos + _rfc_size if pos + _rfc_size <= len(data) else -1
 
     # CREATURE_LIGHT — 6 bytes: u32 creature_id + u8 level + u8 color
     if opcode == ServerOpcode.CREATURE_LIGHT:
-        return pos + 6 if pos + 6 <= len(data) else -1
+        _cl_size = PF.get("creature_light", {}).get("size", 6)
+        return pos + _cl_size if pos + _cl_size <= len(data) else -1
 
     # CREATURE_SPEED — 6 bytes: u32 creature_id + u16 speed
     if opcode == ServerOpcode.CREATURE_SPEED:
-        if pos + 6 > len(data):
+        _cs = PF.get("creature_speed", {})
+        _cs_size = _cs.get("size", 6)
+        if pos + _cs_size > len(data):
             return -1
-        cid = struct.unpack_from('<I', data, pos)[0]
-        spd = struct.unpack_from('<H', data, pos + 4)[0]
+        cid = struct.unpack_from('<I', data, pos + _cs.get("creature_id", 0))[0]
+        spd = struct.unpack_from('<H', data, pos + _cs.get("speed", 4))[0]
         if cid == gs.player_id:
             gs.speed = spd
-        return pos + 6
+        return pos + _cs_size
 
     # CREATURE_SKULL — 5 bytes: u32 creature_id + u8 skull
     if opcode == ServerOpcode.CREATURE_SKULL:
-        return pos + 5 if pos + 5 <= len(data) else -1
+        _csk_size = PF.get("creature_skull", {}).get("size", 5)
+        return pos + _csk_size if pos + _csk_size <= len(data) else -1
 
     # CREATURE_PARTY — 5 bytes: u32 creature_id + u8 shield
     if opcode == ServerOpcode.CREATURE_PARTY:
-        return pos + 5 if pos + 5 <= len(data) else -1
+        _cp_size = PF.get("creature_party", {}).get("size", 5)
+        return pos + _cp_size if pos + _cp_size <= len(data) else -1
 
     # PLAYER_SKILLS — variable: 7 skills × (u8 level + u8 percent) = 14 bytes
     # (standard TFS 7.x/8.x format; may differ on modified servers)
     if opcode == ServerOpcode.PLAYER_SKILLS:
-        needed = 14  # 7 skills × 2 bytes
+        needed = PF.get("player_skills", {}).get("size", 14)
         if pos + needed > len(data):
             return -1
         # Just consume the bytes — we don't track skills yet
@@ -489,25 +553,27 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
 
     # PLAYER_ICONS — 2 bytes: u16 icons bitmask
     if opcode == ServerOpcode.PLAYER_ICONS:
-        if pos + 2 > len(data):
+        _pi_size = PF.get("player_icons", {}).get("size", 2)
+        if pos + _pi_size > len(data):
             return -1
         old = gs.player_icons
         gs.player_icons = struct.unpack_from('<H', data, pos)[0]
         if gs.player_icons != old:
             log.info(f"PLAYER_ICONS changed: 0x{old:04X} -> 0x{gs.player_icons:04X} "
                      f"(diff bits: 0x{old ^ gs.player_icons:04X})")
-        return pos + 2
+        return pos + _pi_size
 
     # PLAYER_CANCEL_WALK — 1 byte: u8 direction
     if opcode == ServerOpcode.PLAYER_CANCEL_WALK:
-        if pos + 1 > len(data):
+        _pcw_size = PF.get("player_cancel_walk", {}).get("size", 1)
+        if pos + _pcw_size > len(data):
             return -1
         direction = data[pos]
         now = time.time()
         gs.cancel_walk_time = now
         gs.server_events.append((now, "cancel_walk", {"direction": direction, "pos": list(gs.position)}))
         log.info(f"CANCEL_WALK direction={direction}")
-        return pos + 1
+        return pos + _pcw_size
 
     # NOTE: FLOOR_CHANGE_UP (0xBE) / FLOOR_CHANGE_DOWN (0xBF) are standard OT
     # opcodes but DBVictory does NOT use them. Sniffing confirmed that floor changes
@@ -525,15 +591,18 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
 
     # WORLD_LIGHT (0x82) — 2 bytes: u8 level + u8 color
     if opcode == 0x82:
-        if pos + 2 > len(data):
+        _wl = PF.get("world_light", {})
+        _wl_size = _wl.get("size", 2)
+        if pos + _wl_size > len(data):
             return -1
-        gs.world_light_level = data[pos]
-        gs.world_light_color = data[pos + 1]
-        return pos + 2
+        gs.world_light_level = data[pos + _wl.get("level", 0)]
+        gs.world_light_color = data[pos + _wl.get("color", 1)]
+        return pos + _wl_size
 
     # DBVictory custom opcode 0xCB — 5 bytes payload (empirically observed)
     if opcode == 0xCB:
-        return pos + 5 if pos + 5 <= len(data) else -1
+        _cb_size = PF.get("custom_0xcb", {}).get("size", 5)
+        return pos + _cb_size if pos + _cb_size <= len(data) else -1
 
     # Unknown opcode — stop
     return -1
