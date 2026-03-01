@@ -931,6 +931,7 @@ async def start_bot() -> str:
 
     def on_login_success(keys):
         state.ready = True
+        state.game_state.lure_active = False  # always clear stale lure state on reconnect
         log.info("=== BOT READY — game session established ===")
 
         # Signal the login-wait task immediately (no polling delay)

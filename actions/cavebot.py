@@ -651,7 +651,7 @@ async def _execute_walk_steps(bot, node, prefix=""):
     return True
 
 
-async def run(bot):
+async def _run_playback(bot):
     state = _get_state()
 
     # Ensure failed_nodes set exists (may be missing if mcp_server hasn't reloaded)
@@ -971,3 +971,16 @@ async def run(bot):
     state._last_senzu_sample_time = 0
     state.game_state.lure_active = False  # always clear on playback end
     bot.log("Playback finished")
+
+
+async def run(bot):
+    """Entry point — wraps _run_playback with guaranteed lure_active cleanup.
+
+    Without try/finally, CancelledError (from action stop/toggle/disconnect)
+    skips the cleanup block and lure_active stays True forever, suppressing
+    all combat in auto_combat and auto_targeting.
+    """
+    try:
+        await _run_playback(bot)
+    finally:
+        _get_state().game_state.lure_active = False
