@@ -31,6 +31,7 @@ class DllBridge:
         self._handle = None
         self._buffer = ""
         self._extras = []   # non-creature JSON responses (scan results, etc.)
+        self.dll_pos = (0, 0, 0)  # player position from DLL global memory scan
 
     @property
     def connected(self) -> bool:
@@ -128,6 +129,9 @@ class DllBridge:
                 data = json.loads(line)
                 if "creatures" in data:
                     creatures = data["creatures"]
+                    # Store DLL-reported position (from global memory scan)
+                    if "px" in data and data["px"] > 0:
+                        self.dll_pos = (data["px"], data["py"], data["pz"])
                 else:
                     log.warning(f"DLL extra response: {list(data.keys())}")
                     self._extras.append(data)

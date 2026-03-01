@@ -91,6 +91,8 @@ class GameState:
         self.server_events: deque = deque(maxlen=100)
         # Timestamp of last CANCEL_WALK from server
         self.cancel_walk_time: float = 0
+        # Last client walk delta for cancel_walk revert
+        self._last_walk_delta: tuple[int, int] = (0, 0)
 
         # Protection Zone detection — updated by server text messages
         self.in_protection_zone: bool = False
@@ -148,25 +150,36 @@ def scan_packet(data: bytes, gs: GameState) -> None:
     pos = 0
     found_stats = False
     found_icons = False
-    has_map_data = False
+    handled_map_slice = False
     while pos < len(data):
         opcode = data[pos]
         pos += 1
-        if opcode in (ServerOpcode.LOGIN_OR_PENDING, ServerOpcode.MAP_DESCRIPTION,
-                      ServerOpcode.MAP_SLICE_NORTH, ServerOpcode.MAP_SLICE_EAST,
-                      ServerOpcode.MAP_SLICE_SOUTH, ServerOpcode.MAP_SLICE_WEST):
-            has_map_data = True
         try:
             new_pos = _parse_at(opcode, data, pos, gs)
         except Exception:
             break
         if new_pos < 0:
-            break  # Unknown or variable-length message — stop
+            # _parse_at returned -1 but may have updated position (MAP_SLICE/MAP_DESCRIPTION)
+            if opcode in (ServerOpcode.MAP_SLICE_NORTH, ServerOpcode.MAP_SLICE_EAST,
+                          ServerOpcode.MAP_SLICE_SOUTH, ServerOpcode.MAP_SLICE_WEST,
+                          ServerOpcode.MAP_DESCRIPTION, ServerOpcode.LOGIN_OR_PENDING):
+                handled_map_slice = True
+                _map_slice_dbg(f"SEQ handled 0x{opcode:02X} at pos={pos-1} → pos={gs.position}")
+            else:
+                _map_slice_dbg(f"SEQ STOPPED at 0x{opcode:02X} pos={pos-1} pktlen={len(data)} "
+                               f"next5={data[pos-1:pos+4].hex()}")
+            break
         if opcode == ServerOpcode.PLAYER_STATS:
             found_stats = True
         if opcode == ServerOpcode.PLAYER_ICONS:
             found_icons = True
         pos = new_pos
+
+    # Fallback disabled — brute-force byte search hits false positives in text
+    # data (0x65='e', 0x67='g'). Position is now tracked via client walk packets.
+    if not handled_map_slice:
+        # Only log, don't try to fix from server data
+        pass
 
     # Search full packet for tile update opcodes (0x6A/0x6B/0x6C)
     # Done on full data (not just remainder) because tile updates can appear
@@ -191,6 +204,82 @@ def scan_packet(data: bytes, gs: GameState) -> None:
             cid: info for cid, info in gs.creatures.items()
             if info.get("source") == "dll" or now - info.get("t", 0) <= MAX_CREATURE_AGE
         }
+
+
+_map_slice_dbg_f = None
+_map_slice_dbg_count = 0
+
+
+def _map_slice_dbg(msg: str) -> None:
+    global _map_slice_dbg_f, _map_slice_dbg_count
+    import datetime
+    try:
+        if _map_slice_dbg_f is None:
+            _map_slice_dbg_f = open("map_slice_debug.txt", "a", encoding="utf-8")
+        ts = datetime.datetime.now().strftime("%H:%M:%S")
+        _map_slice_dbg_f.write(f"[{ts}] {msg}\n")
+        _map_slice_dbg_f.flush()
+    except Exception:
+        pass
+
+
+def _search_for_map_slice(data: bytes, gs: GameState) -> None:
+    """Search packet for MAP_SLICE opcodes (0x65-0x68) to update position.
+
+    Scans the first 50 bytes of the packet for a MAP_SLICE opcode.
+    Applies at most ONE direction per packet.
+    """
+    global _map_slice_dbg_count
+    _N = ServerOpcode.MAP_SLICE_NORTH  # 0x65
+    _E = ServerOpcode.MAP_SLICE_EAST   # 0x66
+    _S = ServerOpcode.MAP_SLICE_SOUTH  # 0x67
+    _W = ServerOpcode.MAP_SLICE_WEST   # 0x68
+    if len(data) < 1:
+        return
+
+    # Debug: log first bytes of packets that weren't handled by sequential parser
+    _map_slice_dbg_count += 1
+    if _map_slice_dbg_count <= 200:
+        hdr = data[:min(20, len(data))].hex()
+        _map_slice_dbg(f"fallback pkt len={len(data)} first20={hdr} "
+                       f"pos={gs.position} pkt_pos={gs.packet_position}")
+
+    # Search first 50 bytes for a MAP_SLICE opcode
+    scan_end = min(50, len(data))
+    b = None
+    for i in range(scan_end):
+        if data[i] in (_N, _E, _S, _W):
+            b = data[i]
+            if _map_slice_dbg_count <= 200:
+                _map_slice_dbg(f"  FOUND 0x{b:02X} at offset {i}")
+            break
+
+    if b is None:
+        return
+
+    # Update gs.position
+    x, y, z = gs.position
+    if b == _N:
+        gs.position = (x, y - 1, z)
+    elif b == _E:
+        gs.position = (x + 1, y, z)
+    elif b == _S:
+        gs.position = (x, y + 1, z)
+    elif b == _W:
+        gs.position = (x - 1, y, z)
+    # Update gs.packet_position
+    if gs.packet_position[0] < 100 and gs.position[0] > 100:
+        gs.packet_position = gs.position
+    px, py, pz = gs.packet_position
+    if b == _N:
+        gs.packet_position = (px, py - 1, pz)
+    elif b == _E:
+        gs.packet_position = (px + 1, py, pz)
+    elif b == _S:
+        gs.packet_position = (px, py + 1, pz)
+    elif b == _W:
+        gs.packet_position = (px - 1, py, pz)
+    gs.last_map_time = time.time()
 
 
 def _search_for_tile_updates(data: bytes, start: int, gs: GameState) -> None:
@@ -442,8 +531,14 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
         _pos_z = _pos.get("z", 4)
         if pos + _lp_pid > len(data):
             return -1
-        gs.player_id = struct.unpack_from('<I', data, pos)[0]
-        log.info(f"LOGIN: player_id={gs.player_id}")
+        new_pid = struct.unpack_from('<I', data, pos)[0]
+        # Guard: only accept player_id in valid player range (0x10xxxxxx)
+        if 0x10000000 <= new_pid < 0x20000000 or gs.player_id == 0:
+            gs.player_id = new_pid
+            log.info(f"LOGIN: player_id=0x{gs.player_id:08X}")
+        else:
+            log.warning(f"LOGIN: rejected suspicious player_id=0x{new_pid:08X} "
+                        f"(keeping 0x{gs.player_id:08X})")
         pos += _lp_pid
         # Search for MAP_DESCRIPTION within next N bytes (skip draw_speed/flags)
         search_end = min(pos + _lp_win, len(data) - 5)
@@ -494,16 +589,15 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
     # MAP_SLICE — update position, but can't skip tile data
     if opcode in (ServerOpcode.MAP_SLICE_NORTH, ServerOpcode.MAP_SLICE_EAST,
                   ServerOpcode.MAP_SLICE_SOUTH, ServerOpcode.MAP_SLICE_WEST):
-        if not gs.dll_position_active:
-            x, y, z = gs.position
-            if opcode == ServerOpcode.MAP_SLICE_NORTH:
-                gs.position = (x, y - 1, z)
-            elif opcode == ServerOpcode.MAP_SLICE_EAST:
-                gs.position = (x + 1, y, z)
-            elif opcode == ServerOpcode.MAP_SLICE_SOUTH:
-                gs.position = (x, y + 1, z)
-            elif opcode == ServerOpcode.MAP_SLICE_WEST:
-                gs.position = (x - 1, y, z)
+        x, y, z = gs.position
+        if opcode == ServerOpcode.MAP_SLICE_NORTH:
+            gs.position = (x, y - 1, z)
+        elif opcode == ServerOpcode.MAP_SLICE_EAST:
+            gs.position = (x + 1, y, z)
+        elif opcode == ServerOpcode.MAP_SLICE_SOUTH:
+            gs.position = (x, y + 1, z)
+        elif opcode == ServerOpcode.MAP_SLICE_WEST:
+            gs.position = (x - 1, y, z)
         # Always track packet-derived position for recording accuracy
         # Seed from gs.position if packet_position looks uninitialized
         # (real game coordinates are always > 100)
@@ -619,8 +713,17 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
         direction = data[pos]
         now = time.time()
         gs.cancel_walk_time = now
+        # Revert the optimistic client-walk position update
+        dx, dy = gs._last_walk_delta
+        if dx != 0 or dy != 0:
+            x, y, z = gs.position
+            gs.position = (x - dx, y - dy, z)
+            px, py, pz = gs.packet_position
+            if px > 100:
+                gs.packet_position = (px - dx, py - dy, pz)
+            gs._last_walk_delta = (0, 0)
         gs.server_events.append((now, "cancel_walk", {"direction": direction, "pos": list(gs.position)}))
-        log.info(f"CANCEL_WALK direction={direction}")
+        log.info(f"CANCEL_WALK direction={direction} → reverted pos to {gs.position}")
         return pos + _pcw_size
 
     # NOTE: FLOOR_CHANGE_UP (0xBE) / FLOOR_CHANGE_DOWN (0xBF) are standard OT

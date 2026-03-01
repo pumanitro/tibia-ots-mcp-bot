@@ -223,6 +223,7 @@ async def run(bot):
     # to discover the correct creature struct position offset
     probe_sent = False
     probe_result = None
+    global_pos_scanned = False
 
     poll_count = 0
     last_data_time = time.time()  # when we last got actual data
@@ -274,11 +275,12 @@ async def run(bot):
 
             now = time.time()
             if creatures is not None and len(creatures) > 0:
-                # Player position comes from gs.position (set by DLL below).
-                # For probe_pos, use packet_position (clean, never corrupted by DLL).
-                px, py, pz = gs.position if gs.position[0] > 0 else (0, 0, 0)
+                # Use packet_position as primary position source — DLL creature
+                # struct position is stale for the local player (Fix 19).
+                pkt = gs.packet_position
+                px, py, pz = pkt if pkt[0] > 0 else gs.position if gs.position[0] > 0 else (0, 0, 0)
 
-                # Send gs.position (DLL-derived, current Z) to DLL for attack distance/floor check.
+                # Send packet-derived position to DLL for attack distance/floor check.
                 if px > 0 and py > 0 and poll_count % 6 == 0:
                     bridge.send_command({"cmd": "set_player_pos", "x": px, "y": py, "z": pz})
 
@@ -314,6 +316,30 @@ async def run(bot):
                                 bot.log(f"[DLL]   offset from base: {m.get('hex_base','?')} "
                                         f"(from id: {m['off_from_id']}) fmt={m.get('fmt','u32u32u32')}")
 
+                # Send scan_global_pos once after we have a valid position
+                if not global_pos_scanned and probe_sent and pkt_pos[0] > 100:
+                    bridge.send_command({"cmd": "scan_global_pos"})
+                    global_pos_scanned = True
+                    _dbg(f"SCAN_GLOBAL_POS sent — searching for ({pkt_pos[0]},{pkt_pos[1]},{pkt_pos[2]})")
+                    bot.log(f"[DLL] scan_global_pos — searching writable sections for position")
+
+                # Check for scan_global_pos result in extras
+                if global_pos_scanned:
+                    extras = bridge.pop_extras()
+                    for ex in extras:
+                        if "scan_global_pos" in ex:
+                            sgp = ex["scan_global_pos"]
+                            _dbg(f"SCAN_GLOBAL_POS result: {json.dumps(sgp)}")
+                            bot.log(f"[DLL] scan_global_pos: {sgp.get('matches',0)} matches, "
+                                    f"addr={sgp.get('rva','?')}")
+
+                # Update position from DLL global memory (live, not stale)
+                dp = bridge.dll_pos
+                if dp[0] > 100 and dp[1] > 100:
+                    gs.position = dp
+                    gs.packet_position = dp
+                    px, py, pz = dp
+
                 dll_creatures = {}
                 raw_count = 0
                 player_found = False
@@ -329,18 +355,10 @@ async def run(bot):
                     # Player creature: use DLL memory as authoritative position source.
                     if cid == my_player_id:
                         player_found = True
-                        # Update position from DLL memory
+                        # Log player creature (position is stale — Fix 19)
                         if poll_count % 300 == 1:
                             _dbg(f"PLAYER FOUND: cid=0x{cid:08X} my_pid=0x{my_player_id:08X} "
-                                 f"gs.pid=0x{gs.player_id:08X} dll=({cx},{cy},{cz}) gs=({px},{py},{pz})")
-                        if cx > 0 and cy > 0 and 0 < cz < 16:
-                            new_pos = (cx, cy, cz)
-                            if new_pos != (px, py, pz):
-                                if poll_count % 60 == 1:
-                                    _dbg(f"PLAYER POS from DLL: ({cx},{cy},{cz}) was ({px},{py},{pz})")
-                                gs.position = new_pos
-                                gs.dll_position_active = True
-                                px, py, pz = cx, cy, cz
+                                 f"gs.pid=0x{gs.player_id:08X} dll=({cx},{cy},{cz}) pkt=({px},{py},{pz})")
                         # Update HP from memory (creature health %)
                         hp_pct = c.get("hp", 0)
                         if gs.max_hp > 0 and 0 <= hp_pct <= 100:

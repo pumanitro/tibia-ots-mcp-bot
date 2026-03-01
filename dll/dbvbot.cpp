@@ -171,6 +171,12 @@ static volatile DWORD g_pending_queued_tick = 0;
 static volatile uint32_t g_player_x = 0;
 static volatile uint32_t g_player_y = 0;
 static volatile uint32_t g_player_z = 0;
+
+// ── Global position address (discovered by scan_global_pos) ─────────
+// When set, the scan loop reads position from this address every cycle.
+// Format: 0=u32 triple, 1=u16 pair + u8
+static uintptr_t g_pos_global_addr = 0;
+static int       g_pos_global_fmt  = 0; // 0=u32,u32,u32  1=u16,u16,u8
 static volatile DWORD    g_last_good_scan_tick = 0;  // last successful scan timestamp
 #define SCAN_FRESHNESS_MS 2000  // don't attack if scan is older than 2s
 #define ATTACK_BLACKLIST_SIZE 8
@@ -534,7 +540,10 @@ static int build_json(char* buf, size_t buf_sz) {
         if (written < 0 || written >= (int)(buf_sz - pos)) break;
         pos += written;
     }
-    written = _snprintf(buf + pos, buf_sz - pos, "]}\n");
+    written = _snprintf(buf + pos, buf_sz - pos,
+        "],\"px\":%u,\"py\":%u,\"pz\":%u,\"pos_addr\":%u}\n",
+        (unsigned)g_player_x, (unsigned)g_player_y, (unsigned)g_player_z,
+        (unsigned)g_pos_global_addr);
     if (written < 0 || written >= (int)(buf_sz - pos)) {
         LeaveCriticalSection(&g_cs);
         return -1;
@@ -3022,6 +3031,75 @@ static void parse_command(const char* line) {
                 }
             }
         }
+    } else if (strstr(line, "\"scan_global_pos\"")) {
+        // Scan writable sections (.data, .bss) for the known player position.
+        // Searches for u32 triple (x,y,z) and u16 pair + u8 (x,y,z).
+        // Sets g_pos_global_addr so subsequent scans auto-read position.
+        uint32_t px = g_player_x, py = g_player_y, pz = g_player_z;
+        dbg("CMD scan_global_pos: looking for (%u,%u,%u) in writable sections", px, py, pz);
+        if (px == 0 || py == 0) {
+            dbg("  ERROR: player position not set");
+        } else {
+            HMODULE game = GetModuleHandle(NULL);
+            uintptr_t base = (uintptr_t)game;
+            PIMAGE_DOS_HEADER dos = (PIMAGE_DOS_HEADER)game;
+            PIMAGE_NT_HEADERS nt = (PIMAGE_NT_HEADERS)((BYTE*)game + dos->e_lfanew);
+            PIMAGE_SECTION_HEADER sec = IMAGE_FIRST_SECTION(nt);
+            int match_count = 0;
+            uintptr_t best_addr = 0;
+            int best_fmt = 0;
+            for (int s = 0; s < nt->FileHeader.NumberOfSections; s++) {
+                if (!(sec[s].Characteristics & IMAGE_SCN_MEM_WRITE)) continue;
+                if (sec[s].Characteristics & IMAGE_SCN_CNT_CODE) continue;
+                uintptr_t sec_start = base + sec[s].VirtualAddress;
+                uintptr_t sec_end = sec_start + sec[s].Misc.VirtualSize;
+                // Search for u32 triple: px, py, pz as consecutive u32
+                for (uintptr_t a = sec_start; a + 12 <= sec_end; a += 4) {
+                    uint8_t buf[12];
+                    if (!safe_memcpy(buf, (void*)a, 12)) continue;
+                    uint32_t vx, vy, vz;
+                    memcpy(&vx, buf, 4); memcpy(&vy, buf+4, 4); memcpy(&vz, buf+8, 4);
+                    if (vx == px && vy == py && vz == pz) {
+                        uintptr_t rva = a - base;
+                        dbg("  MATCH u32 triple at RVA 0x%X (abs 0x%08X)", (unsigned)rva, (unsigned)a);
+                        if (best_addr == 0) { best_addr = a; best_fmt = 0; }
+                        match_count++;
+                    }
+                }
+                // Search for u16 pair + u8: px as u16, py as u16, pz as u8
+                for (uintptr_t a = sec_start; a + 5 <= sec_end; a += 2) {
+                    uint8_t buf[5];
+                    if (!safe_memcpy(buf, (void*)a, 5)) continue;
+                    uint16_t vx = *(uint16_t*)buf;
+                    uint16_t vy = *(uint16_t*)(buf + 2);
+                    uint8_t  vz = buf[4];
+                    if (vx == (uint16_t)px && vy == (uint16_t)py && vz == (uint8_t)pz) {
+                        uintptr_t rva = a - base;
+                        dbg("  MATCH u16+u8 at RVA 0x%X (abs 0x%08X)", (unsigned)rva, (unsigned)a);
+                        if (best_addr == 0) { best_addr = a; best_fmt = 1; }
+                        match_count++;
+                    }
+                }
+            }
+            if (best_addr != 0) {
+                g_pos_global_addr = best_addr;
+                g_pos_global_fmt = best_fmt;
+                dbg("  => using addr 0x%08X fmt=%d (%d total matches)",
+                    (unsigned)best_addr, best_fmt, match_count);
+            } else {
+                dbg("  => NO MATCH found in writable sections");
+            }
+            // Send result via pipe
+            if (g_active_pipe != INVALID_HANDLE_VALUE) {
+                char resp[256];
+                int rlen = _snprintf(resp, sizeof(resp),
+                    "{\"scan_global_pos\":{\"matches\":%d,\"addr\":%u,\"fmt\":%d,\"rva\":\"0x%X\"}}\n",
+                    match_count, (unsigned)best_addr, best_fmt,
+                    best_addr ? (unsigned)(best_addr - base) : 0);
+                DWORD written = 0;
+                WriteFile(g_active_pipe, resp, (DWORD)rlen, &written, NULL);
+            }
+        }
     } else if (strstr(line, "\"probe_pos\"")) {
         // Scan the player creature struct for the known position (from set_player_pos).
         // Reads 512 bytes centered on the ID field and searches for uint32 matches.
@@ -4091,6 +4169,30 @@ static DWORD WINAPI pipe_thread(LPVOID param) {
                         *(uint32_t*)(g_light_render_base)     = 0x0000FFFF; // render param 1
                         *(uint32_t*)(g_light_render_base + 4) = 0x0000FFFF; // render param 2
                         *(uint16_t*)(g_light_render_base + 8) = 0x00FF;     // render param 3
+                    }
+                }
+
+                // Auto-read player position from discovered global address
+                if (g_pos_global_addr != 0) {
+                    uint8_t pbuf[12];
+                    if (safe_memcpy(pbuf, (void*)g_pos_global_addr, 12)) {
+                        uint32_t rx, ry, rz;
+                        if (g_pos_global_fmt == 1) {
+                            // u16 x, u16 y, u8 z
+                            rx = *(uint16_t*)pbuf;
+                            ry = *(uint16_t*)(pbuf + 2);
+                            rz = pbuf[4];
+                        } else {
+                            // u32 x, u32 y, u32 z
+                            memcpy(&rx, pbuf, 4);
+                            memcpy(&ry, pbuf + 4, 4);
+                            memcpy(&rz, pbuf + 8, 4);
+                        }
+                        if (rx > 0 && rx < 65535 && ry > 0 && ry < 65535 && rz <= 15) {
+                            g_player_x = rx;
+                            g_player_y = ry;
+                            g_player_z = rz;
+                        }
                     }
                 }
 
