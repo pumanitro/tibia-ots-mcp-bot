@@ -11,6 +11,7 @@ from protocol import (
     build_use_item_packet,
     build_use_item_ex_packet,
     build_walk_packet,
+    build_stop_walk_packet,
 )
 from cavebot import load_recording, build_actions_map, build_all_minimaps, build_sequence_minimaps, actions_map_to_text, save_recording_stats
 from constants import MONSTER_ID_MIN
@@ -157,6 +158,14 @@ async def _is_reachable(bot, target_x, target_y, target_z):
     dist = max(abs(target_x - px), abs(target_y - py))
     if dist <= 1:
         return True
+
+    # Stop walking first so position is stable — otherwise the cavebot's
+    # own movement causes false-positive "reachable" results.
+    await bot.inject_to_server(build_stop_walk_packet())
+    await bot.sleep(0.15)
+
+    # Re-read position after stopping
+    px, py = gs.position[0], gs.position[1]
 
     # Send ground click to target tile (triggers server pathfinding)
     pkt = build_use_item_packet(target_x, target_y, target_z, 4449, 1, 0)

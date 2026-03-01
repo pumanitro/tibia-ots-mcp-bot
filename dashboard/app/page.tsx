@@ -508,7 +508,7 @@ function CavebotPanel({
   onRefresh: () => void;
 }) {
   const [recName, setRecName] = useState("");
-  const [loopEnabled, setLoopEnabled] = useState(false);
+  const [loopEnabled, setLoopEnabled] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [previewName, setPreviewName] = useState<string | null>(null);
   const [previewWaypoints, setPreviewWaypoints] = useState<WaypointInfo[]>([]);
