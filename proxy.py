@@ -434,6 +434,15 @@ class OTProxy:
                 if self.on_login_success:
                     self.on_login_success(self.xtea_keys)
 
+            # Forward to game client FIRST — minimize client-side latency.
+            # Decrypt + scan callbacks run AFTER the client already has the data.
+            if self.client_writer is None:
+                log.warning("Client writer gone, stopping server relay")
+                break
+            self.client_writer.write(self._wrap_packet(raw))
+            await self.client_writer.drain()
+
+            # Now decrypt and run callbacks (can be slow — pure-Python XTEA + scan)
             if self.logged_in and (self.on_server_packet or self.on_raw_server_data):
                 try:
                     decrypted = self._decrypt_game_packet(raw)
@@ -453,12 +462,6 @@ class OTProxy:
                                     log.debug(f"Server packet callback error: {e}")
                 except Exception:
                     pass
-
-            if self.client_writer is None:
-                log.warning("Client writer gone, stopping server relay")
-                break
-            self.client_writer.write(self._wrap_packet(raw))
-            await self.client_writer.drain()
 
     def _process_login_packet(self, data: bytes) -> bytes | None:
         """

@@ -315,7 +315,8 @@ async def run(bot):
                     }
 
                 if poll_count % 30 == 1:
-                    _dbg(f"filter: raw={raw_count} nearby={len(dll_creatures)} player=({px},{py},{pz})")
+                    refs_info = ", ".join(f"0x{c.get('id',0):X}(r={c.get('refs',0)})" for c in creatures[:5] if c.get("id",0) != bot.player_id)
+                    _dbg(f"filter: raw={raw_count} nearby={len(dll_creatures)} player=({px},{py},{pz}) refs=[{refs_info}]")
                 # ID RANGE diagnostic: every 600 polls (~60s) show creature IDs vs MONSTER_ID_MIN
                 if poll_count % 600 == 1 and raw_count > 0:
                     below = []

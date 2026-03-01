@@ -94,6 +94,7 @@ struct CachedCreature {
     char      name[MAX_NAME_LEN + 1];
     uint8_t   health;
     uint32_t  x, y, z;
+    uint32_t  refs;     // intrusive refcount — 1 = only map cache (phantom), >= 2 = on tile (real)
 };
 
 // ── Global state ────────────────────────────────────────────────────
@@ -345,6 +346,17 @@ static BOOL reread_creature(CachedCreature* cc) {
         cc->z = z;
     }
 
+    // Re-read refcount to detect phantoms (creature_ptr = addr - OFF_CREATURE_ID)
+    uintptr_t creature_ptr = (uintptr_t)cc->addr - OFF_CREATURE_ID;
+    uint32_t refs = 0;
+    if (safe_memcpy(&refs, (void*)(creature_ptr + OFF_CREATURE_REFS), 4)) {
+        cc->refs = refs;
+    }
+    // Phantom filter: refcount <= 1 means only m_knownCreatures map holds a ref.
+    // The creature is NOT on any visible tile — it's a despawned phantom.
+    BOOL is_player = (g_player_id != 0 && cc->id == g_player_id);
+    if (!is_player && (cc->refs <= 1 || cc->refs > 10000)) return FALSE;
+
     return TRUE;
 }
 
@@ -445,9 +457,18 @@ static void full_scan(void) {
                     uint32_t cx = 0, cy = 0, cz = 0;
                     read_position(id_ptr, id, &cx, &cy, &cz);
 
+                    // Read refcount (creature_ptr = id_ptr - OFF_CREATURE_ID)
+                    uintptr_t cptr = (uintptr_t)id_ptr - OFF_CREATURE_ID;
+                    uint32_t refs = 0;
+                    safe_memcpy(&refs, (void*)(cptr + OFF_CREATURE_REFS), 4);
+
                     // Fix 17: Skip stale cached creatures (dead + no position)
                     BOOL is_player = (g_player_id != 0 && id == g_player_id);
                     if (!is_player && hp_word == 0 && cx == 0 && cy == 0) {
+                        continue;
+                    }
+                    // Fix 25: Skip phantom creatures (only map cache reference)
+                    if (!is_player && (refs <= 1 || refs > 10000)) {
                         continue;
                     }
 
@@ -460,6 +481,7 @@ static void full_scan(void) {
                     c->x = cx;
                     c->y = cy;
                     c->z = cz;
+                    c->refs = refs;
 
                     if (g_scan_count <= 3) {
                         dbg("  FOUND id=0x%08X name=\"%s\" hp=%d pos=(%u,%u,%u) addr=%p",
@@ -505,9 +527,9 @@ static int build_json(char* buf, size_t buf_sz) {
             buf[pos++] = ',';
         }
         written = _snprintf(buf + pos, buf_sz - pos,
-            "{\"id\":%u,\"name\":\"%s\",\"hp\":%d,\"x\":%u,\"y\":%u,\"z\":%u}",
+            "{\"id\":%u,\"name\":\"%s\",\"hp\":%d,\"x\":%u,\"y\":%u,\"z\":%u,\"refs\":%u}",
             g_output[i].id, g_output[i].name, g_output[i].health,
-            g_output[i].x, g_output[i].y, g_output[i].z);
+            g_output[i].x, g_output[i].y, g_output[i].z, g_output[i].refs);
         if (written < 0 || written >= (int)(buf_sz - pos)) break;
         pos += written;
     }
@@ -2022,6 +2044,12 @@ static int walk_creature_map_inner(void) {
                     uint32_t cx = 0, cy = 0, cz = 0;
                     read_position(id_ptr, key, &cx, &cy, &cz);
 
+                    // Read intrusive refcount to detect phantom creatures.
+                    // When a creature is on a visible tile: refs >= 2 (map + tile).
+                    // When only in m_knownCreatures cache (despawned): refs == 1.
+                    uint32_t refs = 0;
+                    safe_memcpy(&refs, (void*)(creature_ptr + OFF_CREATURE_REFS), 4);
+
                     // Fix 17: Skip stale cached creatures to prevent buffer overflow.
                     // The knownCreatures map grows to 200+ entries as the player
                     // explores. Dead creatures (hp=0) with no position (0,0,0) are
@@ -2032,8 +2060,12 @@ static int walk_creature_map_inner(void) {
                     // walk to get stuck on this node and exhaust the iteration limit.
                     BOOL is_player = (g_player_id != 0 && key == g_player_id);
                     BOOL is_stale = (!is_player && (hp == 0 || hp > 100) && cx == 0 && cy == 0);
+                    // Fix 25: Phantom filter — refcount <= 1 means creature is only
+                    // held by the m_knownCreatures map cache.  It's no longer on any
+                    // visible tile (despawned).  Also reject corrupted refcounts (> 10000).
+                    BOOL is_phantom = (!is_player && (refs <= 1 || refs > 10000));
 
-                    if (!is_stale) {
+                    if (!is_stale && !is_phantom) {
                         // Read name from object (name field is at Creature* + OFF_CREATURE_NAME)
                         char name[64] = {0};
                         uint8_t name_raw[24];
@@ -2055,6 +2087,7 @@ static int walk_creature_map_inner(void) {
                     c->x = cx;
                     c->y = cy;
                     c->z = cz;
+                    c->refs = refs;
                     } // end if (!is_stale)
                 }
             }

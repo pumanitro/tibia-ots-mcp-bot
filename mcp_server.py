@@ -325,7 +325,9 @@ def _stop_action(name: str) -> bool:
         # in cavebot.run() also does this, but task.cancel() is async so the
         # finally block may not have run yet when callers check lure_active.
         if name == "cavebot":
+            was = state.game_state.lure_active
             state.game_state.lure_active = False
+            log.info(f"_stop_action(cavebot): lure_active {was} -> False")
         return True
     return False
 
@@ -956,8 +958,17 @@ async def start_bot() -> str:
             log.info(f"on_login_success: {n} action(s) auto-started")
         asyncio.ensure_future(_direct_start())
 
+    # Single-thread executor for packet scanning — prevents event loop blocking
+    # during cavebot walking (constant MAP_SLICE packets with pure-Python XTEA
+    # decryption + byte-by-byte tile update search).
+    from concurrent.futures import ThreadPoolExecutor
+    _scan_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pkt-scan")
+
     def on_raw_server_data(data):
-        scan_packet(data, state.game_state)
+        # Fire-and-forget: scan in thread pool so event loop stays responsive
+        # for healing (auto_senzu), combat (auto_combat), and targeting actions.
+        loop = asyncio.get_event_loop()
+        loop.run_in_executor(_scan_pool, scan_packet, data, state.game_state)
 
     state.game_proxy.register_client_packet_callback(on_client_packet)
     state.game_proxy.on_login_success = on_login_success
@@ -1512,7 +1523,9 @@ async def _async_stop_playback() -> str:
     """Stop playback (shared by MCP tool and dashboard API)."""
     # Always clear lure_active, even if playback_active is already False
     # (cavebot may have crashed/ended without clearing it)
+    was = state.game_state.lure_active
     state.game_state.lure_active = False
+    log.info(f"_async_stop_playback: lure_active {was} -> False (playback_active={state.playback_active})")
     if not state.playback_active:
         return "No playback in progress."
     _stop_action("cavebot")
