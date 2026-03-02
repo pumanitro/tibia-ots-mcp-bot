@@ -423,13 +423,17 @@ def _is_map_click_walk(wp: dict) -> bool:
     (e.g. clicking on the floor above/below).  Distance > 1 means the
     player can't be interacting with stairs/doors, so it's always a walk.
 
-    Rejects hotkey/container-style uses where x=0xFFFF (65535) — these
-    target inventory/backpack slots, not map tiles.
+    Rejects:
+    - Hotkey/container uses: x=0xFFFF (65535)
+    - Door/item interactions: index > 0 (map-click walks always have index=0)
     """
     if wp.get("type") != "use_item":
         return False
     # x=0xFFFF means hotkey/container use (not a map tile click)
     if wp["x"] == 0xFFFF or wp["x"] == 0:
+        return False
+    # index > 0 means a real item interaction (door open/close), not a walk
+    if wp.get("index", 0) > 0:
         return False
     item_pos = (wp["x"], wp["y"], wp["z"])
     player_pos = wp["pos"]

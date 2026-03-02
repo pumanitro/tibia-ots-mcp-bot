@@ -123,8 +123,12 @@ def _get_lure_settings():
             cfg.get("lure_timeout", 8))
 
 
-def _count_nearby_monsters(gs, distance):
-    """Count alive monsters within Chebyshev distance on the same floor."""
+def _count_nearby_monsters(gs, distance, targetable_only=False):
+    """Count alive monsters within Chebyshev distance on the same floor.
+
+    If targetable_only=True, also requires valid position (not (0,0,0))
+    so only monsters that auto_targeting can actually attack are counted.
+    """
     px, py, pz = gs.position if gs.position else (0, 0, 0)
     if px == 0 and py == 0:
         return 0
@@ -135,8 +139,11 @@ def _count_nearby_monsters(gs, distance):
                 and 0 < info.get("health", 0) <= 100
                 and info.get("z") == pz
                 and now - info.get("t", 0) < 60):
-            dist = max(abs(info.get("x", 0) - px),
-                       abs(info.get("y", 0) - py))
+            cx = info.get("x", 0)
+            cy = info.get("y", 0)
+            if targetable_only and (cx == 0 or cy == 0):
+                continue
+            dist = max(abs(cx - px), abs(cy - py))
             if dist <= distance:
                 count += 1
     return count
@@ -380,10 +387,11 @@ async def _execute_walk_to(bot, node, prefix="", exact=False):
             bot.log(f"{prefix}   -> ({current[0]},{current[1]},{current[2]}) [floor changed]")
             return True
 
-        # Step 1: pathfind walk (use normal tolerance — get close)
+        # Step 1: use_item on ground (server pathfinds around obstacles)
+        # stack_pos=0 targets ground layer — won't interact with doors/corpses
         pkt = build_use_item_packet(
             target[0], target[1], target[2],
-            item_id, stack_pos, 0,
+            item_id, 0, 0,
         )
         await bot.inject_to_server(pkt)
 
@@ -915,7 +923,9 @@ async def _run_playback(bot):
                     lure_count = 4
 
                 if not gs.in_protection_zone:
-                    nearby = _count_nearby_monsters(gs, lure_distance)
+                    # lure4: only count targetable monsters (valid position)
+                    tgt_only = strategy == "lure4"
+                    nearby = _count_nearby_monsters(gs, lure_distance, targetable_only=tgt_only)
                     player_z_lure = bot.position[2]
                     floor_change_ahead = _is_next_node_floor_change(actions_map, i, player_z_lure)
                     now = time.time()

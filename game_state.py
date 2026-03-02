@@ -101,7 +101,8 @@ class GameState:
         self.session_kills: int = 0
 
         # Kill telemetry — kill events with metadata for route analysis
-        self.kill_log: list[dict] = []
+        # Capped to prevent unbounded memory growth during long sessions
+        self.kill_log: deque = deque(maxlen=5000)
         self._prev_experience: int = 0
 
 
@@ -112,6 +113,9 @@ _stats_debug_count = 0
 def _dump_stats_debug(gs: GameState, raw_hex: str | None) -> None:
     """Write PLAYER_STATS values to stats_debug.txt for HP/Mana diagnosis."""
     global _stats_debug_file, _stats_debug_count
+    _stats_debug_count += 1
+    if _stats_debug_count > 500:
+        return  # cap debug output to prevent unbounded file growth
     import os
     try:
         if _stats_debug_file is None:
@@ -124,7 +128,6 @@ def _dump_stats_debug(gs: GameState, raw_hex: str | None) -> None:
             f"Cap={gs.capacity} XP={gs.experience} Lv={gs.level} "
             f"ML={gs.magic_level} Soul={gs.soul}{hex_part}\n"
         )
-        _stats_debug_count += 1
         if _stats_debug_count % 5 == 0:
             _stats_debug_file.flush()
     except Exception:
@@ -212,6 +215,9 @@ _map_slice_dbg_count = 0
 
 def _map_slice_dbg(msg: str) -> None:
     global _map_slice_dbg_f, _map_slice_dbg_count
+    _map_slice_dbg_count += 1
+    if _map_slice_dbg_count > 500:
+        return  # cap debug output to prevent unbounded file growth
     import datetime
     try:
         if _map_slice_dbg_f is None:

@@ -361,7 +361,7 @@ def _build_playback_stats(st, gs) -> dict:
     """Compute hunting session statistics for the dashboard."""
     elapsed = time.time() - st.playback_start_time if st.playback_start_time else 0
     elapsed_hours = elapsed / 3600 if elapsed > 0 else 0
-    xp_gained = gs.experience - st.playback_start_experience if st.playback_start_experience else 0
+    xp_gained = gs.experience - st.playback_start_experience if st.playback_start_experience is not None else 0
     xp_per_hour = int(xp_gained / elapsed_hours) if elapsed_hours > 0 else 0
     senzu_per_hour = round(st.playback_senzu_used / elapsed_hours, 1) if elapsed_hours > 0 else 0
 
@@ -388,6 +388,9 @@ def _build_playback_stats(st, gs) -> dict:
             and elapsed > 10
             and now - st._last_senzu_sample_time >= 60):
         st.playback_senzu_series.append([int(elapsed), senzu_per_hour])
+        # Cap series to ~24h of 60s samples (1440 entries)
+        if len(st.playback_senzu_series) > 1440:
+            st.playback_senzu_series = st.playback_senzu_series[-1440:]
         st._last_senzu_sample_time = now
 
     return {

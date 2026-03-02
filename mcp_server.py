@@ -122,7 +122,7 @@ class BotState:
         self.playback_kills: int = 0
         self.playback_senzu_used: int = 0
         self.playback_start_time: float = 0       # time.time() when playback started
-        self.playback_start_experience: int = 0   # XP snapshot at playback start
+        self.playback_start_experience: int | None = None  # XP snapshot at playback start
         self.playback_start_level: int = 0        # level snapshot at playback start
 
         # Senzu/h time-series for charting
@@ -753,7 +753,7 @@ async def _reset_bot() -> str:
     state.playback_kills = 0
     state.playback_senzu_used = 0
     state.playback_start_time = 0
-    state.playback_start_experience = 0
+    state.playback_start_experience = None
     state.playback_start_level = 0
 
     log.info("Bot reset complete.")
@@ -1552,7 +1552,7 @@ async def _async_stop_playback() -> str:
     state.playback_kills = 0
     state.playback_senzu_used = 0
     state.playback_start_time = 0
-    state.playback_start_experience = 0
+    state.playback_start_experience = None
     state.playback_start_level = 0
     state.playback_senzu_series = []
     state._last_senzu_sample_time = 0
@@ -1604,7 +1604,7 @@ async def analyze_route() -> str:
     loops = state.playback_loop_count
     elapsed = _time.time() - state.playback_start_time if state.playback_start_time else 0
     elapsed_min = elapsed / 60
-    xp_gained = gs.experience - state.playback_start_experience if state.playback_start_experience else 0
+    xp_gained = gs.experience - state.playback_start_experience if state.playback_start_experience is not None else 0
     xp_per_hour = int(xp_gained / (elapsed / 3600)) if elapsed > 0 else 0
     total_kills = sum(s["kills"] for s in seg_stats.values())
     kills_per_loop = round(total_kills / max(loops, 1), 1)
