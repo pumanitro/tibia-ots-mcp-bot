@@ -1,10 +1,10 @@
-"""Auto combat: 2+ monsters nearby → Heavy Crush, else Super Kiaiho (mana>=5%) or rune 3165 on target.
+"""Auto combat: 2+ monsters nearby → Explosive Wave, else Darkness Blaster (mana>=5%) or rune 3165 on target.
 
 Replaces auto_rune_and_spell + aoe_spell with a single unified action.
 
 Priority each tick (200ms):
-  1. AOE   — 2+ alive monsters within 1 sq (Chebyshev) → cast 'Heavy Crush'
-  2. Spell — has attack target and mana >= 5% → cast 'Super Kiaiho'
+  1. AOE   — 2+ alive monsters within 1 sq (Chebyshev) → cast 'Explosive Wave'
+  2. Spell — has attack target and mana >= 5% → cast 'Darkness Blaster'
   3. Rune  — has attack target and mana < 5% → use rune 3165 on target
 
 Target is read from gs.attack_target (set by auto_targeting) with fallback to
@@ -23,13 +23,13 @@ from constants import ITEM_RUNE_3165, MONSTER_ID_MIN
 INTERVAL = 0.2
 
 # AOE settings
-AOE_SPELL = "Heavy Crush"
+AOE_SPELL = "Explosive Wave"
 AOE_MIN_CREATURES = 2
 AOE_MAX_DISTANCE = 1  # Chebyshev distance (1 square)
 AOE_MAX_AGE = 60      # ignore stale creature data (seconds)
 
 # Single-target settings
-SPELL_TEXT = "Super Kiaiho"
+SPELL_TEXT = "Darkness Blaster"
 SPELL_MANA_PCT = 5  # cast spell when mana >= 5%
 RUNE_ID = ITEM_RUNE_3165
 

@@ -22,7 +22,7 @@ log = logging.getLogger("action.dll_bridge")
 POLL_INTERVAL = 0.016  # seconds between creature reads (~60 FPS)
 INJECT_RETRY = 10     # seconds to wait before retrying injection
 CONNECT_RETRY = 2     # seconds between pipe connection attempts
-PROXIMITY_RANGE = 7   # max tile Chebyshev distance (visible screen range)
+PROXIMITY_RANGE = 10  # max tile Chebyshev distance (screen is ~8x6 but allow margin)
 STALE_REINJECT = 3    # number of stale cycles before re-injecting DLL
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEBUG_LOG = os.path.join(PROJECT_ROOT, "dll_bridge_debug.txt")
@@ -126,7 +126,9 @@ def _send_init_commands(bridge, player_id):
     bridge.send_command({"cmd": "scan_gmap"})
     bridge.send_command({"cmd": "use_map_scan", "enabled": True})
 
-    _dbg("sent full init: offsets + hooks + peekmsg + gmap")
+    # 5. Tile scan init is deferred to the poll loop (needs player position first)
+
+    _dbg("sent full init: offsets + hooks + peekmsg + gmap (tile_scan deferred)")
 
 
 async def _connect_with_inject(bridge, bot):
@@ -224,6 +226,7 @@ async def run(bot):
     probe_sent = False
     probe_result = None
     global_pos_scanned = False
+    tile_scan_init_sent = False  # deferred tile scan init (needs position first)
 
     poll_count = 0
     last_data_time = time.time()  # when we last got actual data
@@ -285,6 +288,19 @@ async def run(bot):
                 # Send packet-derived position to DLL for attack distance/floor check.
                 if px > 0 and py > 0 and poll_count % 6 == 0:
                     bridge.send_command({"cmd": "set_player_pos", "x": px, "y": py, "z": pz})
+
+                # Deferred tile scan init: needs player position in DLL first
+                if not tile_scan_init_sent and px > 0 and py > 0 and poll_count > 60:
+                    # Ensure DLL has our position before scanning
+                    bridge.send_command({"cmd": "set_player_pos", "x": px, "y": py, "z": pz})
+                    # Dump map region first for diagnostics (logged to DLL debug log)
+                    bridge.send_command({"cmd": "dump_map_region"})
+                    bridge.send_command({"cmd": "scan_tileblocks"})
+                    bridge.send_command({"cmd": "calibrate_tile"})
+                    bridge.send_command({"cmd": "use_tile_scan", "enabled": True})
+                    tile_scan_init_sent = True
+                    _dbg(f"TILE SCAN init sent (pos=({px},{py},{pz}), poll#{poll_count})")
+                    bot.log(f"[DLL] tile scan init — scanning for tileblocks at z={pz}")
 
                 # Probe position offset: send once using packet_position (clean reference).
                 # Temporarily override set_player_pos with packet values so probe searches correctly.

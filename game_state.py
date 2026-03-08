@@ -106,6 +106,7 @@ class GameState:
         self._prev_experience: int = 0
 
 
+
 _stats_debug_file = None
 _stats_debug_count = 0
 

@@ -216,6 +216,20 @@ static int       g_light_format = 0;     // 0=u8 pair (level,color), 1=u32 pair
 //   +0x14 (0xB2ED04): u16 rendering param #3
 static uintptr_t g_light_render_base = 0;  // absolute addr of 0xB2ECFC
 
+// ── Tile-based creature scan state ───────────────────────────────────
+// Walks visible tiles in memory instead of m_knownCreatures tree.
+// Every creature on a tile has a guaranteed valid position (the tile's
+// coordinates), eliminating phantom creatures with invalid positions.
+static uintptr_t g_tileblocks_base   = 0;   // address of m_tileBlocks[0] in Map
+static uint32_t  g_tileblocks_stride = 0;   // sizeof(std::unordered_map) for this build
+static uint32_t  g_tile_things_off   = 0;   // offset of m_things vector within Tile
+static uint32_t  g_tile_sentinel_off = 0;   // offset of sentinel (_Myhead) within unordered_map struct
+static uint32_t  g_tile_node_key_off = 8;   // offset of key within list node (default: +8 for doubly-linked)
+static uint32_t  g_tile_node_val_off = 12;  // offset of TileBlock within list node (default: key_off + 4)
+static volatile BOOL g_use_tile_scan = FALSE; // feature flag: tile walk vs tree walk
+static int g_tile_scan_count = 0;
+#define TILE_SCAN_INTERVAL 16  // ms between tile scans (~60 FPS)
+
 // ── Pipe handle (for scan responses) ─────────────────────────────────
 static HANDLE g_active_pipe = INVALID_HANDLE_VALUE;
 
@@ -2167,6 +2181,725 @@ static int walk_creature_map(void) {
     return result;
 }
 
+// ── Tile-based creature scanning ─────────────────────────────────────
+// Walks visible tiles in memory to find creatures directly on tiles.
+// Every creature on a tile has a guaranteed valid position (the tile's
+// coordinates), unlike m_knownCreatures which can have invalidated positions.
+//
+// OTClient memory layout:
+//   Map class has m_tileBlocks[16] — one std::unordered_map per floor (z=0..15)
+//   Each unordered_map maps uint32 block_key -> TileBlock
+//   TileBlock has std::array<shared_ptr<Tile>, 1024> (32x32 tiles)
+//   block_key = ((y >> 5) << 11) | (x >> 5)
+//   tile_index = (y % 32) * 32 + (x % 32)
+//
+// MSVC std::unordered_map internal layout:
+//   +0x00: _List._Myhead (pointer to sentinel node of doubly-linked list)
+//   +0x04: _List._Mysize (number of elements)
+//   +0x08: _Traits._Comp (hasher / compare)
+//   +0x0C..+0x18: _Vec (bucket vector: pointer, size, capacity)
+//   +0x1C..+0x20: _Mask, _Maxidx
+//   Total size varies: 40-64 bytes depending on MSVC version
+//
+// Each list node (element):
+//   +0x00: _Next pointer
+//   +0x04: _Prev pointer (or additional hash data in some versions)
+//   +0x08: key (uint32_t block_key)
+//   +0x0C: value (TileBlock — starts with array of 1024 shared_ptrs)
+//
+// shared_ptr<Tile> is 8 bytes: [ptr, control_block]
+
+// Validate an MSVC std::unordered_map<uint, TileBlock> at the given address.
+// Tries sentinel (list_head) at internal offsets 0, 4, 8 to handle different
+// MSVC STL layouts (allocator EBO vs non-EBO).
+// Returns: 0 = invalid, 1 = empty but valid, 2 = non-empty + verified data
+static int validate_umap_v2(uintptr_t addr, int *out_sentinel_off) {
+    uint8_t buf[32];
+    if (!safe_memcpy(buf, (void*)addr, 32)) return 0;
+
+    // Try sentinel at internal offsets 0, 4, 8
+    for (int soff = 0; soff <= 8; soff += 4) {
+        if (soff + 8 > 32) break;  // need at least 8 bytes (head + size)
+        uintptr_t list_head;
+        uint32_t  list_size;
+        memcpy(&list_head, buf + soff, 4);
+        memcpy(&list_size, buf + soff + 4, 4);
+
+        // Empty map: sentinel can be NULL or valid heap pointer
+        if (list_size == 0) {
+            if (list_head == 0 || (list_head >= 0x10000 && list_head < 0x7FFE0000u)) {
+                if (out_sentinel_off) *out_sentinel_off = soff;
+                return 1;  // empty but structurally valid
+            }
+            continue;
+        }
+        if (list_size > 5000) continue;
+        if (list_head < 0x10000 || list_head >= 0x7FFE0000u) continue;
+
+        // Read sentinel node — first 4 bytes = _Next pointer
+        uintptr_t first_node;
+        if (!safe_memcpy(&first_node, (void*)list_head, 4)) continue;
+        if (first_node < 0x10000 || first_node >= 0x7FFE0000u) continue;
+        if (first_node == list_head) continue;  // sentinel->_Next == sentinel = empty
+
+        // Read first node and find a valid block key + TileBlock data
+        uint8_t node_hdr[20];
+        if (!safe_memcpy(node_hdr, (void*)first_node, 20)) continue;
+
+        for (int koff = 4; koff <= 12; koff += 4) {
+            uint32_t key;
+            memcpy(&key, node_hdr + koff, 4);
+            if (key >= 0x00800000u) continue;  // block key must be < 0x800000 (allow 0)
+
+            // Verify TileBlock data follows the key.
+            // TileBlock = array<shared_ptr<Tile>, 1024>, each shared_ptr = 8 bytes.
+            uintptr_t tileblock_start = first_node + koff + 4;
+            int valid_sptrs = 0;
+            int null_sptrs = 0;
+            int bad_sptrs = 0;
+            for (int ti = 0; ti < 16; ti++) {
+                uint8_t sptr[8];
+                if (!safe_memcpy(sptr, (void*)(tileblock_start + ti * 8), 8)) break;
+                uintptr_t ptr, ctrl;
+                memcpy(&ptr, sptr, 4);
+                memcpy(&ctrl, sptr + 4, 4);
+                if (ptr == 0 && ctrl == 0) {
+                    null_sptrs++;
+                } else if (ptr >= 0x10000 && ptr < 0x7FFE0000u &&
+                           ctrl >= 0x10000 && ctrl < 0x7FFE0000u) {
+                    valid_sptrs++;
+                } else {
+                    bad_sptrs++;
+                }
+            }
+            if (valid_sptrs >= 1 && bad_sptrs <= 2) {
+                if (out_sentinel_off) *out_sentinel_off = soff;
+                return 2;  // non-empty with verified TileBlock data
+            }
+        }
+    }
+    return 0;
+}
+
+// Dump memory around g_map_addr for manual analysis of Map class layout.
+// Writes 32-bit hex values, 8 per line, to the debug log.
+static void dump_map_region(void) {
+    if (!g_map_addr) {
+        dbg("[DUMP] g_map_addr not set");
+        return;
+    }
+    // Dump 2KB before and 256 bytes after g_map_addr
+    const int BEFORE = 2048;
+    const int AFTER = 256;
+    uintptr_t start = (g_map_addr > (uintptr_t)BEFORE) ? g_map_addr - BEFORE : 0x10000;
+    uintptr_t end_addr = g_map_addr + AFTER;
+
+    dbg("[DUMP] Map region around g_map=0x%08X (range 0x%08X - 0x%08X):",
+        (unsigned)g_map_addr, (unsigned)start, (unsigned)end_addr);
+
+    for (uintptr_t addr = start; addr < end_addr; addr += 32) {
+        uint32_t vals[8] = {0};
+        safe_memcpy(vals, (void*)addr, 32);
+        int rel = (int)(addr - g_map_addr);
+        // Annotate: P=heap pointer, Z=zero, S=small number (<500)
+        char ann[9] = "........";
+        for (int i = 0; i < 8; i++) {
+            if (vals[i] == 0) ann[i] = 'Z';
+            else if (vals[i] >= 0x10000 && vals[i] < 0x7FFE0000u) ann[i] = 'P';
+            else if (vals[i] < 500) ann[i] = 'S';
+        }
+        ann[8] = '\0';
+        dbg("[DUMP] %+5d (0x%08X): %08X %08X %08X %08X  %08X %08X %08X %08X  [%s]",
+            rel, (unsigned)addr,
+            vals[0], vals[1], vals[2], vals[3],
+            vals[4], vals[5], vals[6], vals[7], ann);
+    }
+    dbg("[DUMP] end");
+}
+
+// scan_tileblocks: Find m_tileBlocks[16] array relative to g_map_addr.
+// m_knownCreatures (g_map_addr) is a member of the Map class. m_tileBlocks
+// is another member, typically at a lower offset. We search backwards from
+// g_map_addr looking for 16 consecutive valid unordered_maps at a fixed stride.
+static void scan_tileblocks(void) {
+    if (!g_map_addr) {
+        dbg("[TILE] scan_tileblocks: g_map_addr not set — run scan_gmap first");
+        return;
+    }
+
+    dbg("[TILE] scanning for m_tileBlocks (g_map=0x%08X, player z=%u)...",
+        (unsigned)g_map_addr, g_player_z);
+
+    // Try different unordered_map sizes — MSVC 32-bit can be 24-64 bytes
+    // depending on version, allocator EBO, and alignment
+    static const int strides[] = { 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64 };
+    static const int num_strides = sizeof(strides) / sizeof(strides[0]);
+
+    // Sentinel offset within the unordered_map (discovered during validation)
+    int discovered_sentinel_off = 0;
+
+    // Helper: test a candidate address with a given stride
+    // Returns TRUE and sets globals if valid
+    auto try_candidate = [&discovered_sentinel_off](uintptr_t candidate, int stride, const char* source) -> BOOL {
+        int valid_count = 0;
+        int nonempty_count = 0;
+        int consistent_soff = -1;  // sentinel offset must be consistent across all maps
+        BOOL soff_mismatch = FALSE;
+
+        for (int z = 0; z < 16; z++) {
+            uintptr_t umap_addr = candidate + z * stride;
+            int soff = -1;
+            int result = validate_umap_v2(umap_addr, &soff);
+            if (result > 0) {
+                valid_count++;
+                if (result == 2) nonempty_count++;
+                // Check sentinel offset consistency
+                if (soff >= 0) {
+                    if (consistent_soff < 0) {
+                        consistent_soff = soff;
+                    } else if (soff != consistent_soff) {
+                        soff_mismatch = TRUE;
+                    }
+                }
+            }
+        }
+
+        // Require at least 12/16 valid maps, at least 1 non-empty, consistent sentinel offset
+        if (valid_count < 12 || nonempty_count < 1 || soff_mismatch) return FALSE;
+
+        // Verify: the player's floor should have tiles
+        uint32_t pz = g_player_z;
+        int soff_use = (consistent_soff >= 0) ? consistent_soff : 0;
+        if (pz <= 15) {
+            uintptr_t pz_umap = candidate + pz * stride;
+            uint32_t pz_size = 0;
+            safe_memcpy(&pz_size, (void*)(pz_umap + soff_use + 4), 4);
+            if (pz_size == 0) return FALSE;
+        }
+
+        g_tileblocks_base = candidate;
+        g_tileblocks_stride = stride;
+        discovered_sentinel_off = soff_use;
+        g_tile_sentinel_off = soff_use;
+        dbg("[TILE] FOUND m_tileBlocks at 0x%08X (stride=%d, sentinel_off=%d, valid=%d, nonempty=%d) via %s",
+            (unsigned)candidate, stride, soff_use, valid_count, nonempty_count, source);
+
+        for (int z = 0; z < 16; z++) {
+            uint32_t sz = 0;
+            safe_memcpy(&sz, (void*)(candidate + z * stride + soff_use + 4), 4);
+            if (sz > 0) {
+                dbg("[TILE]   floor %d: %u tile blocks", z, sz);
+            }
+        }
+
+        // Discover key offset within list node by reading first node of player's floor
+        uint32_t pz2 = g_player_z;
+        if (pz2 <= 15) {
+            uintptr_t pz_umap = candidate + pz2 * stride;
+            uintptr_t pz_head;
+            safe_memcpy(&pz_head, (void*)(pz_umap + soff_use), 4);
+            if (pz_head >= 0x10000 && pz_head < 0x7FFE0000u) {
+                uintptr_t first_node;
+                safe_memcpy(&first_node, (void*)pz_head, 4);
+                if (first_node >= 0x10000 && first_node < 0x7FFE0000u && first_node != pz_head) {
+                    uint8_t nbuf[20];
+                    if (safe_memcpy(nbuf, (void*)first_node, 20)) {
+                        dbg("[TILE] probing node at 0x%08X: %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X",
+                            (unsigned)first_node,
+                            nbuf[0],nbuf[1],nbuf[2],nbuf[3], nbuf[4],nbuf[5],nbuf[6],nbuf[7],
+                            nbuf[8],nbuf[9],nbuf[10],nbuf[11], nbuf[12],nbuf[13],nbuf[14],nbuf[15],
+                            nbuf[16],nbuf[17],nbuf[18],nbuf[19]);
+                        for (int koff = 4; koff <= 12; koff += 4) {
+                            uint32_t key;
+                            memcpy(&key, nbuf + koff, 4);
+                            if (key > 0 && key < 0x00800000u) {
+                                g_tile_node_key_off = koff;
+                                g_tile_node_val_off = koff + 4;
+                                uint32_t bx = key & 0x7FF;
+                                uint32_t by = key >> 11;
+                                dbg("[TILE] node key offset = +%d (key=0x%X -> block (%u,%u), tile origin (%u,%u))",
+                                    koff, key, bx, by, bx << 5, by << 5);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return TRUE;
+    };
+
+    // Phase 1: Search near g_map_addr (fast — most likely location)
+    for (int si = 0; si < num_strides; si++) {
+        int stride = strides[si];
+        for (int offset = 4; offset <= 65536; offset += 4) {
+            // Backward (m_tileBlocks likely before m_knownCreatures)
+            if (g_map_addr > (uintptr_t)offset) {
+                uintptr_t cand = g_map_addr - offset;
+                if (try_candidate(cand, stride, "near g_map (backward)")) return;
+            }
+            // Forward
+            uintptr_t cand_fwd = g_map_addr + offset;
+            if (cand_fwd < 0x7FFE0000u) {
+                if (try_candidate(cand_fwd, stride, "near g_map (forward)")) return;
+            }
+        }
+    }
+
+    // Phase 2: Scan entire writable data sections
+    dbg("[TILE] not found near g_map — scanning writable sections...");
+    HMODULE game = GetModuleHandle(NULL);
+    uintptr_t base = (uintptr_t)game;
+    PIMAGE_DOS_HEADER dos = (PIMAGE_DOS_HEADER)game;
+    PIMAGE_NT_HEADERS nt = (PIMAGE_NT_HEADERS)((BYTE*)game + dos->e_lfanew);
+    PIMAGE_SECTION_HEADER sec = IMAGE_FIRST_SECTION(nt);
+
+    for (int s = 0; s < nt->FileHeader.NumberOfSections; s++) {
+        if (!(sec[s].Characteristics & IMAGE_SCN_MEM_WRITE)) continue;
+        if (sec[s].Characteristics & IMAGE_SCN_CNT_CODE) continue;
+        uintptr_t sec_start = base + sec[s].VirtualAddress;
+        uintptr_t sec_end = sec_start + sec[s].Misc.VirtualSize;
+        dbg("[TILE] scanning section '%s' (0x%08X - 0x%08X)...",
+            sec[s].Name, (unsigned)sec_start, (unsigned)sec_end);
+
+        for (int si = 0; si < num_strides; si++) {
+            int stride = strides[si];
+            int array_bytes = stride * 16;
+            for (uintptr_t addr = sec_start; addr + array_bytes <= sec_end; addr += 4) {
+                // Quick pre-filter: check first 12 bytes for a pointer-like value
+                uint8_t peek[12];
+                if (!safe_memcpy(peek, (void*)addr, 12)) continue;
+                // At least one of first 3 dwords should be a valid pointer (sentinel)
+                BOOL has_ptr = FALSE;
+                for (int pi = 0; pi < 12; pi += 4) {
+                    uintptr_t v;
+                    memcpy(&v, peek + pi, 4);
+                    if (v >= 0x10000 && v < 0x7FFE0000u) { has_ptr = TRUE; break; }
+                }
+                if (!has_ptr) continue;
+
+                if (try_candidate(addr, stride, (const char*)sec[s].Name)) return;
+            }
+        }
+    }
+
+    // Phase 3: Diagnostic dump if nothing found
+    dbg("[TILE] m_tileBlocks NOT FOUND — dumping region around g_map for analysis");
+    dump_map_region();
+}
+
+// get_tile: Read a single tile at (x,y,z) from m_tileBlocks.
+// Returns the Tile* pointer, or 0 if not found.
+// Walks the unordered_map linked list for floor z, finds the matching block,
+// then indexes into the TileBlock's shared_ptr array.
+static uintptr_t get_tile_ptr(uint32_t tx, uint32_t ty, uint32_t tz) {
+    if (!g_tileblocks_base || !g_tileblocks_stride || tz > 15) return 0;
+
+    // Get the unordered_map for this floor
+    uintptr_t umap_addr = g_tileblocks_base + tz * g_tileblocks_stride;
+    uint8_t umap_buf[16];
+    if (!safe_memcpy(umap_buf, (void*)umap_addr, 16)) return 0;
+
+    uintptr_t list_head;
+    uint32_t  list_size;
+    memcpy(&list_head, umap_buf + g_tile_sentinel_off, 4);
+    memcpy(&list_size, umap_buf + g_tile_sentinel_off + 4, 4);
+
+    if (list_size == 0 || list_head < 0x10000) return 0;
+
+    // Compute the block key we're looking for
+    uint32_t target_key = ((ty >> 5) << 11) | (tx >> 5);
+
+    // Walk the linked list: sentinel->_Next is the first real node
+    uintptr_t node;
+    if (!safe_memcpy(&node, (void*)list_head, 4)) return 0;
+
+    for (uint32_t i = 0; i < list_size && i < 5000; i++) {
+        if (node == list_head || node < 0x10000 || node >= 0x7FFE0000u) break;
+
+        // Read node header: _Next, possibly _Prev, then key
+        uint8_t nbuf[20];
+        if (!safe_memcpy(nbuf, (void*)node, g_tile_node_key_off + 4)) break;
+
+        uintptr_t next_node;
+        uint32_t  node_key;
+        memcpy(&next_node, nbuf, 4);
+        memcpy(&node_key, nbuf + g_tile_node_key_off, 4);
+
+        if (node_key == target_key) {
+            // Found the block! TileBlock starts at node + g_tile_node_val_off
+            // TileBlock is array<shared_ptr<Tile>, 1024>
+            // tile_index = (y % 32) * 32 + (x % 32)
+            uint32_t tile_idx = (ty % 32) * 32 + (tx % 32);
+            // Each shared_ptr is 8 bytes (ptr + control_block)
+            uintptr_t sptr_addr = node + g_tile_node_val_off + tile_idx * 8;
+
+            uintptr_t tile_ptr;
+            if (!safe_memcpy(&tile_ptr, (void*)sptr_addr, 4)) return 0;
+            if (tile_ptr < 0x10000 || tile_ptr >= 0x7FFE0000u) return 0;
+
+            return tile_ptr;
+        }
+
+        node = next_node;
+    }
+
+    return 0;
+}
+
+// calibrate_tile: Find m_things offset within a Tile object.
+// Uses the player's current tile (which should have at least the player creature on it).
+// Searches for a std::vector<ThingPtr> signature: three consecutive pointers
+// where first <= last <= end, (last - first) % 8 == 0, count 1-50.
+static void calibrate_tile(void) {
+    if (!g_tileblocks_base || !g_tileblocks_stride) {
+        dbg("[TILE] calibrate_tile: tileblocks not found — run scan_tileblocks first");
+        return;
+    }
+
+    uint32_t px = g_player_x, py = g_player_y, pz = g_player_z;
+    if (px == 0 || py == 0) {
+        dbg("[TILE] calibrate_tile: no player position");
+        return;
+    }
+
+    uintptr_t tile = get_tile_ptr(px, py, pz);
+    if (!tile) {
+        dbg("[TILE] calibrate_tile: player tile at (%u,%u,%u) not found — dumping umap diagnostics", px, py, pz);
+
+        // Diagnostic: dump umap header and first few nodes for player's floor
+        uintptr_t umap_addr = g_tileblocks_base + pz * g_tileblocks_stride;
+        uint8_t umap_raw[40];
+        if (safe_memcpy(umap_raw, (void*)umap_addr, 40)) {
+            dbg("[TILE] umap[z=%u] at 0x%08X:", pz, (unsigned)umap_addr);
+            for (int i = 0; i < 40; i += 4) {
+                uint32_t val;
+                memcpy(&val, umap_raw + i, 4);
+                dbg("[TILE]   +%02d: 0x%08X (%u)", i, val, val);
+            }
+        }
+
+        // Read sentinel and dump first few nodes
+        uintptr_t list_head;
+        safe_memcpy(&list_head, (void*)(umap_addr + g_tile_sentinel_off), 4);
+        dbg("[TILE] sentinel ptr = 0x%08X (sentinel_off=%u)", (unsigned)list_head, g_tile_sentinel_off);
+
+        if (list_head >= 0x10000 && list_head < 0x7FFE0000u) {
+            uint8_t sentinel_raw[16];
+            if (safe_memcpy(sentinel_raw, (void*)list_head, 16)) {
+                uintptr_t s0, s1, s2, s3;
+                memcpy(&s0, sentinel_raw, 4);
+                memcpy(&s1, sentinel_raw + 4, 4);
+                memcpy(&s2, sentinel_raw + 8, 4);
+                memcpy(&s3, sentinel_raw + 12, 4);
+                dbg("[TILE] sentinel: _Next=0x%08X +4=0x%08X +8=0x%08X +12=0x%08X",
+                    (unsigned)s0, (unsigned)s1, (unsigned)s2, (unsigned)s3);
+
+                // Dump first 3 nodes
+                uintptr_t node = s0;
+                for (int ni = 0; ni < 3 && node != list_head && node >= 0x10000 && node < 0x7FFE0000u; ni++) {
+                    uint8_t nbuf[24];
+                    if (!safe_memcpy(nbuf, (void*)node, 24)) break;
+                    for (int i = 0; i < 24; i += 4) {
+                        uint32_t val;
+                        memcpy(&val, nbuf + i, 4);
+                        dbg("[TILE]   node[%d]+%02d: 0x%08X (%u)", ni, i, val, val);
+                    }
+                    memcpy(&node, nbuf, 4);
+                }
+            }
+        }
+
+        // Show what block key we're looking for
+        uint32_t target_key = ((py >> 5) << 11) | (px >> 5);
+        dbg("[TILE] looking for block_key=0x%X (bx=%u, by=%u) for tile (%u,%u)",
+            target_key, px >> 5, py >> 5, px, py);
+
+        return;
+    }
+
+    dbg("[TILE] calibrate_tile: player tile at (%u,%u,%u) = Tile* 0x%08X",
+        px, py, pz, (unsigned)tile);
+
+    // Read 300 bytes of the Tile object and search for vector<ThingPtr> pattern
+    uint8_t tile_buf[300];
+    if (!safe_memcpy(tile_buf, (void*)tile, 300)) {
+        dbg("[TILE] calibrate_tile: failed to read tile data");
+        return;
+    }
+
+    // Search for vector pattern: three pointers where begin <= end_ptr <= capacity
+    // and (end_ptr - begin) % 8 == 0 (shared_ptr size) and count is 1..50
+    int best_off = -1;
+    int best_count = 0;
+    int best_creature_count = 0;
+
+    for (int off = 0; off <= 300 - 12; off += 4) {
+        uintptr_t vec_begin, vec_end, vec_cap;
+        memcpy(&vec_begin, tile_buf + off, 4);
+        memcpy(&vec_end,   tile_buf + off + 4, 4);
+        memcpy(&vec_cap,   tile_buf + off + 8, 4);
+
+        if (vec_begin < 0x10000 || vec_begin >= 0x7FFE0000u) continue;
+        if (vec_end < vec_begin || vec_end > vec_begin + 50 * 8) continue;
+        if (vec_cap < vec_end || vec_cap > vec_begin + 200 * 8) continue;
+        uint32_t byte_count = (uint32_t)(vec_end - vec_begin);
+        if (byte_count == 0 || byte_count % 8 != 0) continue;
+        uint32_t thing_count = byte_count / 8;
+        if (thing_count < 1 || thing_count > 50) continue;
+
+        // Read the vector contents and check for creature vtables
+        int creature_count = 0;
+        for (uint32_t ti = 0; ti < thing_count; ti++) {
+            uintptr_t thing_ptr;
+            if (!safe_memcpy(&thing_ptr, (void*)(vec_begin + ti * 8), 4)) break;
+            if (thing_ptr < 0x10000 || thing_ptr >= 0x7FFE0000u) continue;
+            uint32_t vtable = 0;
+            if (safe_memcpy(&vtable, (void*)thing_ptr, 4) && is_valid_creature_vtable(vtable)) {
+                creature_count++;
+            }
+        }
+
+        // Player's tile should have at least one creature (the player)
+        if (creature_count > best_creature_count ||
+            (creature_count == best_creature_count && thing_count > (uint32_t)best_count)) {
+            best_off = off;
+            best_count = thing_count;
+            best_creature_count = creature_count;
+        }
+    }
+
+    if (best_off >= 0 && best_creature_count > 0) {
+        g_tile_things_off = best_off;
+        dbg("[TILE] calibrate: m_things offset = +%d (things=%d, creatures=%d)",
+            best_off, best_count, best_creature_count);
+    } else {
+        dbg("[TILE] calibrate: NO valid m_things vector found in tile (searched 0..288)");
+        // Dump first 200 bytes for debugging
+        char hex[601];
+        int hpos = 0;
+        for (int i = 0; i < 200 && hpos < 598; i++) {
+            hpos += _snprintf(hex + hpos, sizeof(hex) - hpos, "%02X ", tile_buf[i]);
+        }
+        hex[hpos] = '\0';
+        dbg("[TILE] tile dump: %s", hex);
+    }
+}
+
+// Walk all visible tiles on the player's floor and extract creatures.
+// Visible range: x in [px-8, px+9], y in [py-6, py+7] = 18x14 = 252 tiles.
+// This replaces walk_creature_map_inner() when tile scan is active.
+static int walk_visible_tiles_inner(void) {
+    if (!g_tileblocks_base || !g_tileblocks_stride || !g_tile_things_off) return -1;
+
+    uint32_t px = g_player_x, py = g_player_y, pz = g_player_z;
+    if (px == 0 || py == 0 || pz > 15) return -1;
+
+    // Get the unordered_map for the player's floor
+    uintptr_t umap_addr = g_tileblocks_base + pz * g_tileblocks_stride;
+    uint8_t umap_buf[16];
+    if (!safe_memcpy(umap_buf, (void*)umap_addr, 16)) return -1;
+
+    uintptr_t list_head;
+    uint32_t  list_size;
+    memcpy(&list_head, umap_buf + g_tile_sentinel_off, 4);
+    memcpy(&list_size, umap_buf + g_tile_sentinel_off + 4, 4);
+
+    if (list_size == 0 || list_head < 0x10000) return 0;
+
+    // Compute which block keys cover the visible range
+    // Visible: x in [px-8, px+9], y in [py-6, py+7]
+    uint32_t x_min = px >= 8 ? px - 8 : 0;
+    uint32_t x_max = px + 9;
+    uint32_t y_min = py >= 6 ? py - 6 : 0;
+    uint32_t y_max = py + 7;
+
+    uint32_t bx_min = x_min >> 5, bx_max = x_max >> 5;
+    uint32_t by_min = y_min >> 5, by_max = y_max >> 5;
+
+    // Collect target block keys (at most 2x2 = 4 blocks)
+    uint32_t target_keys[4];
+    int num_keys = 0;
+    for (uint32_t by = by_min; by <= by_max && num_keys < 4; by++) {
+        for (uint32_t bx = bx_min; bx <= bx_max && num_keys < 4; bx++) {
+            target_keys[num_keys++] = (by << 11) | bx;
+        }
+    }
+
+    // Walk the unordered_map linked list, collect matching blocks
+    struct BlockInfo {
+        uintptr_t data_addr;  // address of TileBlock data (node + 12)
+        uint32_t  block_x;    // block origin x (bx << 5)
+        uint32_t  block_y;    // block origin y (by << 5)
+    };
+    BlockInfo blocks[4];
+    int num_blocks = 0;
+
+    uintptr_t node;
+    if (!safe_memcpy(&node, (void*)list_head, 4)) return -1;
+
+    for (uint32_t i = 0; i < list_size && i < 5000 && num_blocks < num_keys; i++) {
+        if (node == list_head || node < 0x10000 || node >= 0x7FFE0000u) break;
+
+        uint8_t nbuf[20];
+        if (!safe_memcpy(nbuf, (void*)node, g_tile_node_key_off + 4)) break;
+
+        uintptr_t next_node;
+        uint32_t  node_key;
+        memcpy(&next_node, nbuf, 4);
+        memcpy(&node_key, nbuf + g_tile_node_key_off, 4);
+
+        // Check if this block key matches any we need
+        for (int k = 0; k < num_keys; k++) {
+            if (node_key == target_keys[k]) {
+                blocks[num_blocks].data_addr = node + g_tile_node_val_off;
+                blocks[num_blocks].block_x = (node_key & 0x7FF) << 5;
+                blocks[num_blocks].block_y = (node_key >> 11) << 5;
+                num_blocks++;
+                break;
+            }
+        }
+
+        node = next_node;
+    }
+
+    if (num_blocks == 0) return 0;
+
+    // Walk tiles in the visible range across all found blocks
+    CachedCreature found[MAX_CREATURES];
+    int found_count = 0;
+
+    for (int bi = 0; bi < num_blocks && found_count < MAX_CREATURES; bi++) {
+        // For each tile in this block that falls within the visible range
+        uint32_t bx_origin = blocks[bi].block_x;
+        uint32_t by_origin = blocks[bi].block_y;
+
+        // Determine the local tile range within this block
+        uint32_t local_x_start = (x_min > bx_origin) ? (x_min - bx_origin) : 0;
+        uint32_t local_x_end   = (x_max < bx_origin + 31) ? (x_max - bx_origin) : 31;
+        uint32_t local_y_start = (y_min > by_origin) ? (y_min - by_origin) : 0;
+        uint32_t local_y_end   = (y_max < by_origin + 31) ? (y_max - by_origin) : 31;
+
+        for (uint32_t ly = local_y_start; ly <= local_y_end && found_count < MAX_CREATURES; ly++) {
+            for (uint32_t lx = local_x_start; lx <= local_x_end && found_count < MAX_CREATURES; lx++) {
+                uint32_t tile_idx = ly * 32 + lx;
+                uintptr_t sptr_addr = blocks[bi].data_addr + tile_idx * 8;
+
+                // Read shared_ptr<Tile> (first 4 bytes = Tile pointer)
+                uintptr_t tile_ptr;
+                if (!safe_memcpy(&tile_ptr, (void*)sptr_addr, 4)) continue;
+                if (tile_ptr < 0x10000 || tile_ptr >= 0x7FFE0000u) continue;
+
+                // Read m_things vector from the Tile
+                uint8_t vec_buf[12];
+                if (!safe_memcpy(vec_buf, (void*)(tile_ptr + g_tile_things_off), 12)) continue;
+
+                uintptr_t vec_begin, vec_end;
+                memcpy(&vec_begin, vec_buf, 4);
+                memcpy(&vec_end,   vec_buf + 4, 4);
+
+                if (vec_begin < 0x10000 || vec_end < vec_begin) continue;
+                uint32_t byte_count = (uint32_t)(vec_end - vec_begin);
+                if (byte_count == 0 || byte_count % 8 != 0 || byte_count > 50 * 8) continue;
+                uint32_t thing_count = byte_count / 8;
+
+                // Read all shared_ptrs in the vector (batch read for efficiency)
+                uint8_t things_buf[50 * 8];  // max 50 things per tile
+                uint32_t read_bytes = thing_count * 8;
+                if (read_bytes > sizeof(things_buf)) read_bytes = sizeof(things_buf);
+                if (!safe_memcpy(things_buf, (void*)vec_begin, read_bytes)) continue;
+
+                uint32_t tile_x = bx_origin + lx;
+                uint32_t tile_y = by_origin + ly;
+
+                for (uint32_t ti = 0; ti < thing_count && found_count < MAX_CREATURES; ti++) {
+                    uintptr_t thing_ptr;
+                    memcpy(&thing_ptr, things_buf + ti * 8, 4);
+                    if (thing_ptr < 0x10000 || thing_ptr >= 0x7FFE0000u) continue;
+
+                    // Check vtable — only creatures have creature vtables
+                    uint32_t vtable = 0;
+                    if (!safe_memcpy(&vtable, (void*)thing_ptr, 4)) continue;
+                    if (!is_valid_creature_vtable(vtable)) continue;
+
+                    // Read creature ID
+                    uint32_t cid = 0;
+                    if (!safe_memcpy(&cid, (void*)(thing_ptr + OFF_CREATURE_ID), 4)) continue;
+                    if (cid < MIN_CREATURE_ID || cid >= MAX_CREATURE_ID) continue;
+
+                    // Read health
+                    uint32_t hp = 0;
+                    safe_memcpy(&hp, (void*)(thing_ptr + OFF_CREATURE_HP), 4);
+
+                    // Read name
+                    char name[64] = {0};
+                    uint8_t name_raw[24];
+                    if (safe_memcpy(name_raw, (void*)(thing_ptr + OFF_CREATURE_NAME), 24)) {
+                        try_read_name(name_raw, name, sizeof(name));
+                    }
+
+                    // Read refcount
+                    uint32_t refs = 0;
+                    safe_memcpy(&refs, (void*)(thing_ptr + OFF_CREATURE_REFS), 4);
+
+                    // Skip dead creatures unless it's the player
+                    BOOL is_player = (g_player_id != 0 && cid == g_player_id);
+                    if (!is_player && (hp == 0 || hp > 100)) continue;
+
+                    // Check for duplicate (creature on multiple tiles shouldn't happen
+                    // but just in case)
+                    BOOL dup = FALSE;
+                    for (int di = 0; di < found_count; di++) {
+                        if (found[di].id == cid) { dup = TRUE; break; }
+                    }
+                    if (dup) continue;
+
+                    CachedCreature* c = &found[found_count++];
+                    c->addr = (uint8_t*)(thing_ptr + OFF_CREATURE_ID);
+                    c->id = cid;
+                    strncpy(c->name, name, MAX_NAME_LEN);
+                    c->name[MAX_NAME_LEN] = '\0';
+                    c->health = (hp <= 100) ? (uint8_t)hp : 0;
+                    c->x = tile_x;  // position = tile coordinates (always valid!)
+                    c->y = tile_y;
+                    c->z = pz;
+                    c->refs = refs;
+                }
+            }
+        }
+    }
+
+    // Replace address cache
+    memcpy(g_addrs, found, sizeof(CachedCreature) * found_count);
+    g_addr_count = found_count;
+    copy_to_output();
+    return found_count;
+}
+
+// Crash-safe wrapper for tile scanning (same pattern as walk_creature_map).
+static int walk_visible_tiles(void) {
+    g_scan_recovery = TRUE;
+    if (setjmp(g_scan_jmpbuf) != 0) {
+        dbg("[TILE] VEH recovered from AV during tile walk — skipping cycle");
+        return -1;
+    }
+    int result = walk_visible_tiles_inner();
+    g_scan_recovery = FALSE;
+
+    if (result >= 0) {
+        g_last_good_scan_tick = GetTickCount();
+        int prev = g_prev_creature_count;
+        int delta = result - prev;
+        if (delta < 0) delta = -delta;
+        if (delta >= COUNT_CHANGE_THRESHOLD && prev > 0) {
+            g_last_count_change_tick = GetTickCount();
+        }
+        g_prev_creature_count = result;
+    }
+    return result;
+}
+
 // Find a specific creature by ID using the map tree (O(log n) binary search).
 static uintptr_t find_creature_in_map(uint32_t creature_id) {
     if (!g_map_addr) return 0;
@@ -3556,6 +4289,58 @@ static void parse_command(const char* line) {
             g_use_map_scan = enable;
             dbg("CMD use_map_scan: %s", enable ? "ENABLED" : "DISABLED");
         }
+    } else if (strstr(line, "\"dump_map_region\"")) {
+        dbg("CMD dump_map_region");
+        dump_map_region();
+    } else if (strstr(line, "\"scan_tileblocks\"")) {
+        dbg("CMD scan_tileblocks");
+        scan_tileblocks();
+    } else if (strstr(line, "\"calibrate_tile\"")) {
+        dbg("CMD calibrate_tile");
+        calibrate_tile();
+    } else if (strstr(line, "\"get_tile\"")) {
+        // {"cmd":"get_tile","x":123,"y":456,"z":7}
+        uint32_t tx = 0, ty = 0, tz = 0;
+        const char* xp = strstr(line, "\"x\"");
+        const char* yp = strstr(line, "\"y\"");
+        const char* zp = strstr(line, "\"z\"");
+        if (xp) { xp = strchr(xp + 3, ':'); if (xp) tx = (uint32_t)atoi(xp + 1); }
+        if (yp) { yp = strchr(yp + 3, ':'); if (yp) ty = (uint32_t)atoi(yp + 1); }
+        if (zp) { zp = strchr(zp + 3, ':'); if (zp) tz = (uint32_t)atoi(zp + 1); }
+        dbg("CMD get_tile (%u,%u,%u)", tx, ty, tz);
+        uintptr_t tile = get_tile_ptr(tx, ty, tz);
+        if (tile) {
+            dbg("[TILE] get_tile (%u,%u,%u) = Tile* 0x%08X", tx, ty, tz, (unsigned)tile);
+            // Dump first 200 bytes
+            uint8_t dump[200];
+            if (safe_memcpy(dump, (void*)tile, 200)) {
+                char hex[601];
+                int hpos = 0;
+                for (int i = 0; i < 200 && hpos < 598; i++) {
+                    hpos += _snprintf(hex + hpos, sizeof(hex) - hpos, "%02X ", dump[i]);
+                }
+                hex[hpos] = '\0';
+                dbg("[TILE] tile dump: %s", hex);
+            }
+        } else {
+            dbg("[TILE] get_tile (%u,%u,%u) = NOT FOUND", tx, ty, tz);
+        }
+    } else if (strstr(line, "\"use_tile_scan\"")) {
+        const char* en = strstr(line, "\"enabled\"");
+        BOOL enable = TRUE;
+        if (en) {
+            en = strchr(en + 9, ':');
+            if (en) {
+                while (*++en == ' ');
+                enable = (*en == 't' || *en == '1') ? TRUE : FALSE;
+            }
+        }
+        if (enable && (!g_tileblocks_base || !g_tile_things_off)) {
+            dbg("CMD use_tile_scan: REJECTED — tileblocks not calibrated (run scan_tileblocks + calibrate_tile first)");
+        } else {
+            g_use_tile_scan = enable;
+            dbg("CMD use_tile_scan: %s", enable ? "ENABLED" : "DISABLED");
+        }
     } else if (strstr(line, "\"hook_peekmsg\"")) {
         dbg("CMD hook_peekmsg");
         if (install_peekmsg_hook()) {
@@ -4209,6 +4994,7 @@ static DWORD WINAPI pipe_thread(LPVOID param) {
         DWORD last_full_scan = 0;
         DWORD last_fast_scan = 0;
         DWORD last_map_scan = 0;
+        DWORD last_tile_scan = 0;
         DWORD last_send = 0;
 
         while (g_running) {
@@ -4232,7 +5018,44 @@ static DWORD WINAPI pipe_thread(LPVOID param) {
             {
                 DWORD now = GetTickCount();
 
-                if (g_use_map_scan && g_map_addr) {
+                if (g_use_tile_scan && g_tileblocks_base && g_tile_things_off) {
+                    // Tile scan mode (highest priority): walk visible tiles
+                    if (now - last_tile_scan > TILE_SCAN_INTERVAL) {
+                        static int tile_low_streak = 0;
+                        static int tile_fail_streak = 0;
+                        int result = walk_visible_tiles();
+                        last_tile_scan = GetTickCount();
+                        if (result < 0) {
+                            tile_fail_streak++;
+                            if (tile_fail_streak >= 10) {
+                                dbg("[TILE] %d consecutive failures — reverting to map scan",
+                                    tile_fail_streak);
+                                g_use_tile_scan = FALSE;
+                                tile_fail_streak = 0;
+                                tile_low_streak = 0;
+                            }
+                        } else {
+                            tile_fail_streak = 0;
+                            g_tile_scan_count++;
+                            if (g_tile_scan_count <= 3 || g_tile_scan_count % 100 == 0) {
+                                dbg("[TILE] scan#%d: %d creatures", g_tile_scan_count, result);
+                            }
+                            // Auto-revert if tile scan consistently finds 0 creatures
+                            // (wrong offsets or calibration failure)
+                            if (result == 0) {
+                                tile_low_streak++;
+                                if (tile_low_streak >= 100) {
+                                    dbg("[TILE] 0 creatures for %d consecutive scans — reverting to map scan",
+                                        tile_low_streak);
+                                    g_use_tile_scan = FALSE;
+                                    tile_low_streak = 0;
+                                }
+                            } else {
+                                tile_low_streak = 0;
+                            }
+                        }
+                    }
+                } else if (g_use_map_scan && g_map_addr) {
                     // Map scan mode: walk the creature tree every 100ms
                     if (now - last_map_scan > MAP_SCAN_INTERVAL) {
                         static int low_creature_streak = 0;
@@ -4249,14 +5072,9 @@ static DWORD WINAPI pipe_thread(LPVOID param) {
                             if (g_map_scan_count <= 3 || g_map_scan_count % 100 == 0) {
                                 dbg("[MAP] scan#%d: %d creatures", g_map_scan_count, result);
                             }
-                            // Fix 17b: Auto-revert if map scan finds too few creatures.
-                            // If scan_gmap locked onto the wrong std::map, the tree walk
-                            // will consistently return very few creatures (e.g. just the player).
-                            // After 50 consecutive low-result scans (~5s), revert to
-                            // VirtualQuery which finds creatures via heap pattern matching.
                             if (result <= 1) {
                                 low_creature_streak++;
-                                if (low_creature_streak >= 50) {
+                                if (low_creature_streak >= 300) {
                                     dbg("[MAP] only %d creature(s) for %d consecutive scans — wrong map, reverting to VirtualQuery",
                                         result, low_creature_streak);
                                     g_use_map_scan = FALSE;
@@ -4351,7 +5169,9 @@ static DWORD WINAPI pipe_thread(LPVOID param) {
         g_addr_count = 0;
         g_map_scan_count = 0;
         g_use_map_scan = FALSE;
-        // Keep g_map_addr — it's still valid if game hasn't restarted
+        g_use_tile_scan = FALSE;
+        g_tile_scan_count = 0;
+        // Keep g_map_addr, g_tileblocks_base, g_tile_things_off — still valid if game hasn't restarted
         EnterCriticalSection(&g_cs);
         g_output_count = 0;
         LeaveCriticalSection(&g_cs);
