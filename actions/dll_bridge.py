@@ -53,8 +53,8 @@ def _load_offsets():
     cmd["creature_name"] = creature_off.get("name", "0x38")
     cmd["creature_hp"] = creature_off.get("health", "0x50")
     cmd["creature_refs"] = creature_off.get("refs", "0x04")
-    cmd["npc_pos_from_id"] = creature_off.get("npc_position_from_id", 576)
-    cmd["player_pos_from_id"] = creature_off.get("player_position_from_id", -40)
+    cmd["npc_position_from_id"] = creature_off.get("npc_position_from_id", -40)
+    cmd["player_position_from_id"] = creature_off.get("player_position_from_id", -40)
 
     vtable_range = data.get("creature_vtable_rva_range", ["0x870000", "0x8A0000"])
     cmd["vtable_rva_min"] = vtable_range[0]
@@ -289,11 +289,13 @@ async def run(bot):
                 if px > 0 and py > 0 and poll_count % 6 == 0:
                     bridge.send_command({"cmd": "set_player_pos", "x": px, "y": py, "z": pz})
 
-                # Deferred tile scan init: needs player position in DLL first
-                if not tile_scan_init_sent and px > 0 and py > 0 and poll_count > 60:
-                    # Ensure DLL has our position before scanning
+                # Tile scan disabled — scan_tileblocks blocks pipe thread too long
+                # (30+ seconds searching 11 strides × 65KB), starving creature scans.
+                # The position offset fix (-40 for all creatures) + refcount fallback
+                # provide sufficient creature detection without tile scan.
+                # TODO: re-enable after making scan_tileblocks non-blocking
+                if False and not tile_scan_init_sent and px > 0 and py > 0 and poll_count > 60:
                     bridge.send_command({"cmd": "set_player_pos", "x": px, "y": py, "z": pz})
-                    # Dump map region first for diagnostics (logged to DLL debug log)
                     bridge.send_command({"cmd": "dump_map_region"})
                     bridge.send_command({"cmd": "scan_tileblocks"})
                     bridge.send_command({"cmd": "calibrate_tile"})
@@ -361,6 +363,21 @@ async def run(bot):
                 dll_creatures = {}
                 raw_count = 0
                 player_found = False
+
+                # First pass: find player creature's DLL position for proximity
+                # reference.  DLL struct positions are in a different coordinate
+                # space than packet positions (off by ~10 tiles + z offset).
+                # We must compare creatures against the PLAYER's DLL position
+                # so the distance calc stays in the same coordinate system.
+                dll_px, dll_py, dll_pz = 0, 0, 0
+                for c in creatures:
+                    cid = c.get("id", 0)
+                    if cid == my_player_id or cid == gs.player_id:
+                        dll_px = c.get("x", 0)
+                        dll_py = c.get("y", 0)
+                        dll_pz = c.get("z", 0)
+                        break
+
                 for c in creatures:
                     cid = c.get("id", 0)
                     if cid == 0:
@@ -392,11 +409,18 @@ async def run(bot):
                     # Skip invalid positions
                     if (cx == 0 and cy == 0) or cx > 65535 or cz > 15:
                         continue
-                    # Proximity filter: same z-level, within range
-                    if px > 0 and py > 0:
-                        if cz != pz:
+                    # Proximity filter using DLL coordinate space (same system
+                    # as creature positions — avoids mixed-coordinate bugs).
+                    # Exact z match: ±1 caused false positives on multi-floor
+                    # dungeons (creatures one floor up/down passed through).
+                    # Fall back to packet position if player not found in DLL.
+                    ref_x = dll_px if dll_px > 0 else px
+                    ref_y = dll_py if dll_py > 0 else py
+                    ref_z = dll_pz if dll_px > 0 else pz
+                    if ref_x > 0 and ref_y > 0:
+                        if cz != ref_z:
                             continue
-                        if max(abs(cx - px), abs(cy - py)) > PROXIMITY_RANGE:
+                        if max(abs(cx - ref_x), abs(cy - ref_y)) > PROXIMITY_RANGE:
                             continue
                     dll_creatures[cid] = {
                         "health": c.get("hp", 0),
@@ -456,10 +480,15 @@ async def run(bot):
 
                 if poll_count % 30 == 1:
                     refs_info = ", ".join(f"0x{c.get('id',0):X}(r={c.get('refs',0)})" for c in creatures[:5] if c.get("id",0) != my_player_id)
-                    _dbg(f"filter: raw={raw_count} nearby={len(dll_creatures)} player=({px},{py},{pz}) refs=[{refs_info}]")
+                    _dbg(f"filter: raw={raw_count} nearby={len(dll_creatures)} "
+                         f"pkt=({px},{py},{pz}) dll_ref=({dll_px},{dll_py},{dll_pz}) refs=[{refs_info}]")
                 # Detailed creature dump: every 5 seconds, show ALL creatures with filter reasons
                 if poll_count % 300 == 1 and raw_count > 0:
-                    _dbg(f"=== CREATURE DUMP (player=({px},{py},{pz})) my_pid=0x{my_player_id:08X} gs.pid=0x{gs.player_id:08X} raw={len(creatures)} ===")
+                    r_x = dll_px if dll_px > 0 else px
+                    r_y = dll_py if dll_py > 0 else py
+                    r_z = dll_pz if dll_px > 0 else pz
+                    _dbg(f"=== CREATURE DUMP (pkt=({px},{py},{pz}) dll_ref=({dll_px},{dll_py},{dll_pz})) "
+                         f"my_pid=0x{my_player_id:08X} gs.pid=0x{gs.player_id:08X} raw={len(creatures)} ===")
                     for c in creatures:
                         cid = c.get("id", 0)
                         if cid == 0 or cid == my_player_id or cid == gs.player_id:
@@ -468,7 +497,7 @@ async def run(bot):
                         hp = c.get("hp", 0)
                         ccx, ccy, ccz = c.get("x", 0), c.get("y", 0), c.get("z", 0)
                         refs = c.get("refs", 0)
-                        # Determine filter reason
+                        # Determine filter reason (using DLL reference position)
                         if not (0x10000000 <= cid < 0x80000000):
                             reason = "BAD_ID"
                         elif hp <= 0:
@@ -477,10 +506,10 @@ async def run(bot):
                             reason = "POS_ZERO"
                         elif ccx > 65535 or ccz > 15:
                             reason = "POS_INVALID"
-                        elif ccz != pz:
-                            reason = f"WRONG_Z({ccz}!={pz})"
+                        elif ccz != r_z:
+                            reason = f"WRONG_Z({ccz}!={r_z})"
                         else:
-                            dist = max(abs(ccx - px), abs(ccy - py))
+                            dist = max(abs(ccx - r_x), abs(ccy - r_y))
                             if dist > PROXIMITY_RANGE:
                                 reason = f"FAR(d={dist})"
                             else:

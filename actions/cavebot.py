@@ -21,7 +21,7 @@ WALK_TO_TOLERANCE = 2   # tiles — close enough for walk_to nodes
 MAX_RETRIES = 1
 REACHABLE_PROBE_TIMEOUT = 0.4  # seconds — one walk attempt, fast bail
 PAUSE_MAX_TIMEOUT = 60  # seconds — safety cap on monster-fight pause
-NO_DAMAGE_TIMEOUT = 5.0  # seconds — if monster HP unchanged, assume PZ/can't fight
+NO_DAMAGE_TIMEOUT = 3.0  # seconds — if monster HP unchanged, assume behind wall/PZ
 
 # Map direction name strings to Direction enum values
 DIR_NAME_TO_ENUM = {
@@ -123,29 +123,35 @@ def _get_lure_settings():
             cfg.get("lure_timeout", 8))
 
 
-def _count_nearby_monsters(gs, distance, targetable_only=False):
-    """Count alive monsters within Chebyshev distance on the same floor.
+UNREACHABLE_EXPIRY = 30  # seconds before re-checking an unreachable creature
 
-    If targetable_only=True, also requires valid position (not (0,0,0))
-    so only monsters that auto_targeting can actually attack are counted.
+
+def _count_nearby_monsters(gs, distance, targetable_only=False):
+    """Count alive monsters nearby.
+
+    DLL-sourced creatures already passed proximity filtering in dll_bridge
+    (same z ±1, within 10 tiles in DLL coordinate space), so we trust them
+    as "nearby" without re-checking z or distance (which would mix DLL
+    coordinate space with packet-based gs.position).
+
+    If targetable_only=True, requires valid position (not (0,0,0)).
+    Skips creatures in the unreachable blacklist.
     """
-    px, py, pz = gs.position if gs.position else (0, 0, 0)
-    if px == 0 and py == 0:
-        return 0
     now = time.time()
     count = 0
     for cid, info in gs.creatures.items():
         if (cid >= MONSTER_ID_MIN
                 and 0 < info.get("health", 0) <= 100
-                and info.get("z") == pz
                 and now - info.get("t", 0) < 60):
-            cx = info.get("x", 0)
-            cy = info.get("y", 0)
-            if targetable_only and (cx == 0 or cy == 0):
+            # Skip unreachable (behind wall) creatures
+            if cid in gs.unreachable_creatures and gs.unreachable_creatures[cid] > now:
                 continue
-            dist = max(abs(cx - px), abs(cy - py))
-            if dist <= distance:
-                count += 1
+            if targetable_only:
+                cx = info.get("x", 0)
+                cy = info.get("y", 0)
+                if cx == 0 or cy == 0:
+                    continue
+            count += 1
     return count
 
 
@@ -859,61 +865,72 @@ async def _run_playback(bot):
                             name = creature.get("name", "?")
                             hp = creature.get("health", 100)
 
-                            reachable = await _is_reachable(bot, cx, cy, cz)
-
-                            if reachable:
-                                bot.log(f"{prefix} Pausing — fighting {name} (0x{target_id:08X}) hp={hp}%")
-                                pause_start = time.time()
-                                initial_hp = hp
-                                last_checked_target = target_id
-                                while state.playback_active and bot.is_connected:
-                                    # PZ check inside pause loop
-                                    if gs.in_protection_zone:
-                                        bot.log(f"{prefix} Entered protection zone, resuming path")
-                                        break
-                                    target_id = gs.attack_target_id
-                                    has_target = target_id and target_id >= MONSTER_ID_MIN
-                                    nearby = _count_nearby_monsters(gs, 7)
-                                    # Only break when BOTH signals agree: no target AND no nearby monsters
-                                    if not has_target and nearby == 0:
-                                        break
-                                    # If target died or cleared but monsters remain, just continue —
-                                    # auto_targeting will pick the next one on its own tick
-                                    if has_target:
-                                        creature = gs.creatures.get(target_id)
-                                        if creature and 0 < creature.get("health", 0) <= 100:
-                                            cur_hp = creature.get("health", 100)
-                                            elapsed = time.time() - pause_start
-                                            # No damage timeout — fallback if PZ not detected
-                                            if elapsed > NO_DAMAGE_TIMEOUT and cur_hp >= initial_hp:
-                                                bot.log(f"{prefix} No damage in {NO_DAMAGE_TIMEOUT}s, resuming (PZ?)")
-                                                break
-                                            # Track damage progress — reset timer if HP dropped
-                                            if cur_hp < initial_hp:
-                                                initial_hp = cur_hp
-                                                pause_start = time.time()
-                                            # New target from auto_targeting — re-check reachability
-                                            if target_id != last_checked_target:
-                                                nx = creature.get("x", 0)
-                                                ny = creature.get("y", 0)
-                                                nz = creature.get("z", 0)
-                                                if not await _is_reachable(bot, nx, ny, nz):
-                                                    bot.log(f"{prefix} New target unreachable, resuming path")
-                                                    break
-                                                name = creature.get("name", "?")
-                                                hp = creature.get("health", 100)
-                                                bot.log(f"{prefix} Switched to {name} (0x{target_id:08X}) hp={hp}%")
-                                                initial_hp = hp
-                                                pause_start = time.time()
-                                                last_checked_target = target_id
-                                    # Safety timeout
-                                    if time.time() - pause_start > PAUSE_MAX_TIMEOUT:
-                                        bot.log(f"{prefix} Resuming — pause timeout ({PAUSE_MAX_TIMEOUT}s)")
-                                        break
-                                    await bot.sleep(0.2)
+                            # Skip creatures already blacklisted as unreachable
+                            if target_id in gs.unreachable_creatures and gs.unreachable_creatures[target_id] > time.time():
+                                pass  # don't pause for known-unreachable creatures
                             else:
-                                # Unreachable — keep it targeted, just don't pause
-                                bot.log(f"{prefix} Monster {name} unreachable, continuing path")
+                                reachable = await _is_reachable(bot, cx, cy, cz)
+
+                                if reachable:
+                                    bot.log(f"{prefix} Pausing — fighting {name} (0x{target_id:08X}) hp={hp}%")
+                                    pause_start = time.time()
+                                    initial_hp = hp
+                                    last_checked_target = target_id
+                                    while state.playback_active and bot.is_connected:
+                                        # PZ check inside pause loop
+                                        if gs.in_protection_zone:
+                                            bot.log(f"{prefix} Entered protection zone, resuming path")
+                                            break
+                                        target_id = gs.attack_target_id
+                                        has_target = target_id and target_id >= MONSTER_ID_MIN
+                                        nearby = _count_nearby_monsters(gs, 7)
+                                        # Only break when BOTH signals agree: no target AND no nearby monsters
+                                        if not has_target and nearby == 0:
+                                            break
+                                        # If target died or cleared but monsters remain, just continue —
+                                        # auto_targeting will pick the next one on its own tick
+                                        if has_target:
+                                            creature = gs.creatures.get(target_id)
+                                            if creature and 0 < creature.get("health", 0) <= 100:
+                                                cur_hp = creature.get("health", 100)
+                                                elapsed = time.time() - pause_start
+                                                # No damage timeout — creature likely behind wall
+                                                if elapsed > NO_DAMAGE_TIMEOUT and cur_hp >= initial_hp:
+                                                    gs.unreachable_creatures[target_id] = time.time() + UNREACHABLE_EXPIRY
+                                                    bot.log(f"{prefix} No damage in {NO_DAMAGE_TIMEOUT}s — blacklisting 0x{target_id:08X} for {UNREACHABLE_EXPIRY}s")
+                                                    break
+                                                # Track damage progress — reset timer if HP dropped
+                                                if cur_hp < initial_hp:
+                                                    initial_hp = cur_hp
+                                                    pause_start = time.time()
+                                                # New target from auto_targeting — re-check reachability
+                                                if target_id != last_checked_target:
+                                                    # Skip if already blacklisted
+                                                    if target_id in gs.unreachable_creatures and gs.unreachable_creatures[target_id] > time.time():
+                                                        bot.log(f"{prefix} New target 0x{target_id:08X} already blacklisted, resuming path")
+                                                        break
+                                                    nx = creature.get("x", 0)
+                                                    ny = creature.get("y", 0)
+                                                    nz = creature.get("z", 0)
+                                                    if not await _is_reachable(bot, nx, ny, nz):
+                                                        gs.unreachable_creatures[target_id] = time.time() + UNREACHABLE_EXPIRY
+                                                        bot.log(f"{prefix} New target unreachable — blacklisting 0x{target_id:08X}")
+                                                        break
+                                                    name = creature.get("name", "?")
+                                                    hp = creature.get("health", 100)
+                                                    bot.log(f"{prefix} Switched to {name} (0x{target_id:08X}) hp={hp}%")
+                                                    initial_hp = hp
+                                                    pause_start = time.time()
+                                                    last_checked_target = target_id
+                                        # Safety timeout
+                                        if time.time() - pause_start > PAUSE_MAX_TIMEOUT:
+                                            bot.log(f"{prefix} Resuming — pause timeout ({PAUSE_MAX_TIMEOUT}s)")
+                                            break
+                                        await bot.sleep(0.2)
+                                else:
+                                    # Unreachable — blacklist and continue
+                                    gs.unreachable_creatures[target_id] = time.time() + UNREACHABLE_EXPIRY
+                                    bot.log(f"{prefix} Monster {name} unreachable — blacklisting 0x{target_id:08X}")
 
             elif strategy.startswith("lure"):
                 gs = state.game_state

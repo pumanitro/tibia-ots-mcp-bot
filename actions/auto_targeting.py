@@ -67,6 +67,8 @@ async def run(bot):
                 if cid >= MONSTER_MIN
                 and 0 < info.get("health", 0) <= 100
                 and now - info.get("t", 0) < MAX_AGE
+                and (cid not in gs.unreachable_creatures
+                     or gs.unreachable_creatures[cid] <= now)
             }
 
             target = None

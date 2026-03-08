@@ -1,4 +1,4 @@
-"""Mana Recovery: uses Senzu (item 8465) when mana drops to 20% or below."""
+"""Mana Recovery: uses Senzu (item 8465) when mana drops below threshold."""
 import sys
 import os
 import time

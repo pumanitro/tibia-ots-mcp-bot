@@ -77,7 +77,7 @@ static uint32_t OFF_CREATURE_REFS        = 0x04;
 static uint32_t OFF_CREATURE_ID          = 0x34;
 static uint32_t OFF_CREATURE_NAME        = 0x38;
 static uint32_t OFF_CREATURE_HP          = 0x50;
-static int32_t  OFF_NPC_POS_FROM_ID      = 576;
+static int32_t  OFF_NPC_POS_FROM_ID      = -40;  // same as player (confirmed 2026-02-27)
 static int32_t  OFF_PLAYER_POS_FROM_ID   = -40;
 static uint32_t OFF_VTABLE_RVA_MIN       = 0x870000u;
 static uint32_t OFF_VTABLE_RVA_MAX       = 0x8A0000u;
@@ -168,9 +168,14 @@ static volatile DWORD g_pending_queued_tick = 0;
 // ── Fix 12: Better pre-validation ───────────────────────────────────
 // Track player position from scan to validate creature distance/floor.
 // Blacklist creatures that caused VEH recovery to prevent re-triggering.
-static volatile uint32_t g_player_x = 0;
+static volatile uint32_t g_player_x = 0;  // from set_player_pos (packet/proxy)
 static volatile uint32_t g_player_y = 0;
 static volatile uint32_t g_player_z = 0;
+
+// Player position as read from DLL creature struct (same coord space as creatures)
+static volatile uint32_t g_dll_player_x = 0;
+static volatile uint32_t g_dll_player_y = 0;
+static volatile uint32_t g_dll_player_z = 0;
 
 // ── Global position address (discovered by scan_global_pos) ─────────
 // When set, the scan loop reads position from this address every cycle.
@@ -366,6 +371,15 @@ static BOOL reread_creature(CachedCreature* cc) {
         cc->z = z;
     }
 
+    // Track player's DLL-read position (same coordinate space as creatures).
+    // Used by GTUPD floor/distance check instead of packet-based g_player_x/y/z.
+    BOOL is_player = (g_player_id != 0 && cc->id == g_player_id);
+    if (is_player && x > 0 && y > 0) {
+        g_dll_player_x = x;
+        g_dll_player_y = y;
+        g_dll_player_z = z;
+    }
+
     // Re-read refcount to detect phantoms (creature_ptr = addr - OFF_CREATURE_ID)
     uintptr_t creature_ptr = (uintptr_t)cc->addr - OFF_CREATURE_ID;
     uint32_t refs = 0;
@@ -374,7 +388,6 @@ static BOOL reread_creature(CachedCreature* cc) {
     }
     // Phantom filter: refcount <= 1 means only m_knownCreatures map holds a ref.
     // The creature is NOT on any visible tile — it's a despawned phantom.
-    BOOL is_player = (g_player_id != 0 && cc->id == g_player_id);
     if (!is_player && (cc->refs <= 1 || cc->refs > 10000)) return FALSE;
 
     return TRUE;
@@ -1575,15 +1588,17 @@ static void __cdecl do_game_target_update_inner(void) {
         }
     }
 
-    // 12c: Position validation (same floor + within 8 tiles)
+    // 12c: Position validation (same floor + within range)
+    // Use DLL-read player position (same coordinate space as creature positions)
+    // instead of packet-based g_player_x/y/z to avoid mixed-coordinate bugs.
     {
         uint8_t* id_ptr = (uint8_t*)(creature_ptr + OFF_CREATURE_ID);
         uint32_t cx = 0, cy = 0, cz = 0;
         if (read_position(id_ptr, cid, &cx, &cy, &cz)) {
-            uint32_t px = g_player_x, py = g_player_y, pz = g_player_z;
-            if (px != 0 || py != 0) {  // have player position
+            uint32_t px = g_dll_player_x, py = g_dll_player_y, pz = g_dll_player_z;
+            if (px != 0 || py != 0) {  // have DLL player position
                 if (cz != pz) {
-                    dbg("[GTUPD] SKIP attack 0x%08X — different floor (cz=%u pz=%u)", cid, cz, pz);
+                    dbg("[GTUPD] SKIP attack 0x%08X — different floor (cz=%u pz=%u dll_player)", cid, cz, pz);
                     return;
                 }
                 int dx = (int)cx - (int)px;
@@ -3211,19 +3226,20 @@ static void parse_set_offsets(const char* line) {
     if ((v = get_val("\"send_attack_rva\"")) != 0xFFFFFFFF) { OFF_SEND_ATTACK_RVA = v; }
     if ((v = get_val("\"game_doattack_rva\"")) != 0xFFFFFFFF) { OFF_GAME_DOATTACK_RVA = v; }
 
-    // Signed offsets
-    const char* npc_pos = strstr(line, "\"npc_pos_from_id\"");
+    // Signed offsets — key names must match offsets.json exactly
+    const char* npc_pos = strstr(line, "\"npc_position_from_id\"");
     if (npc_pos) {
-        npc_pos = strchr(npc_pos + 17, ':');
+        npc_pos = strchr(npc_pos + 21, ':');
         if (npc_pos) OFF_NPC_POS_FROM_ID = (int32_t)atoi(npc_pos + 1);
     }
-    const char* pl_pos = strstr(line, "\"player_pos_from_id\"");
+    const char* pl_pos = strstr(line, "\"player_position_from_id\"");
     if (pl_pos) {
-        pl_pos = strchr(pl_pos + 19, ':');
+        pl_pos = strchr(pl_pos + 24, ':');
         if (pl_pos) OFF_PLAYER_POS_FROM_ID = (int32_t)atoi(pl_pos + 1);
     }
 
-    dbg("[OFF] offsets updated from pipe command");
+    dbg("[OFF] offsets updated: npc_pos=%d player_pos=%d creature_id=0x%02X hp=0x%02X",
+        OFF_NPC_POS_FROM_ID, OFF_PLAYER_POS_FROM_ID, OFF_CREATURE_ID, OFF_CREATURE_HP);
 }
 
 // ── Light memory scanner ─────────────────────────────────────────────

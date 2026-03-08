@@ -61,6 +61,11 @@ class GameState:
         # Timestamp of last "You can't throw there" server message
         self.last_cant_throw: float = 0
 
+        # Unreachable creatures blacklist: {creature_id: expiry_timestamp}
+        # Populated by cavebot when no-damage timeout fires.
+        # auto_targeting and _count_nearby_monsters skip these.
+        self.unreachable_creatures: dict[int, float] = {}
+
         # Position (x, y, z)
         self.position: tuple[int, int, int] = (0, 0, 0)
 
