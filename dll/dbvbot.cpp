@@ -3205,6 +3205,135 @@ static void parse_command(const char* line) {
                 }
             }
         }
+    } else if (strstr(line, "\"dump_creature\"")) {
+        // {"cmd":"dump_creature","creature_id":12345}
+        // Dump raw bytes around a creature struct and search for position-like values.
+        // Uses player position as reference to find nearby coordinate values.
+        const char* cid_str = strstr(line, "\"creature_id\"");
+        if (cid_str) {
+            cid_str = strchr(cid_str + 13, ':');
+            if (cid_str) {
+                uint32_t target_id = (uint32_t)strtoul(cid_str + 1, NULL, 10);
+                dbg("CMD dump_creature: id=0x%08X", target_id);
+
+                // Find creature in cache first, then try map tree
+                uintptr_t creature_ptr = 0;
+                EnterCriticalSection(&g_cs);
+                for (int i = 0; i < g_addr_count; i++) {
+                    if (g_addrs[i].id == target_id) {
+                        creature_ptr = (uintptr_t)g_addrs[i].addr - OFF_CREATURE_ID;
+                        break;
+                    }
+                }
+                LeaveCriticalSection(&g_cs);
+
+                if (!creature_ptr) {
+                    creature_ptr = find_creature_in_map(target_id);
+                }
+
+                if (!creature_ptr) {
+                    dbg("  creature 0x%08X not found in cache or map", target_id);
+                } else {
+                    dbg("  creature_ptr=0x%08X", (unsigned)creature_ptr);
+                    // Dump 1024 bytes from creature base
+                    const int DUMP_SIZE = 1024;
+                    uint8_t dump[1024];
+                    if (safe_memcpy(dump, (void*)creature_ptr, DUMP_SIZE)) {
+                        uint32_t px = g_player_x, py = g_player_y, pz = g_player_z;
+                        dbg("  Player pos for reference: (%u,%u,%u)", px, py, pz);
+
+                        // Hex dump in 16-byte rows
+                        for (int row = 0; row < DUMP_SIZE; row += 16) {
+                            char hex[120] = {0};
+                            int hp = 0;
+                            hp += _snprintf(hex, sizeof(hex), "  +0x%02X: ", row);
+                            for (int j = 0; j < 16 && row + j < DUMP_SIZE; j++) {
+                                hp += _snprintf(hex + hp, sizeof(hex) - hp, "%02X ", dump[row + j]);
+                            }
+                            // ASCII
+                            hp += _snprintf(hex + hp, sizeof(hex) - hp, " |");
+                            for (int j = 0; j < 16 && row + j < DUMP_SIZE; j++) {
+                                char ch = dump[row + j];
+                                hp += _snprintf(hex + hp, sizeof(hex) - hp, "%c",
+                                    (ch >= 32 && ch < 127) ? ch : '.');
+                            }
+                            hp += _snprintf(hex + hp, sizeof(hex) - hp, "|");
+                            dbg("%s", hex);
+                        }
+
+                        // Search for position as uint32 triplets near player pos
+                        dbg("  === Position search (looking near player (%u,%u,%u)) ===", px, py, pz);
+                        char resp[4096];
+                        int rpos = _snprintf(resp, sizeof(resp),
+                            "{\"dump_creature\":{\"id\":\"0x%08X\",\"addr\":\"0x%08X\",\"player\":\"(%u,%u,%u)\",\"matches\":[",
+                            target_id, (unsigned)creature_ptr, px, py, pz);
+                        int match_count = 0;
+
+                        if (px > 0 && py > 0) {
+                            // Search for uint32 x,y,z triplet
+                            for (int off = 0; off + 12 <= DUMP_SIZE; off += 4) {
+                                uint32_t vx, vy, vz;
+                                memcpy(&vx, dump + off, 4);
+                                memcpy(&vy, dump + off + 4, 4);
+                                memcpy(&vz, dump + off + 8, 4);
+                                // Match: x,y within 10 tiles and z within 2 floors
+                                if (vx > 0 && vy > 0 && vx <= 65535 && vy <= 65535 && vz <= 15) {
+                                    int dx = (int)vx - (int)px;
+                                    int dy = (int)vy - (int)py;
+                                    int dz = (int)vz - (int)pz;
+                                    if (dx < 0) dx = -dx;
+                                    if (dy < 0) dy = -dy;
+                                    if (dz < 0) dz = -dz;
+                                    if (dx <= 15 && dy <= 15 && dz <= 2) {
+                                        dbg("  u32 MATCH at +0x%02X: (%u,%u,%u) delta=(%d,%d,%d)",
+                                            off, vx, vy, vz, (int)vx-(int)px, (int)vy-(int)py, (int)vz-(int)pz);
+                                        if (match_count > 0) resp[rpos++] = ',';
+                                        rpos += _snprintf(resp + rpos, sizeof(resp) - rpos,
+                                            "{\"off\":\"0x%02X\",\"fmt\":\"u32\",\"pos\":\"(%u,%u,%u)\",\"dx\":%d,\"dy\":%d,\"dz\":%d}",
+                                            off, vx, vy, vz, (int)vx-(int)px, (int)vy-(int)py, (int)vz-(int)pz);
+                                        match_count++;
+                                    }
+                                }
+                            }
+                            // Search for uint16 x,y + uint8 z
+                            for (int off = 0; off + 5 <= DUMP_SIZE; off += 2) {
+                                uint16_t sx, sy;
+                                uint8_t sz;
+                                memcpy(&sx, dump + off, 2);
+                                memcpy(&sy, dump + off + 2, 2);
+                                sz = dump[off + 4];
+                                if (sx > 0 && sy > 0 && sz <= 15) {
+                                    int dx = (int)sx - (int)px;
+                                    int dy = (int)sy - (int)py;
+                                    int dz = (int)sz - (int)pz;
+                                    if (dx < 0) dx = -dx;
+                                    if (dy < 0) dy = -dy;
+                                    if (dz < 0) dz = -dz;
+                                    if (dx <= 15 && dy <= 15 && dz <= 2) {
+                                        dbg("  u16 MATCH at +0x%02X: (%u,%u,%u) delta=(%d,%d,%d)",
+                                            off, sx, sy, sz, (int)sx-(int)px, (int)sy-(int)py, (int)sz-(int)pz);
+                                        if (match_count > 0) resp[rpos++] = ',';
+                                        rpos += _snprintf(resp + rpos, sizeof(resp) - rpos,
+                                            "{\"off\":\"0x%02X\",\"fmt\":\"u16\",\"pos\":\"(%u,%u,%u)\",\"dx\":%d,\"dy\":%d,\"dz\":%d}",
+                                            off, sx, sy, sz, (int)sx-(int)px, (int)sy-(int)py, (int)sz-(int)pz);
+                                        match_count++;
+                                    }
+                                }
+                            }
+                        }
+
+                        rpos += _snprintf(resp + rpos, sizeof(resp) - rpos, "],\"count\":%d}}\n", match_count);
+                        if (g_active_pipe != INVALID_HANDLE_VALUE) {
+                            DWORD written = 0;
+                            WriteFile(g_active_pipe, resp, (DWORD)rpos, &written, NULL);
+                        }
+                        dbg("  dump_creature: %d position matches found", match_count);
+                    } else {
+                        dbg("  ERROR: cannot read memory at creature_ptr 0x%08X", (unsigned)creature_ptr);
+                    }
+                }
+            }
+        }
     } else if (strstr(line, "\"game_attack\"")) {
         // Parse creature_id from: {"cmd":"game_attack","creature_id":12345}
         const char* cid = strstr(line, "\"creature_id\"");

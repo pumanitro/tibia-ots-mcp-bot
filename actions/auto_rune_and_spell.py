@@ -1,4 +1,4 @@
-"""Auto-rune & spell: casts Kiaiho when mana >= 5%, otherwise uses rune 3165 on target."""
+"""Auto-rune & spell: casts Renzoku Energy Dan when mana >= 5%, otherwise uses rune 3165 on target."""
 import sys
 import os
 
@@ -8,7 +8,7 @@ from constants import ITEM_RUNE_3165
 
 RUNE_ID = ITEM_RUNE_3165
 INTERVAL = 0.2  # seconds between checks (max 0.2s for combat actions)
-SPELL_TEXT = "Kiaiho"
+SPELL_TEXT = "Mystic Attack"
 SPELL_MANA_PCT_THRESHOLD = 5  # cast spell when mana >= 5%
 
 

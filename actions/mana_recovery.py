@@ -1,4 +1,4 @@
-"""Mana Recovery: uses Senzu (item 8465) when mana drops to 70% or below."""
+"""Mana Recovery: uses Senzu (item 8465) when mana drops to 20% or below."""
 import sys
 import os
 import time
@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from protocol import build_use_item_packet
 
 SENZU_ID = 8465
-MANA_THRESHOLD = 70  # use Senzu when mana <= 70 (percentage-based)
+MANA_THRESHOLD = 20  # use Senzu when mana <= 20 (percentage-based)
 INTERVAL = 0.2
 COOLDOWN = 1.0  # min seconds between uses
 STATE_LOG_INTERVAL = 5.0  # log state every 5s for debugging

@@ -231,6 +231,8 @@ async def run(bot):
     STALE_TIMEOUT = 30  # seconds without data before considering pipe dead
     HEARTBEAT_INTERVAL = 1  # seconds between heartbeat logs
     pipe_was_connected = True  # track transitions for disconnect alert
+    dump_creature_sent = set()  # creature IDs we've already dumped (one-shot diagnostic)
+    dump_creature_pending = False  # waiting for dump_creature response
 
     try:
         while bot.is_connected:
@@ -353,7 +355,8 @@ async def run(bot):
                     raw_count += 1
                     cx, cy, cz = c.get("x", 0), c.get("y", 0), c.get("z", 0)
                     # Player creature: use DLL memory as authoritative position source.
-                    if cid == my_player_id:
+                    # Check both saved ID and current gs.player_id (can change mid-session)
+                    if cid == my_player_id or cid == gs.player_id:
                         player_found = True
                         # Log player creature (position is stale — Fix 19)
                         if poll_count % 300 == 1:
@@ -387,6 +390,47 @@ async def run(bot):
                         "source": "dll",
                     }
 
+                # Diagnostic: dump raw bytes for creatures to find real position offset
+                # Dumps both creatures with pos=(0,0,0) AND with valid pos for comparison
+                if px > 0 and py > 0 and not dump_creature_pending and len(dump_creature_sent) < 4:
+                    for c in creatures:
+                        cid_d = c.get("id", 0)
+                        if cid_d == 0 or cid_d == my_player_id or cid_d == gs.player_id:
+                            continue
+                        if cid_d in dump_creature_sent:
+                            continue
+                        if not (0x40000000 <= cid_d < 0x80000000):
+                            continue  # only dump monsters
+                        if c.get("hp", 0) <= 0:
+                            continue
+                        dcx, dcy = c.get("x", 0), c.get("y", 0)
+                        has_pos = dcx > 0 and dcy > 0
+                        tag = "VALID_POS" if has_pos else "ZERO_POS"
+                        _dbg(f"DUMP_CREATURE: sending for 0x{cid_d:08X} ({c.get('name','?')}) "
+                             f"hp={c.get('hp',0)} pos=({dcx},{dcy},{c.get('z',0)}) [{tag}]")
+                        bot.log(f"[DLL] dump_creature 0x{cid_d:08X} ({c.get('name','?')}) [{tag}]")
+                        bridge.send_command({"cmd": "dump_creature", "creature_id": cid_d})
+                        dump_creature_sent.add(cid_d)
+                        dump_creature_pending = True
+                        break  # one at a time
+
+                # Check for dump_creature results
+                if dump_creature_pending:
+                    extras = bridge.pop_extras()
+                    for ex in extras:
+                        if "dump_creature" in ex:
+                            dc = ex["dump_creature"]
+                            matches = dc.get("matches", [])
+                            _dbg(f"DUMP_CREATURE result: id={dc.get('id','?')} addr={dc.get('addr','?')} "
+                                 f"player={dc.get('player','?')} matches={len(matches)}")
+                            bot.log(f"[DLL] dump_creature {dc.get('id','?')}: {len(matches)} position matches")
+                            for m in matches:
+                                _dbg(f"  MATCH: offset={m.get('off','?')} fmt={m.get('fmt','?')} "
+                                     f"pos={m.get('pos','?')} dx={m.get('dx',0)} dy={m.get('dy',0)} dz={m.get('dz',0)}")
+                                bot.log(f"[DLL]   offset={m.get('off','?')} fmt={m.get('fmt','?')} "
+                                        f"pos={m.get('pos','?')} delta=({m.get('dx',0)},{m.get('dy',0)},{m.get('dz',0)})")
+                            dump_creature_pending = False
+
                 # Warn if player creature not found in DLL data
                 if not player_found and poll_count % 60 == 1:
                     all_ids = [f"0x{c.get('id',0):08X}" for c in creatures if c.get("id", 0)]
@@ -402,7 +446,7 @@ async def run(bot):
                     _dbg(f"=== CREATURE DUMP (player=({px},{py},{pz})) my_pid=0x{my_player_id:08X} gs.pid=0x{gs.player_id:08X} raw={len(creatures)} ===")
                     for c in creatures:
                         cid = c.get("id", 0)
-                        if cid == 0 or cid == my_player_id:
+                        if cid == 0 or cid == my_player_id or cid == gs.player_id:
                             continue
                         name = c.get("name", "?")[:12]
                         hp = c.get("hp", 0)
