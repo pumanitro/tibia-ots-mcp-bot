@@ -113,6 +113,13 @@ class GameState:
         self._recent_kills: set[int] = set()
         self._recent_kills_cleanup: float = 0
 
+        # ── v2 Adaptive Farming fields (backwards-compatible) ──
+        # Force-target override for body-block handler (last resort kill)
+        self.force_target: int | None = None
+        # Fight start mana snapshot for fight summary (set by cavebot2)
+        self.fight_start_mana: int = 0
+        self.fight_start_mana_max: int = 0
+
 
 
 _stats_debug_file = None
@@ -412,13 +419,16 @@ def _record_kill(gs: GameState, cid: int) -> None:
                 loop_count = getattr(bot_state, "playback_loop_count", 0)
     except Exception:
         pass
+    kill_x = creature.get("x", 0)
+    kill_y = creature.get("y", 0)
+    kill_z = creature.get("z", 0)
     gs.kill_log.append({
         "t": time.time(),
         "name": creature.get("name", ""),
         "cid": cid,
-        "x": creature.get("x", 0),
-        "y": creature.get("y", 0),
-        "z": creature.get("z", 0),
+        "x": kill_x,
+        "y": kill_y,
+        "z": kill_z,
         "px": gs.position[0],
         "py": gs.position[1],
         "pz": gs.position[2],
@@ -426,6 +436,16 @@ def _record_kill(gs: GameState, cid: int) -> None:
         "loop": loop_count,
     })
     gs.session_kills += 1
+
+    # Feed v2 telemetry if loaded (optional integration)
+    try:
+        main_mod = sys.modules.get("__main__")
+        if main_mod:
+            telem = getattr(getattr(main_mod, "state", None), "telemetry", None)
+            if telem is not None:
+                telem.record_kill(kill_x, kill_y, kill_z)
+    except Exception:
+        pass
 
 
 
