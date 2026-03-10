@@ -109,6 +109,9 @@ class GameState:
         # Capped to prevent unbounded memory growth during long sessions
         self.kill_log: deque = deque(maxlen=5000)
         self._prev_experience: int = 0
+        # Dedup set for CREATURE_HEALTH=0 kill counting (avoid double-counting)
+        self._recent_kills: set[int] = set()
+        self._recent_kills_cleanup: float = 0
 
 
 
@@ -220,19 +223,7 @@ _map_slice_dbg_count = 0
 
 
 def _map_slice_dbg(msg: str) -> None:
-    global _map_slice_dbg_f, _map_slice_dbg_count
-    _map_slice_dbg_count += 1
-    if _map_slice_dbg_count > 500:
-        return  # cap debug output to prevent unbounded file growth
-    import datetime
-    try:
-        if _map_slice_dbg_f is None:
-            _map_slice_dbg_f = open("map_slice_debug.txt", "a", encoding="utf-8")
-        ts = datetime.datetime.now().strftime("%H:%M:%S")
-        _map_slice_dbg_f.write(f"[{ts}] {msg}\n")
-        _map_slice_dbg_f.flush()
-    except Exception:
-        pass
+    return  # disabled — was writing 29 MB+ to disk, causing I/O lag
 
 
 def _search_for_map_slice(data: bytes, gs: GameState) -> None:
@@ -437,6 +428,7 @@ def _record_kill(gs: GameState, cid: int) -> None:
     gs.session_kills += 1
 
 
+
 def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
     """Parse one message at `pos` (after opcode byte).
 
@@ -497,7 +489,19 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
             gs.creatures[cid]["t"] = time.time()
             # Kill detection: monster health dropped to 0
             if health == 0 and old_health > 0 and cid >= 0x40000000:
+                if cid not in gs._recent_kills:
+                    gs._recent_kills.add(cid)
+                    _record_kill(gs, cid)
+        elif health == 0 and cid >= 0x40000000:
+            # Monster NOT in gs.creatures but died — count it (AOE kills)
+            if cid not in gs._recent_kills:
+                gs._recent_kills.add(cid)
                 _record_kill(gs, cid)
+        # Periodic cleanup of dedup set (every 30s, remove all)
+        now = time.time()
+        if now - gs._recent_kills_cleanup > 30:
+            gs._recent_kills.clear()
+            gs._recent_kills_cleanup = now
         return pos + _ch_size
 
     # CREATURE_MOVE — 11 bytes: pos(5) + u8 + pos(5)
@@ -526,6 +530,13 @@ def _parse_at(opcode: int, data: bytes, pos: int, gs: GameState) -> int:
         gs.messages.append({"type": msg_type, "text": text})
         if "can't throw there" in text.lower():
             gs.last_cant_throw = time.time()
+        # "Creature is not reachable." — instantly blacklist current attack target
+        if "not reachable" in text.lower():
+            target_id = gs.attack_target_id
+            if target_id and target_id >= 0x40000000:
+                gs.unreachable_creatures[target_id] = time.time() + 10  # 10s blacklist
+                gs.attack_target_id = 0
+                log.info(f"NOT REACHABLE: blacklisted 0x{target_id:08X} for 10s")
         _check_pz_message(text, gs)
         log.info(f"TEXT_MESSAGE(type={msg_type}): {text}")
         return end

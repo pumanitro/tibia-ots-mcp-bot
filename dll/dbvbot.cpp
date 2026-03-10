@@ -598,29 +598,8 @@ static int WSAAPI hooked_WSASend(SOCKET s, LPWSABUF lpBuffers, DWORD dwBufferCou
         dbg("Captured game socket: %u", (unsigned)s);
     }
 
-    if (g_hook_active && g_hook_log && dwBufferCount > 0 && lpBuffers[0].len > 0) {
-        // Use __builtin_return_address for reliable caller capture
-        void* ret_addr = __builtin_return_address(0);
-        HMODULE game_base = GetModuleHandle(NULL);
-        DWORD caller_rva = (DWORD)((uintptr_t)ret_addr - (uintptr_t)game_base);
-
-        int total_len = 0;
-        for (DWORD b = 0; b < dwBufferCount; b++) total_len += lpBuffers[b].len;
-
-        fprintf(g_hook_log, "WSASend(%d bytes, %lu bufs) caller:+0x%X", total_len, dwBufferCount, caller_rva);
-
-        // Dump first 64 bytes of first buffer
-        const char* buf = lpBuffers[0].buf;
-        int buf_len = lpBuffers[0].len;
-        int dump_len = buf_len < 64 ? buf_len : 64;
-        fprintf(g_hook_log, " data[%d]:", buf_len);
-        for (int i = 0; i < dump_len; i++) {
-            fprintf(g_hook_log, " %02X", (unsigned char)buf[i]);
-        }
-        if (buf_len > dump_len) fprintf(g_hook_log, " ...");
-        fprintf(g_hook_log, "\n");
-        fflush(g_hook_log);
-    }
+    // WSASend logging disabled — was writing 88 MB+ to disk, causing I/O lag
+    // (socket capture still active above)
     return g_original_WSASend(s, lpBuffers, dwBufferCount, lpNumberOfBytesSent,
                                dwFlags, lpOverlapped, lpCompletionRoutine);
 }
@@ -766,15 +745,9 @@ static LONG g_xtea_read_idx = 0;  // read by pipe thread
 
 // Flush captured callers to log (called from pipe thread, not from hook)
 static void flush_xtea_captures(void) {
-    if (!g_xtea_log) return;
-    LONG write_idx = g_xtea_write_idx;
-    while (g_xtea_read_idx < write_idx && g_xtea_read_idx < MAX_XTEA_CAPTURES) {
-        XteaCapture* c = &g_xtea_captures[g_xtea_read_idx];
-        fprintf(g_xtea_log, "XTEA caller:+0x%X grandcaller:+0x%X\n",
-                c->caller_rva, c->grandcaller_rva);
-        g_xtea_read_idx++;
-    }
-    if (g_xtea_read_idx > 0) fflush(g_xtea_log);
+    // XTEA logging disabled — was writing 20 MB+ to disk, causing I/O lag
+    // Still advance read index to prevent buffer overflow
+    g_xtea_read_idx = g_xtea_write_idx;
 }
 
 // Forward declarations for attack replay (defined later, used by XTEA cave)

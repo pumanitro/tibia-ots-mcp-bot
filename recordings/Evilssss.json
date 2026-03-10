@@ -1,0 +1,5805 @@
+{
+  "name": "Evilssss",
+  "created_at": "2026-03-01T11:36:26.692927+00:00",
+  "version": 1,
+  "start_position": [
+    116,
+    528,
+    6
+  ],
+  "waypoints": [
+    {
+      "type": "tile_transform_item",
+      "x": 1536,
+      "y": 47873,
+      "z": 0,
+      "t": -370.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1536,
+      "y": 50177,
+      "z": 0,
+      "t": -367.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1536,
+      "y": 50178,
+      "z": 0,
+      "t": -366.9
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        479,
+        236,
+        14
+      ],
+      "t": -352.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 174,
+      "y": 101,
+      "z": 7,
+      "t": -346.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 25717,
+      "y": 6144,
+      "z": 0,
+      "t": -345.0
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        479,
+        236,
+        14
+      ],
+      "t": -341.7
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        479,
+        236,
+        14
+      ],
+      "t": -341.7
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        479,
+        236,
+        14
+      ],
+      "t": -331.7
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        479,
+        236,
+        14
+      ],
+      "t": -331.7
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        479,
+        236,
+        14
+      ],
+      "t": -331.4
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        479,
+        236,
+        14
+      ],
+      "t": -331.4
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        479,
+        236,
+        14
+      ],
+      "t": -331.2
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        479,
+        236,
+        14
+      ],
+      "t": -331.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 26112,
+      "y": 1792,
+      "z": 1,
+      "t": -322.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 55039,
+      "y": 513,
+      "z": 0,
+      "t": -316.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 612,
+      "y": 1514,
+      "z": 0,
+      "t": -313.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 910,
+      "y": 18689,
+      "z": 0,
+      "t": -288.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 910,
+      "y": 19201,
+      "z": 0,
+      "t": -273.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2593,
+      "y": 19075,
+      "z": 0,
+      "t": -267.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 41077,
+      "y": 100,
+      "z": 0,
+      "t": -267.6
+    },
+    {
+      "type": "floor_change",
+      "direction": "up",
+      "pos": [
+        74,
+        93,
+        7
+      ],
+      "z": 7,
+      "t": -267.3
+    },
+    {
+      "type": "floor_change",
+      "direction": "up",
+      "pos": [
+        135,
+        585,
+        5
+      ],
+      "z": 5,
+      "t": -182.9
+    },
+    {
+      "type": "floor_change",
+      "direction": "down",
+      "pos": [
+        134,
+        584,
+        6
+      ],
+      "z": 6,
+      "t": -182.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 135,
+      "y": 581,
+      "z": 6,
+      "t": -180.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 135,
+      "y": 581,
+      "z": 6,
+      "t": -180.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 135,
+      "y": 579,
+      "z": 6,
+      "t": -178.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 136,
+      "y": 580,
+      "z": 6,
+      "t": -176.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 136,
+      "y": 579,
+      "z": 6,
+      "t": -175.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 137,
+      "y": 585,
+      "z": 7,
+      "t": -169.2
+    },
+    {
+      "type": "floor_change",
+      "direction": "down",
+      "pos": [
+        137,
+        579,
+        7
+      ],
+      "z": 7,
+      "t": -169.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 136,
+      "y": 580,
+      "z": 7,
+      "t": -162.0
+    },
+    {
+      "type": "floor_change",
+      "direction": "up",
+      "pos": [
+        137,
+        580,
+        6
+      ],
+      "z": 6,
+      "t": -160.5
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        134,
+        580,
+        6
+      ],
+      "t": -159.7
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        134,
+        580,
+        6
+      ],
+      "t": -159.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 140,
+      "y": 562,
+      "z": 6,
+      "t": -152.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 140,
+      "y": 563,
+      "z": 6,
+      "t": -152.3
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 140,
+      "y": 562,
+      "z": 6,
+      "t": -151.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 139,
+      "y": 562,
+      "z": 6,
+      "t": -151.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 135,
+      "y": 558,
+      "z": 7,
+      "t": -141.6
+    },
+    {
+      "type": "floor_change",
+      "direction": "down",
+      "pos": [
+        127,
+        564,
+        7
+      ],
+      "z": 7,
+      "t": -141.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 126,
+      "y": 563,
+      "z": 7,
+      "t": -140.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 125,
+      "y": 560,
+      "z": 7,
+      "t": -139.3
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 124,
+      "y": 552,
+      "z": 7,
+      "t": -134.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 910,
+      "y": 1287,
+      "z": 0,
+      "t": -131.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 114,
+      "y": 545,
+      "z": 7,
+      "t": -130.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 114,
+      "y": 546,
+      "z": 7,
+      "t": -129.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 114,
+      "y": 546,
+      "z": 7,
+      "t": -129.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 115,
+      "y": 545,
+      "z": 7,
+      "t": -128.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 122,
+      "y": 546,
+      "z": 7,
+      "t": -122.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2147,
+      "y": 1280,
+      "z": 0,
+      "t": -119.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 116,
+      "y": 531,
+      "z": 6,
+      "t": -112.1
+    },
+    {
+      "type": "floor_change",
+      "direction": "up",
+      "pos": [
+        119,
+        530,
+        6
+      ],
+      "z": 6,
+      "t": -112.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 116,
+      "y": 530,
+      "z": 6,
+      "t": -111.6
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        118,
+        530,
+        6
+      ],
+      "t": -111.2
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        118,
+        530,
+        6
+      ],
+      "t": -111.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 117,
+      "y": 529,
+      "z": 6,
+      "t": -109.3
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 116,
+      "y": 529,
+      "z": 6,
+      "t": -109.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 117,
+      "y": 519,
+      "z": 6,
+      "t": -105.1
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 0,
+      "pos": [
+        116,
+        523,
+        6
+      ],
+      "t": -102.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 117,
+      "y": 517,
+      "z": 6,
+      "t": -102.7
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 1,
+      "pos": [
+        116,
+        521,
+        6
+      ],
+      "t": -100.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 117,
+      "y": 519,
+      "z": 6,
+      "t": -100.2
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 1,
+      "pos": [
+        116,
+        521,
+        6
+      ],
+      "t": -97.8
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 1,
+      "pos": [
+        116,
+        521,
+        6
+      ],
+      "t": -97.8
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 1,
+      "pos": [
+        116,
+        521,
+        6
+      ],
+      "t": -97.7
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 2,
+      "pos": [
+        116,
+        522,
+        6
+      ],
+      "t": -96.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 116,
+      "y": 521,
+      "z": 6,
+      "t": -95.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 116,
+      "y": 521,
+      "z": 6,
+      "t": -93.9
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 0,
+      "pos": [
+        116,
+        519,
+        6
+      ],
+      "t": -92.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 117,
+      "y": 519,
+      "z": 5,
+      "t": -88.5
+    },
+    {
+      "type": "floor_change",
+      "direction": "up",
+      "pos": [
+        116,
+        519,
+        5
+      ],
+      "z": 5,
+      "t": -88.3
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 117,
+      "y": 518,
+      "z": 5,
+      "t": -82.8
+    },
+    {
+      "type": "floor_change",
+      "direction": "down",
+      "pos": [
+        116,
+        518,
+        6
+      ],
+      "z": 6,
+      "t": -77.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 111,
+      "y": 524,
+      "z": 6,
+      "t": -73.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 111,
+      "y": 523,
+      "z": 6,
+      "t": -73.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2816,
+      "y": 1282,
+      "z": 2,
+      "t": -73.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 111,
+      "y": 523,
+      "z": 6,
+      "t": -72.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 3072,
+      "y": 1282,
+      "z": 2,
+      "t": -72.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1792,
+      "y": 1282,
+      "z": 1,
+      "t": -71.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 112,
+      "y": 524,
+      "z": 6,
+      "t": -71.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 112,
+      "y": 523,
+      "z": 6,
+      "t": -69.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 3072,
+      "y": 1282,
+      "z": 2,
+      "t": -68.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 3328,
+      "y": 1282,
+      "z": 2,
+      "t": -67.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 910,
+      "y": 1287,
+      "z": 0,
+      "t": -66.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1792,
+      "y": 1282,
+      "z": 1,
+      "t": -65.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1792,
+      "y": 1282,
+      "z": 1,
+      "t": -63.9
+    },
+    {
+      "type": "floor_change",
+      "direction": "up",
+      "pos": [
+        110,
+        521,
+        5
+      ],
+      "z": 5,
+      "t": -40.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2304,
+      "y": 1282,
+      "z": 2,
+      "t": -40.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 107,
+      "y": 523,
+      "z": 5,
+      "t": -40.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2816,
+      "y": 1282,
+      "z": 2,
+      "t": -40.2
+    },
+    {
+      "type": "floor_change",
+      "direction": "down",
+      "pos": [
+        112,
+        521,
+        6
+      ],
+      "z": 6,
+      "t": -39.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2816,
+      "y": 1282,
+      "z": 2,
+      "t": -38.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2816,
+      "y": 1794,
+      "z": 2,
+      "t": -21.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2816,
+      "y": 1794,
+      "z": 2,
+      "t": -20.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2560,
+      "y": 1794,
+      "z": 1,
+      "t": -18.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2816,
+      "y": 1794,
+      "z": 2,
+      "t": -17.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 3072,
+      "y": 1794,
+      "z": 2,
+      "t": -16.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 3072,
+      "y": 1794,
+      "z": 2,
+      "t": -14.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 3072,
+      "y": 1794,
+      "z": 2,
+      "t": -12.6
+    },
+    {
+      "type": "walk",
+      "direction": "autowalk",
+      "pos": [
+        116,
+        525,
+        6
+      ],
+      "player_pos": [
+        116,
+        528,
+        6
+      ],
+      "t": 1.4
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        116,
+        526,
+        6
+      ],
+      "player_pos": [
+        116,
+        527,
+        6
+      ],
+      "t": 1.8
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        116,
+        526,
+        6
+      ],
+      "player_pos": [
+        116,
+        527,
+        6
+      ],
+      "t": 1.9
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        116,
+        525,
+        6
+      ],
+      "player_pos": [
+        116,
+        526,
+        6
+      ],
+      "t": 2.2
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        116,
+        524,
+        6
+      ],
+      "player_pos": [
+        116,
+        525,
+        6
+      ],
+      "t": 2.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 678,
+      "y": 2112,
+      "z": 0,
+      "t": 2.6
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        116,
+        523,
+        6
+      ],
+      "player_pos": [
+        116,
+        524,
+        6
+      ],
+      "t": 2.8
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        116,
+        522,
+        6
+      ],
+      "player_pos": [
+        116,
+        523,
+        6
+      ],
+      "t": 3.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 3328,
+      "y": 1794,
+      "z": 3,
+      "t": 3.4
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        115,
+        522,
+        6
+      ],
+      "player_pos": [
+        116,
+        522,
+        6
+      ],
+      "t": 4.1
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        115,
+        521,
+        6
+      ],
+      "player_pos": [
+        115,
+        522,
+        6
+      ],
+      "t": 4.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 116,
+      "y": 521,
+      "z": 6,
+      "t": 4.5
+    },
+    {
+      "type": "walk",
+      "direction": "autowalk",
+      "pos": [
+        116,
+        520,
+        6
+      ],
+      "player_pos": [
+        115,
+        521,
+        6
+      ],
+      "t": 5.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 116,
+      "y": 521,
+      "z": 6,
+      "t": 5.6
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        116,
+        519,
+        6
+      ],
+      "player_pos": [
+        116,
+        520,
+        6
+      ],
+      "t": 6.2
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        116,
+        518,
+        6
+      ],
+      "player_pos": [
+        116,
+        519,
+        6
+      ],
+      "t": 7.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2163,
+      "y": 1280,
+      "z": 0,
+      "t": 7.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 3072,
+      "y": 1794,
+      "z": 2,
+      "t": 9.4
+    },
+    {
+      "type": "use_item",
+      "x": 116,
+      "y": 518,
+      "z": 6,
+      "item_id": 1968,
+      "stack_pos": 2,
+      "index": 1,
+      "label": "Use item 1968",
+      "pos": [
+        116,
+        518,
+        6
+      ],
+      "player_pos": [
+        116,
+        518,
+        6
+      ],
+      "t": 9.7
+    },
+    {
+      "type": "floor_change",
+      "direction": "up",
+      "pos": [
+        116,
+        519,
+        5
+      ],
+      "z": 5,
+      "t": 9.9
+    },
+    {
+      "type": "walk",
+      "direction": "autowalk",
+      "pos": [
+        116,
+        518,
+        5
+      ],
+      "player_pos": [
+        116,
+        519,
+        5
+      ],
+      "t": 11.8
+    },
+    {
+      "type": "floor_change",
+      "direction": "down",
+      "pos": [
+        116,
+        518,
+        6
+      ],
+      "z": 6,
+      "t": 11.9
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        116,
+        519,
+        6
+      ],
+      "player_pos": [
+        116,
+        518,
+        6
+      ],
+      "t": 12.4
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        116,
+        520,
+        6
+      ],
+      "player_pos": [
+        116,
+        519,
+        6
+      ],
+      "t": 12.6
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        116,
+        521,
+        6
+      ],
+      "player_pos": [
+        116,
+        520,
+        6
+      ],
+      "t": 12.9
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        115,
+        521,
+        6
+      ],
+      "player_pos": [
+        116,
+        521,
+        6
+      ],
+      "t": 13.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 3328,
+      "y": 1794,
+      "z": 3,
+      "t": 13.4
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        114,
+        521,
+        6
+      ],
+      "player_pos": [
+        115,
+        521,
+        6
+      ],
+      "t": 13.5
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        113,
+        521,
+        6
+      ],
+      "player_pos": [
+        114,
+        521,
+        6
+      ],
+      "t": 13.9
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        112,
+        521,
+        6
+      ],
+      "player_pos": [
+        113,
+        521,
+        6
+      ],
+      "t": 14.2
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        111,
+        521,
+        6
+      ],
+      "player_pos": [
+        112,
+        521,
+        6
+      ],
+      "t": 14.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 104,
+      "y": 521,
+      "z": 5,
+      "t": 14.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 107,
+      "y": 518,
+      "z": 5,
+      "t": 14.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1536,
+      "y": 1282,
+      "z": 1,
+      "t": 14.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 111,
+      "y": 516,
+      "z": 5,
+      "t": 14.6
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        111,
+        521,
+        6
+      ],
+      "player_pos": [
+        112,
+        521,
+        6
+      ],
+      "t": 14.7
+    },
+    {
+      "type": "floor_change",
+      "direction": "up",
+      "pos": [
+        110,
+        521,
+        5
+      ],
+      "z": 5,
+      "t": 14.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1536,
+      "y": 1282,
+      "z": 1,
+      "t": 15.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 110,
+      "y": 516,
+      "z": 5,
+      "t": 15.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1792,
+      "y": 1282,
+      "z": 1,
+      "t": 15.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 109,
+      "y": 516,
+      "z": 5,
+      "t": 15.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 107,
+      "y": 520,
+      "z": 5,
+      "t": 15.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2048,
+      "y": 1282,
+      "z": 2,
+      "t": 15.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2048,
+      "y": 1282,
+      "z": 2,
+      "t": 16.3
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2304,
+      "y": 1282,
+      "z": 2,
+      "t": 16.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 108,
+      "y": 518,
+      "z": 5,
+      "t": 17.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 3328,
+      "y": 1794,
+      "z": 3,
+      "t": 17.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 109,
+      "y": 520,
+      "z": 5,
+      "t": 18.3
+    },
+    {
+      "type": "use_item",
+      "x": 108,
+      "y": 520,
+      "z": 5,
+      "item_id": 8461,
+      "stack_pos": 1,
+      "index": 1,
+      "label": "Use item 8461",
+      "pos": [
+        109,
+        521,
+        5
+      ],
+      "player_pos": [
+        109,
+        521,
+        5
+      ],
+      "t": 24.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 3328,
+      "y": 1794,
+      "z": 3,
+      "t": 27.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 108,
+      "y": 520,
+      "z": 5,
+      "t": 30.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 3328,
+      "y": 1794,
+      "z": 3,
+      "t": 31.4
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        108,
+        521,
+        5
+      ],
+      "player_pos": [
+        109,
+        521,
+        5
+      ],
+      "t": 32.2
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        109,
+        520,
+        5
+      ],
+      "player_pos": [
+        109,
+        521,
+        5
+      ],
+      "t": 32.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 109,
+      "y": 520,
+      "z": 5,
+      "t": 32.5
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        108,
+        519,
+        5
+      ],
+      "player_pos": [
+        108,
+        520,
+        5
+      ],
+      "t": 32.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 109,
+      "y": 521,
+      "z": 5,
+      "t": 32.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 109,
+      "y": 521,
+      "z": 5,
+      "t": 32.7
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        108,
+        518,
+        5
+      ],
+      "player_pos": [
+        108,
+        519,
+        5
+      ],
+      "t": 32.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 108,
+      "y": 521,
+      "z": 5,
+      "t": 33.1
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        109,
+        518,
+        5
+      ],
+      "player_pos": [
+        108,
+        518,
+        5
+      ],
+      "t": 33.2
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        110,
+        518,
+        5
+      ],
+      "player_pos": [
+        109,
+        518,
+        5
+      ],
+      "t": 33.4
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        110,
+        517,
+        5
+      ],
+      "player_pos": [
+        110,
+        518,
+        5
+      ],
+      "t": 33.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 108,
+      "y": 519,
+      "z": 5,
+      "t": 33.9
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        110,
+        516,
+        5
+      ],
+      "player_pos": [
+        110,
+        517,
+        5
+      ],
+      "t": 34.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 108,
+      "y": 518,
+      "z": 5,
+      "t": 34.4
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        111,
+        516,
+        5
+      ],
+      "player_pos": [
+        110,
+        516,
+        5
+      ],
+      "t": 34.8
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        111,
+        515,
+        5
+      ],
+      "player_pos": [
+        111,
+        516,
+        5
+      ],
+      "t": 35.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 109,
+      "y": 518,
+      "z": 5,
+      "t": 35.2
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        112,
+        515,
+        5
+      ],
+      "player_pos": [
+        111,
+        515,
+        5
+      ],
+      "t": 35.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 110,
+      "y": 518,
+      "z": 5,
+      "t": 35.5
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        112,
+        514,
+        5
+      ],
+      "player_pos": [
+        112,
+        515,
+        5
+      ],
+      "t": 35.7
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        113,
+        514,
+        5
+      ],
+      "player_pos": [
+        112,
+        514,
+        5
+      ],
+      "t": 36.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 111,
+      "y": 517,
+      "z": 5,
+      "t": 36.6
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        113,
+        513,
+        5
+      ],
+      "player_pos": [
+        113,
+        514,
+        5
+      ],
+      "t": 36.7
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        113,
+        512,
+        5
+      ],
+      "player_pos": [
+        113,
+        513,
+        5
+      ],
+      "t": 37.2
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        114,
+        512,
+        5
+      ],
+      "player_pos": [
+        113,
+        512,
+        5
+      ],
+      "t": 37.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 112,
+      "y": 516,
+      "z": 5,
+      "t": 37.7
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        114,
+        511,
+        5
+      ],
+      "player_pos": [
+        114,
+        512,
+        5
+      ],
+      "t": 38.1
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        114,
+        510,
+        5
+      ],
+      "player_pos": [
+        114,
+        511,
+        5
+      ],
+      "t": 38.9
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        115,
+        510,
+        5
+      ],
+      "player_pos": [
+        114,
+        510,
+        5
+      ],
+      "t": 39.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 113,
+      "y": 514,
+      "z": 5,
+      "t": 39.3
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        115,
+        509,
+        5
+      ],
+      "player_pos": [
+        115,
+        510,
+        5
+      ],
+      "t": 39.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 116,
+      "y": 507,
+      "z": 5,
+      "t": 40.5
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        115,
+        508,
+        5
+      ],
+      "player_pos": [
+        115,
+        509,
+        5
+      ],
+      "t": 40.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 114,
+      "y": 512,
+      "z": 5,
+      "t": 40.9
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        115,
+        507,
+        5
+      ],
+      "player_pos": [
+        115,
+        508,
+        5
+      ],
+      "t": 41.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 116,
+      "y": 507,
+      "z": 5,
+      "t": 41.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 113,
+      "y": 506,
+      "z": 5,
+      "t": 42.4
+    },
+    {
+      "type": "walk",
+      "direction": "autowalk",
+      "pos": [
+        118,
+        508,
+        5
+      ],
+      "player_pos": [
+        115,
+        507,
+        5
+      ],
+      "t": 42.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 114,
+      "y": 506,
+      "z": 5,
+      "t": 42.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 114,
+      "y": 509,
+      "z": 5,
+      "t": 43.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 116,
+      "y": 507,
+      "z": 5,
+      "t": 43.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 114,
+      "y": 506,
+      "z": 5,
+      "t": 43.3
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 114,
+      "y": 507,
+      "z": 5,
+      "t": 43.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 116,
+      "y": 507,
+      "z": 5,
+      "t": 43.6
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        118,
+        507,
+        5
+      ],
+      "player_pos": [
+        118,
+        508,
+        5
+      ],
+      "t": 43.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 115,
+      "y": 508,
+      "z": 5,
+      "t": 43.7
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        118,
+        508,
+        5
+      ],
+      "player_pos": [
+        118,
+        507,
+        5
+      ],
+      "t": 44.4
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        117,
+        508,
+        5
+      ],
+      "player_pos": [
+        118,
+        508,
+        5
+      ],
+      "t": 44.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 117,
+      "y": 507,
+      "z": 5,
+      "t": 44.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 118,
+      "y": 507,
+      "z": 5,
+      "t": 45.0
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        116,
+        508,
+        5
+      ],
+      "player_pos": [
+        117,
+        508,
+        5
+      ],
+      "t": 49.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 116,
+      "y": 507,
+      "z": 5,
+      "t": 49.5
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        115,
+        508,
+        5
+      ],
+      "player_pos": [
+        116,
+        508,
+        5
+      ],
+      "t": 49.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 117,
+      "y": 508,
+      "z": 5,
+      "t": 50.0
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        115,
+        509,
+        5
+      ],
+      "player_pos": [
+        115,
+        508,
+        5
+      ],
+      "t": 50.5
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        114,
+        509,
+        5
+      ],
+      "player_pos": [
+        115,
+        509,
+        5
+      ],
+      "t": 51.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 115,
+      "y": 507,
+      "z": 5,
+      "t": 51.2
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        114,
+        510,
+        5
+      ],
+      "player_pos": [
+        114,
+        509,
+        5
+      ],
+      "t": 51.3
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        114,
+        511,
+        5
+      ],
+      "player_pos": [
+        114,
+        510,
+        5
+      ],
+      "t": 51.9
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        113,
+        511,
+        5
+      ],
+      "player_pos": [
+        114,
+        511,
+        5
+      ],
+      "t": 52.2
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        113,
+        512,
+        5
+      ],
+      "player_pos": [
+        113,
+        511,
+        5
+      ],
+      "t": 52.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 114,
+      "y": 509,
+      "z": 5,
+      "t": 52.9
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        113,
+        513,
+        5
+      ],
+      "player_pos": [
+        113,
+        512,
+        5
+      ],
+      "t": 53.0
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        113,
+        514,
+        5
+      ],
+      "player_pos": [
+        113,
+        513,
+        5
+      ],
+      "t": 53.8
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        112,
+        514,
+        5
+      ],
+      "player_pos": [
+        113,
+        514,
+        5
+      ],
+      "t": 54.1
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        112,
+        515,
+        5
+      ],
+      "player_pos": [
+        112,
+        514,
+        5
+      ],
+      "t": 55.3
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        111,
+        515,
+        5
+      ],
+      "player_pos": [
+        112,
+        515,
+        5
+      ],
+      "t": 55.6
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        111,
+        516,
+        5
+      ],
+      "player_pos": [
+        111,
+        515,
+        5
+      ],
+      "t": 56.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 112,
+      "y": 514,
+      "z": 5,
+      "t": 56.7
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        111,
+        517,
+        5
+      ],
+      "player_pos": [
+        111,
+        516,
+        5
+      ],
+      "t": 57.0
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        110,
+        517,
+        5
+      ],
+      "player_pos": [
+        111,
+        517,
+        5
+      ],
+      "t": 57.2
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        110,
+        517,
+        5
+      ],
+      "t": 57.6
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        109,
+        517,
+        5
+      ],
+      "player_pos": [
+        110,
+        517,
+        5
+      ],
+      "t": 57.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 111,
+      "y": 515,
+      "z": 5,
+      "t": 57.8
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        110,
+        517,
+        5
+      ],
+      "t": 57.8
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        109,
+        518,
+        5
+      ],
+      "player_pos": [
+        109,
+        517,
+        5
+      ],
+      "t": 58.1
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        108,
+        518,
+        5
+      ],
+      "player_pos": [
+        109,
+        518,
+        5
+      ],
+      "t": 58.8
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        108,
+        519,
+        5
+      ],
+      "player_pos": [
+        108,
+        518,
+        5
+      ],
+      "t": 59.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 110,
+      "y": 516,
+      "z": 5,
+      "t": 59.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 109,
+      "y": 516,
+      "z": 5,
+      "t": 59.6
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        108,
+        520,
+        5
+      ],
+      "player_pos": [
+        108,
+        519,
+        5
+      ],
+      "t": 59.7
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        107,
+        520,
+        5
+      ],
+      "player_pos": [
+        108,
+        520,
+        5
+      ],
+      "t": 60.1
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        107,
+        521,
+        5
+      ],
+      "player_pos": [
+        107,
+        520,
+        5
+      ],
+      "t": 60.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2048,
+      "y": 1282,
+      "z": 2,
+      "t": 60.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 108,
+      "y": 518,
+      "z": 5,
+      "t": 61.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2304,
+      "y": 1282,
+      "z": 2,
+      "t": 61.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2304,
+      "y": 1282,
+      "z": 7,
+      "t": 61.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2304,
+      "y": 1282,
+      "z": 9,
+      "t": 61.5
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        107,
+        522,
+        5
+      ],
+      "player_pos": [
+        107,
+        521,
+        5
+      ],
+      "t": 61.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2304,
+      "y": 1282,
+      "z": 3,
+      "t": 61.6
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        107,
+        523,
+        5
+      ],
+      "player_pos": [
+        107,
+        522,
+        5
+      ],
+      "t": 62.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2560,
+      "y": 1282,
+      "z": 2,
+      "t": 62.1
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        106,
+        523,
+        5
+      ],
+      "player_pos": [
+        107,
+        523,
+        5
+      ],
+      "t": 62.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 107,
+      "y": 520,
+      "z": 5,
+      "t": 62.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2048,
+      "y": 1282,
+      "z": 2,
+      "t": 62.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2816,
+      "y": 1282,
+      "z": 2,
+      "t": 62.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2048,
+      "y": 1282,
+      "z": 2,
+      "t": 63.0
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        106,
+        524,
+        5
+      ],
+      "player_pos": [
+        106,
+        523,
+        5
+      ],
+      "t": 63.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2304,
+      "y": 1282,
+      "z": 3,
+      "t": 63.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2560,
+      "y": 1282,
+      "z": 2,
+      "t": 64.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 3840,
+      "y": 1794,
+      "z": 3,
+      "t": 64.3
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        106,
+        525,
+        5
+      ],
+      "player_pos": [
+        106,
+        524,
+        5
+      ],
+      "t": 64.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2816,
+      "y": 1282,
+      "z": 2,
+      "t": 64.5
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        105,
+        525,
+        5
+      ],
+      "player_pos": [
+        106,
+        525,
+        5
+      ],
+      "t": 64.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 107,
+      "y": 524,
+      "z": 5,
+      "t": 65.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 3072,
+      "y": 1282,
+      "z": 2,
+      "t": 65.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 3072,
+      "y": 1282,
+      "z": 2,
+      "t": 65.0
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        104,
+        525,
+        5
+      ],
+      "player_pos": [
+        105,
+        525,
+        5
+      ],
+      "t": 66.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 100,
+      "y": 527,
+      "z": 4,
+      "t": 66.2
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        104,
+        525,
+        5
+      ],
+      "player_pos": [
+        105,
+        525,
+        5
+      ],
+      "t": 66.3
+    },
+    {
+      "type": "floor_change",
+      "direction": "up",
+      "pos": [
+        103,
+        525,
+        4
+      ],
+      "z": 4,
+      "t": 66.3
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 101,
+      "y": 527,
+      "z": 4,
+      "t": 66.7
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        101,
+        525,
+        4
+      ],
+      "player_pos": [
+        102,
+        525,
+        4
+      ],
+      "t": 66.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 3840,
+      "y": 1794,
+      "z": 3,
+      "t": 67.3
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        101,
+        524,
+        4
+      ],
+      "player_pos": [
+        101,
+        525,
+        4
+      ],
+      "t": 68.8
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        101,
+        523,
+        4
+      ],
+      "player_pos": [
+        101,
+        524,
+        4
+      ],
+      "t": 69.5
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        101,
+        522,
+        4
+      ],
+      "player_pos": [
+        101,
+        523,
+        4
+      ],
+      "t": 70.8
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        101,
+        521,
+        4
+      ],
+      "player_pos": [
+        101,
+        522,
+        4
+      ],
+      "t": 71.9
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        101,
+        520,
+        4
+      ],
+      "player_pos": [
+        101,
+        521,
+        4
+      ],
+      "t": 72.1
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        101,
+        519,
+        4
+      ],
+      "player_pos": [
+        101,
+        520,
+        4
+      ],
+      "t": 73.7
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        102,
+        519,
+        4
+      ],
+      "player_pos": [
+        101,
+        519,
+        4
+      ],
+      "t": 74.3
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        102,
+        518,
+        4
+      ],
+      "player_pos": [
+        102,
+        519,
+        4
+      ],
+      "t": 75.9
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        103,
+        518,
+        4
+      ],
+      "player_pos": [
+        102,
+        518,
+        4
+      ],
+      "t": 76.3
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        103,
+        517,
+        4
+      ],
+      "player_pos": [
+        103,
+        518,
+        4
+      ],
+      "t": 76.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 102,
+      "y": 519,
+      "z": 4,
+      "t": 77.0
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        103,
+        516,
+        4
+      ],
+      "player_pos": [
+        103,
+        517,
+        4
+      ],
+      "t": 77.1
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        104,
+        516,
+        4
+      ],
+      "player_pos": [
+        103,
+        516,
+        4
+      ],
+      "t": 77.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 103,
+      "y": 518,
+      "z": 4,
+      "t": 77.9
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        104,
+        515,
+        4
+      ],
+      "player_pos": [
+        104,
+        516,
+        4
+      ],
+      "t": 78.0
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        105,
+        515,
+        4
+      ],
+      "player_pos": [
+        104,
+        515,
+        4
+      ],
+      "t": 78.3
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 104,
+      "y": 517,
+      "z": 4,
+      "t": 78.9
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        105,
+        514,
+        4
+      ],
+      "player_pos": [
+        105,
+        515,
+        4
+      ],
+      "t": 79.1
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        106,
+        514,
+        4
+      ],
+      "player_pos": [
+        105,
+        514,
+        4
+      ],
+      "t": 79.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 105,
+      "y": 516,
+      "z": 4,
+      "t": 79.9
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        106,
+        513,
+        4
+      ],
+      "player_pos": [
+        106,
+        514,
+        4
+      ],
+      "t": 80.1
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        107,
+        513,
+        4
+      ],
+      "player_pos": [
+        106,
+        513,
+        4
+      ],
+      "t": 80.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 106,
+      "y": 515,
+      "z": 4,
+      "t": 80.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 109,
+      "y": 510,
+      "z": 4,
+      "t": 80.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 108,
+      "y": 510,
+      "z": 4,
+      "t": 81.3
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        107,
+        512,
+        4
+      ],
+      "player_pos": [
+        107,
+        513,
+        4
+      ],
+      "t": 81.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 256,
+      "y": 1026,
+      "z": 1,
+      "t": 81.5
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        108,
+        512,
+        4
+      ],
+      "player_pos": [
+        107,
+        512,
+        4
+      ],
+      "t": 81.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 106,
+      "y": 513,
+      "z": 4,
+      "t": 82.0
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        109,
+        512,
+        4
+      ],
+      "player_pos": [
+        108,
+        512,
+        4
+      ],
+      "t": 83.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 256,
+      "y": 1026,
+      "z": 1,
+      "t": 83.9
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        109,
+        511,
+        4
+      ],
+      "player_pos": [
+        109,
+        512,
+        4
+      ],
+      "t": 84.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 108,
+      "y": 511,
+      "z": 4,
+      "t": 84.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 117,
+      "y": 505,
+      "z": 4,
+      "t": 84.9
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        110,
+        511,
+        4
+      ],
+      "player_pos": [
+        109,
+        511,
+        4
+      ],
+      "t": 85.1
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        109,
+        510,
+        4
+      ],
+      "player_pos": [
+        109,
+        511,
+        4
+      ],
+      "t": 85.3
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        111,
+        510,
+        4
+      ],
+      "player_pos": [
+        110,
+        510,
+        4
+      ],
+      "t": 85.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 118,
+      "y": 504,
+      "z": 4,
+      "t": 85.8
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        111,
+        509,
+        4
+      ],
+      "player_pos": [
+        111,
+        510,
+        4
+      ],
+      "t": 88.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 110,
+      "y": 511,
+      "z": 4,
+      "t": 88.3
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        112,
+        509,
+        4
+      ],
+      "player_pos": [
+        111,
+        509,
+        4
+      ],
+      "t": 90.3
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 110,
+      "y": 510,
+      "z": 4,
+      "t": 90.4
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        113,
+        509,
+        4
+      ],
+      "player_pos": [
+        112,
+        509,
+        4
+      ],
+      "t": 90.6
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        114,
+        509,
+        4
+      ],
+      "player_pos": [
+        113,
+        509,
+        4
+      ],
+      "t": 91.0
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        115,
+        509,
+        4
+      ],
+      "player_pos": [
+        114,
+        509,
+        4
+      ],
+      "t": 91.2
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        116,
+        509,
+        4
+      ],
+      "player_pos": [
+        115,
+        509,
+        4
+      ],
+      "t": 91.4
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        117,
+        509,
+        4
+      ],
+      "player_pos": [
+        116,
+        509,
+        4
+      ],
+      "t": 91.7
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        118,
+        509,
+        4
+      ],
+      "player_pos": [
+        117,
+        509,
+        4
+      ],
+      "t": 92.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 116,
+      "y": 503,
+      "z": 4,
+      "t": 92.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 124,
+      "y": 514,
+      "z": 4,
+      "t": 92.7
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        118,
+        508,
+        4
+      ],
+      "player_pos": [
+        118,
+        509,
+        4
+      ],
+      "t": 92.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 127,
+      "y": 506,
+      "z": 4,
+      "t": 92.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 125,
+      "y": 515,
+      "z": 4,
+      "t": 93.2
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        118,
+        507,
+        4
+      ],
+      "player_pos": [
+        118,
+        508,
+        4
+      ],
+      "t": 93.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 126,
+      "y": 507,
+      "z": 4,
+      "t": 93.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 117,
+      "y": 501,
+      "z": 3,
+      "t": 93.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 117,
+      "y": 503,
+      "z": 3,
+      "t": 93.7
+    },
+    {
+      "type": "floor_change",
+      "direction": "up",
+      "pos": [
+        118,
+        506,
+        3
+      ],
+      "z": 3,
+      "t": 93.9
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        118,
+        505,
+        3
+      ],
+      "player_pos": [
+        118,
+        506,
+        3
+      ],
+      "t": 94.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 117,
+      "y": 505,
+      "z": 3,
+      "t": 94.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 111,
+      "y": 506,
+      "z": 3,
+      "t": 94.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 111,
+      "y": 505,
+      "z": 3,
+      "t": 95.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 110,
+      "y": 505,
+      "z": 3,
+      "t": 95.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 112,
+      "y": 506,
+      "z": 3,
+      "t": 97.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 111,
+      "y": 506,
+      "z": 3,
+      "t": 97.9
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        118,
+        506,
+        3
+      ],
+      "player_pos": [
+        118,
+        505,
+        3
+      ],
+      "t": 98.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 118,
+      "y": 504,
+      "z": 3,
+      "t": 98.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 119,
+      "y": 505,
+      "z": 3,
+      "t": 102.7
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        118,
+        507,
+        3
+      ],
+      "player_pos": [
+        118,
+        506,
+        3
+      ],
+      "t": 108.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 125,
+      "y": 515,
+      "z": 4,
+      "t": 109.0
+    },
+    {
+      "type": "floor_change",
+      "direction": "down",
+      "pos": [
+        118,
+        508,
+        4
+      ],
+      "z": 4,
+      "t": 109.0
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        117,
+        508,
+        4
+      ],
+      "player_pos": [
+        118,
+        508,
+        4
+      ],
+      "t": 109.1
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        117,
+        508,
+        4
+      ],
+      "player_pos": [
+        118,
+        508,
+        4
+      ],
+      "t": 109.4
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        116,
+        508,
+        4
+      ],
+      "player_pos": [
+        117,
+        508,
+        4
+      ],
+      "t": 109.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 118,
+      "y": 504,
+      "z": 4,
+      "t": 109.8
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        115,
+        508,
+        4
+      ],
+      "player_pos": [
+        116,
+        508,
+        4
+      ],
+      "t": 109.8
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        114,
+        508,
+        4
+      ],
+      "player_pos": [
+        115,
+        508,
+        4
+      ],
+      "t": 110.0
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        114,
+        509,
+        4
+      ],
+      "player_pos": [
+        114,
+        508,
+        4
+      ],
+      "t": 110.3
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        112,
+        508,
+        4
+      ],
+      "player_pos": [
+        113,
+        508,
+        4
+      ],
+      "t": 110.5
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        112,
+        509,
+        4
+      ],
+      "player_pos": [
+        113,
+        509,
+        4
+      ],
+      "t": 110.7
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        112,
+        508,
+        4
+      ],
+      "player_pos": [
+        112,
+        509,
+        4
+      ],
+      "t": 110.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 111,
+      "y": 506,
+      "z": 3,
+      "t": 111.1
+    },
+    {
+      "type": "floor_change",
+      "direction": "up",
+      "pos": [
+        111,
+        507,
+        3
+      ],
+      "z": 3,
+      "t": 111.3
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        110,
+        507,
+        3
+      ],
+      "player_pos": [
+        111,
+        507,
+        3
+      ],
+      "t": 112.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 104,
+      "y": 507,
+      "z": 3,
+      "t": 113.1
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        109,
+        507,
+        3
+      ],
+      "player_pos": [
+        110,
+        507,
+        3
+      ],
+      "t": 113.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 111,
+      "y": 506,
+      "z": 3,
+      "t": 113.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 105,
+      "y": 506,
+      "z": 3,
+      "t": 114.1
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        108,
+        507,
+        3
+      ],
+      "player_pos": [
+        109,
+        507,
+        3
+      ],
+      "t": 114.2
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        108,
+        506,
+        3
+      ],
+      "player_pos": [
+        108,
+        507,
+        3
+      ],
+      "t": 114.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 110,
+      "y": 505,
+      "z": 3,
+      "t": 114.5
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        108,
+        505,
+        3
+      ],
+      "player_pos": [
+        108,
+        506,
+        3
+      ],
+      "t": 115.1
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        107,
+        505,
+        3
+      ],
+      "player_pos": [
+        108,
+        505,
+        3
+      ],
+      "t": 115.3
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 107,
+      "y": 506,
+      "z": 3,
+      "t": 115.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 64000,
+      "y": 769,
+      "z": 2,
+      "t": 115.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 63744,
+      "y": 769,
+      "z": 7,
+      "t": 116.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 63744,
+      "y": 769,
+      "z": 1,
+      "t": 116.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 63744,
+      "y": 769,
+      "z": 9,
+      "t": 116.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 63744,
+      "y": 769,
+      "z": 7,
+      "t": 117.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 63744,
+      "y": 769,
+      "z": 9,
+      "t": 118.4
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        106,
+        505,
+        3
+      ],
+      "player_pos": [
+        107,
+        505,
+        3
+      ],
+      "t": 119.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 63744,
+      "y": 769,
+      "z": 2,
+      "t": 119.1
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        106,
+        506,
+        3
+      ],
+      "player_pos": [
+        106,
+        505,
+        3
+      ],
+      "t": 119.3
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 107,
+      "y": 506,
+      "z": 3,
+      "t": 119.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 64000,
+      "y": 769,
+      "z": 2,
+      "t": 119.4
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        106,
+        506,
+        3
+      ],
+      "player_pos": [
+        106,
+        505,
+        3
+      ],
+      "t": 119.5
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 2,
+      "pos": [
+        106,
+        506,
+        3
+      ],
+      "t": 119.6
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 2,
+      "pos": [
+        106,
+        506,
+        3
+      ],
+      "t": 119.6
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        105,
+        506,
+        3
+      ],
+      "player_pos": [
+        106,
+        506,
+        3
+      ],
+      "t": 119.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 64000,
+      "y": 769,
+      "z": 2,
+      "t": 119.9
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        104,
+        506,
+        3
+      ],
+      "player_pos": [
+        105,
+        506,
+        3
+      ],
+      "t": 120.0
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        104,
+        507,
+        3
+      ],
+      "player_pos": [
+        104,
+        506,
+        3
+      ],
+      "t": 120.3
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        103,
+        507,
+        3
+      ],
+      "player_pos": [
+        104,
+        507,
+        3
+      ],
+      "t": 120.8
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        103,
+        508,
+        3
+      ],
+      "player_pos": [
+        103,
+        507,
+        3
+      ],
+      "t": 121.4
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        102,
+        508,
+        3
+      ],
+      "player_pos": [
+        103,
+        508,
+        3
+      ],
+      "t": 121.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 104,
+      "y": 507,
+      "z": 3,
+      "t": 121.9
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        102,
+        509,
+        3
+      ],
+      "player_pos": [
+        102,
+        508,
+        3
+      ],
+      "t": 122.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 103,
+      "y": 507,
+      "z": 3,
+      "t": 122.3
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        101,
+        509,
+        3
+      ],
+      "player_pos": [
+        102,
+        509,
+        3
+      ],
+      "t": 122.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 103,
+      "y": 508,
+      "z": 3,
+      "t": 122.8
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        101,
+        509,
+        3
+      ],
+      "t": 123.0
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        101,
+        510,
+        3
+      ],
+      "player_pos": [
+        101,
+        509,
+        3
+      ],
+      "t": 125.8
+    },
+    {
+      "type": "floor_change",
+      "direction": "up",
+      "pos": [
+        101,
+        511,
+        2
+      ],
+      "z": 2,
+      "t": 126.1
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        100,
+        511,
+        2
+      ],
+      "player_pos": [
+        101,
+        511,
+        2
+      ],
+      "t": 126.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 100,
+      "y": 512,
+      "z": 2,
+      "t": 126.7
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        99,
+        511,
+        2
+      ],
+      "player_pos": [
+        100,
+        511,
+        2
+      ],
+      "t": 126.9
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        99,
+        512,
+        2
+      ],
+      "player_pos": [
+        99,
+        511,
+        2
+      ],
+      "t": 127.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 100,
+      "y": 512,
+      "z": 2,
+      "t": 127.2
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        99,
+        512,
+        2
+      ],
+      "player_pos": [
+        99,
+        511,
+        2
+      ],
+      "t": 127.3
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 2,
+      "pos": [
+        99,
+        512,
+        2
+      ],
+      "t": 127.4
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        99,
+        514,
+        2
+      ],
+      "player_pos": [
+        99,
+        513,
+        2
+      ],
+      "t": 127.5
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        98,
+        514,
+        2
+      ],
+      "player_pos": [
+        99,
+        514,
+        2
+      ],
+      "t": 127.8
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        97,
+        514,
+        2
+      ],
+      "player_pos": [
+        98,
+        514,
+        2
+      ],
+      "t": 128.6
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        97,
+        513,
+        2
+      ],
+      "player_pos": [
+        97,
+        514,
+        2
+      ],
+      "t": 133.5
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        98,
+        513,
+        2
+      ],
+      "player_pos": [
+        97,
+        513,
+        2
+      ],
+      "t": 135.3
+    },
+    {
+      "type": "use_item",
+      "x": 98,
+      "y": 513,
+      "z": 2,
+      "item_id": 8461,
+      "stack_pos": 2,
+      "index": 1,
+      "label": "Use item 8461",
+      "pos": [
+        98,
+        513,
+        2
+      ],
+      "player_pos": [
+        98,
+        513,
+        2
+      ],
+      "t": 136.0
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        99,
+        513,
+        2
+      ],
+      "player_pos": [
+        98,
+        513,
+        2
+      ],
+      "t": 136.3
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        99,
+        512,
+        2
+      ],
+      "player_pos": [
+        99,
+        513,
+        2
+      ],
+      "t": 137.2
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        100,
+        512,
+        2
+      ],
+      "player_pos": [
+        99,
+        512,
+        2
+      ],
+      "t": 137.9
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        101,
+        512,
+        2
+      ],
+      "player_pos": [
+        100,
+        512,
+        2
+      ],
+      "t": 138.8
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        101,
+        511,
+        2
+      ],
+      "player_pos": [
+        101,
+        512,
+        2
+      ],
+      "t": 139.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 100,
+      "y": 511,
+      "z": 2,
+      "t": 144.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 100,
+      "y": 512,
+      "z": 2,
+      "t": 146.4
+    },
+    {
+      "type": "walk",
+      "direction": "autowalk",
+      "pos": [
+        101,
+        510,
+        2
+      ],
+      "player_pos": [
+        101,
+        511,
+        2
+      ],
+      "t": 147.8
+    },
+    {
+      "type": "floor_change",
+      "direction": "down",
+      "pos": [
+        101,
+        509,
+        3
+      ],
+      "z": 3,
+      "t": 148.0
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        102,
+        509,
+        3
+      ],
+      "player_pos": [
+        101,
+        509,
+        3
+      ],
+      "t": 148.2
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        102,
+        508,
+        3
+      ],
+      "player_pos": [
+        102,
+        509,
+        3
+      ],
+      "t": 148.4
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        102,
+        508,
+        3
+      ],
+      "player_pos": [
+        102,
+        509,
+        3
+      ],
+      "t": 148.6
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        103,
+        507,
+        3
+      ],
+      "player_pos": [
+        102,
+        507,
+        3
+      ],
+      "t": 148.8
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        104,
+        507,
+        3
+      ],
+      "player_pos": [
+        103,
+        507,
+        3
+      ],
+      "t": 149.1
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        103,
+        506,
+        3
+      ],
+      "player_pos": [
+        103,
+        507,
+        3
+      ],
+      "t": 149.3
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        105,
+        506,
+        3
+      ],
+      "player_pos": [
+        104,
+        506,
+        3
+      ],
+      "t": 149.5
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        106,
+        506,
+        3
+      ],
+      "player_pos": [
+        105,
+        506,
+        3
+      ],
+      "t": 149.7
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        106,
+        506,
+        3
+      ],
+      "player_pos": [
+        105,
+        506,
+        3
+      ],
+      "t": 149.9
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        108,
+        506,
+        3
+      ],
+      "player_pos": [
+        107,
+        506,
+        3
+      ],
+      "t": 150.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 64000,
+      "y": 769,
+      "z": 2,
+      "t": 150.2
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        108,
+        507,
+        3
+      ],
+      "player_pos": [
+        108,
+        506,
+        3
+      ],
+      "t": 150.4
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        109,
+        507,
+        3
+      ],
+      "player_pos": [
+        108,
+        507,
+        3
+      ],
+      "t": 150.6
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        110,
+        507,
+        3
+      ],
+      "player_pos": [
+        109,
+        507,
+        3
+      ],
+      "t": 150.8
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        111,
+        507,
+        3
+      ],
+      "player_pos": [
+        110,
+        507,
+        3
+      ],
+      "t": 151.0
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        110,
+        508,
+        3
+      ],
+      "player_pos": [
+        110,
+        507,
+        3
+      ],
+      "t": 151.3
+    },
+    {
+      "type": "floor_change",
+      "direction": "down",
+      "pos": [
+        111,
+        509,
+        4
+      ],
+      "z": 4,
+      "t": 151.4
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        111,
+        510,
+        4
+      ],
+      "player_pos": [
+        111,
+        509,
+        4
+      ],
+      "t": 151.5
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        111,
+        510,
+        4
+      ],
+      "player_pos": [
+        111,
+        509,
+        4
+      ],
+      "t": 151.7
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        110,
+        510,
+        4
+      ],
+      "player_pos": [
+        111,
+        510,
+        4
+      ],
+      "t": 151.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 119,
+      "y": 504,
+      "z": 4,
+      "t": 151.9
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        110,
+        511,
+        4
+      ],
+      "player_pos": [
+        111,
+        511,
+        4
+      ],
+      "t": 152.2
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        109,
+        511,
+        4
+      ],
+      "player_pos": [
+        110,
+        511,
+        4
+      ],
+      "t": 152.4
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        108,
+        511,
+        4
+      ],
+      "player_pos": [
+        109,
+        511,
+        4
+      ],
+      "t": 152.6
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        107,
+        511,
+        4
+      ],
+      "player_pos": [
+        108,
+        511,
+        4
+      ],
+      "t": 152.8
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        106,
+        512,
+        4
+      ],
+      "player_pos": [
+        106,
+        511,
+        4
+      ],
+      "t": 153.1
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        106,
+        512,
+        4
+      ],
+      "player_pos": [
+        106,
+        511,
+        4
+      ],
+      "t": 153.3
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        105,
+        512,
+        4
+      ],
+      "player_pos": [
+        106,
+        512,
+        4
+      ],
+      "t": 153.5
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        105,
+        514,
+        4
+      ],
+      "player_pos": [
+        105,
+        513,
+        4
+      ],
+      "t": 153.8
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        105,
+        515,
+        4
+      ],
+      "player_pos": [
+        105,
+        514,
+        4
+      ],
+      "t": 154.0
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        105,
+        516,
+        4
+      ],
+      "player_pos": [
+        105,
+        515,
+        4
+      ],
+      "t": 154.3
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        104,
+        516,
+        4
+      ],
+      "player_pos": [
+        105,
+        516,
+        4
+      ],
+      "t": 154.6
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        104,
+        516,
+        4
+      ],
+      "player_pos": [
+        105,
+        516,
+        4
+      ],
+      "t": 154.9
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        104,
+        517,
+        4
+      ],
+      "player_pos": [
+        104,
+        516,
+        4
+      ],
+      "t": 155.2
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        102,
+        517,
+        4
+      ],
+      "player_pos": [
+        103,
+        517,
+        4
+      ],
+      "t": 155.4
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        102,
+        518,
+        4
+      ],
+      "player_pos": [
+        102,
+        517,
+        4
+      ],
+      "t": 155.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1792,
+      "y": 1282,
+      "z": 1,
+      "t": 155.9
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        102,
+        519,
+        4
+      ],
+      "player_pos": [
+        102,
+        518,
+        4
+      ],
+      "t": 156.1
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        101,
+        519,
+        4
+      ],
+      "player_pos": [
+        102,
+        519,
+        4
+      ],
+      "t": 156.3
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        101,
+        520,
+        4
+      ],
+      "player_pos": [
+        101,
+        519,
+        4
+      ],
+      "t": 156.6
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        101,
+        521,
+        4
+      ],
+      "player_pos": [
+        101,
+        520,
+        4
+      ],
+      "t": 156.9
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        101,
+        522,
+        4
+      ],
+      "player_pos": [
+        101,
+        521,
+        4
+      ],
+      "t": 157.2
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        101,
+        523,
+        4
+      ],
+      "player_pos": [
+        101,
+        522,
+        4
+      ],
+      "t": 157.5
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        101,
+        524,
+        4
+      ],
+      "player_pos": [
+        101,
+        523,
+        4
+      ],
+      "t": 157.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2048,
+      "y": 1282,
+      "z": 2,
+      "t": 157.8
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        101,
+        524,
+        4
+      ],
+      "player_pos": [
+        101,
+        523,
+        4
+      ],
+      "t": 157.9
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        102,
+        525,
+        4
+      ],
+      "player_pos": [
+        101,
+        525,
+        4
+      ],
+      "t": 158.1
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        103,
+        525,
+        4
+      ],
+      "player_pos": [
+        102,
+        525,
+        4
+      ],
+      "t": 158.4
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        104,
+        525,
+        4
+      ],
+      "player_pos": [
+        103,
+        525,
+        4
+      ],
+      "t": 158.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 107,
+      "y": 519,
+      "z": 5,
+      "t": 158.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1792,
+      "y": 1282,
+      "z": 1,
+      "t": 158.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 111,
+      "y": 523,
+      "z": 5,
+      "t": 158.7
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        104,
+        525,
+        4
+      ],
+      "player_pos": [
+        103,
+        525,
+        4
+      ],
+      "t": 158.8
+    },
+    {
+      "type": "floor_change",
+      "direction": "down",
+      "pos": [
+        105,
+        525,
+        5
+      ],
+      "z": 5,
+      "t": 158.9
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        106,
+        525,
+        5
+      ],
+      "player_pos": [
+        105,
+        525,
+        5
+      ],
+      "t": 159.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1792,
+      "y": 1282,
+      "z": 1,
+      "t": 159.3
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        106,
+        524,
+        5
+      ],
+      "player_pos": [
+        106,
+        525,
+        5
+      ],
+      "t": 159.3
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        107,
+        524,
+        5
+      ],
+      "player_pos": [
+        107,
+        525,
+        5
+      ],
+      "t": 159.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 3328,
+      "y": 1282,
+      "z": 2,
+      "t": 159.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 106,
+      "y": 524,
+      "z": 5,
+      "t": 159.5
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        107,
+        523,
+        5
+      ],
+      "player_pos": [
+        107,
+        524,
+        5
+      ],
+      "t": 159.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 3072,
+      "y": 1282,
+      "z": 2,
+      "t": 159.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2048,
+      "y": 1282,
+      "z": 2,
+      "t": 159.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 106,
+      "y": 523,
+      "z": 5,
+      "t": 159.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2816,
+      "y": 1282,
+      "z": 2,
+      "t": 159.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2816,
+      "y": 1282,
+      "z": 3,
+      "t": 159.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2560,
+      "y": 1282,
+      "z": 9,
+      "t": 160.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2560,
+      "y": 1282,
+      "z": 7,
+      "t": 160.7
+    },
+    {
+      "type": "walk",
+      "direction": "autowalk",
+      "pos": [
+        108,
+        521,
+        5
+      ],
+      "player_pos": [
+        107,
+        522,
+        5
+      ],
+      "t": 160.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2560,
+      "y": 1282,
+      "z": 2,
+      "t": 160.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 108,
+      "y": 523,
+      "z": 5,
+      "t": 160.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 107,
+      "y": 521,
+      "z": 5,
+      "t": 160.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2304,
+      "y": 1282,
+      "z": 2,
+      "t": 160.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 107,
+      "y": 523,
+      "z": 5,
+      "t": 161.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2816,
+      "y": 1282,
+      "z": 3,
+      "t": 161.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2816,
+      "y": 1282,
+      "z": 3,
+      "t": 161.6
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        108,
+        520,
+        5
+      ],
+      "player_pos": [
+        108,
+        521,
+        5
+      ],
+      "t": 162.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2560,
+      "y": 1282,
+      "z": 2,
+      "t": 162.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 108,
+      "y": 521,
+      "z": 5,
+      "t": 162.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 107,
+      "y": 523,
+      "z": 5,
+      "t": 162.3
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2816,
+      "y": 1282,
+      "z": 3,
+      "t": 162.3
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        109,
+        520,
+        5
+      ],
+      "player_pos": [
+        108,
+        520,
+        5
+      ],
+      "t": 162.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2304,
+      "y": 1282,
+      "z": 2,
+      "t": 162.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 107,
+      "y": 520,
+      "z": 5,
+      "t": 162.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2048,
+      "y": 1282,
+      "z": 2,
+      "t": 162.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2816,
+      "y": 1282,
+      "z": 3,
+      "t": 162.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 106,
+      "y": 523,
+      "z": 5,
+      "t": 162.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2048,
+      "y": 1282,
+      "z": 2,
+      "t": 163.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 107,
+      "y": 523,
+      "z": 5,
+      "t": 163.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2816,
+      "y": 1282,
+      "z": 3,
+      "t": 163.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2816,
+      "y": 1282,
+      "z": 3,
+      "t": 163.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2560,
+      "y": 1282,
+      "z": 2,
+      "t": 164.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 107,
+      "y": 521,
+      "z": 5,
+      "t": 164.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2304,
+      "y": 1282,
+      "z": 2,
+      "t": 164.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2304,
+      "y": 1282,
+      "z": 2,
+      "t": 164.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 107,
+      "y": 520,
+      "z": 5,
+      "t": 164.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2048,
+      "y": 1282,
+      "z": 2,
+      "t": 164.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 2048,
+      "y": 1282,
+      "z": 2,
+      "t": 165.3
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 107,
+      "y": 519,
+      "z": 5,
+      "t": 165.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1792,
+      "y": 1282,
+      "z": 1,
+      "t": 165.4
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        110,
+        520,
+        5
+      ],
+      "player_pos": [
+        109,
+        520,
+        5
+      ],
+      "t": 165.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1792,
+      "y": 1282,
+      "z": 1,
+      "t": 166.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 108,
+      "y": 520,
+      "z": 5,
+      "t": 166.5
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        110,
+        521,
+        5
+      ],
+      "player_pos": [
+        110,
+        520,
+        5
+      ],
+      "t": 166.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 108,
+      "y": 521,
+      "z": 5,
+      "t": 166.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 109,
+      "y": 520,
+      "z": 5,
+      "t": 177.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 109,
+      "y": 521,
+      "z": 5,
+      "t": 179.5
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        111,
+        521,
+        5
+      ],
+      "player_pos": [
+        110,
+        521,
+        5
+      ],
+      "t": 181.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 112,
+      "y": 524,
+      "z": 6,
+      "t": 181.3
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        111,
+        521,
+        5
+      ],
+      "player_pos": [
+        110,
+        521,
+        5
+      ],
+      "t": 181.4
+    },
+    {
+      "type": "floor_change",
+      "direction": "down",
+      "pos": [
+        112,
+        521,
+        6
+      ],
+      "z": 6,
+      "t": 181.4
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        113,
+        521,
+        6
+      ],
+      "player_pos": [
+        112,
+        521,
+        6
+      ],
+      "t": 181.7
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        115,
+        521,
+        6
+      ],
+      "player_pos": [
+        114,
+        521,
+        6
+      ],
+      "t": 182.0
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        115,
+        522,
+        6
+      ],
+      "player_pos": [
+        115,
+        521,
+        6
+      ],
+      "t": 182.3
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        115,
+        523,
+        6
+      ],
+      "player_pos": [
+        115,
+        522,
+        6
+      ],
+      "t": 182.7
+    },
+    {
+      "type": "use_item",
+      "x": 114,
+      "y": 524,
+      "z": 6,
+      "item_id": 5291,
+      "stack_pos": 1,
+      "index": 1,
+      "label": "Use item 5291",
+      "pos": [
+        115,
+        523,
+        6
+      ],
+      "player_pos": [
+        115,
+        523,
+        6
+      ],
+      "t": 194.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 115,
+      "y": 524,
+      "z": 6,
+      "t": 194.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 112,
+      "y": 524,
+      "z": 6,
+      "t": 194.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 112,
+      "y": 524,
+      "z": 6,
+      "t": 195.3
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        115,
+        524,
+        6
+      ],
+      "player_pos": [
+        114,
+        524,
+        6
+      ],
+      "t": 205.9
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        115,
+        525,
+        6
+      ],
+      "player_pos": [
+        115,
+        524,
+        6
+      ],
+      "t": 206.1
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        115,
+        526,
+        6
+      ],
+      "player_pos": [
+        115,
+        525,
+        6
+      ],
+      "t": 206.3
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        115,
+        527,
+        6
+      ],
+      "player_pos": [
+        115,
+        526,
+        6
+      ],
+      "t": 206.5
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        115,
+        527,
+        6
+      ],
+      "player_pos": [
+        115,
+        526,
+        6
+      ],
+      "t": 206.7
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        115,
+        529,
+        6
+      ],
+      "player_pos": [
+        115,
+        528,
+        6
+      ],
+      "t": 206.9
+    }
+  ],
+  "last_stats": {
+    "xp_per_hour": 122816430,
+    "kills_per_hour": 449.1,
+    "senzu_per_hour": 0.0,
+    "session_seconds": 104,
+    "timestamp": "2026-03-01T11:50:02.898999+00:00"
+  }
+}

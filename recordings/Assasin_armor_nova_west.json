@@ -1,0 +1,6364 @@
+{
+  "name": "Assasin_armor_nova_west",
+  "created_at": "2026-02-27T20:46:26.560372+00:00",
+  "version": 1,
+  "start_position": [
+    529,
+    988,
+    7
+  ],
+  "waypoints": [
+    {
+      "type": "tile_transform_item",
+      "x": 20485,
+      "y": 1794,
+      "z": 1,
+      "t": -571.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 20485,
+      "y": 1794,
+      "z": 1,
+      "t": -571.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 18949,
+      "y": 1794,
+      "z": 3,
+      "t": -571.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1388,
+      "y": 592,
+      "z": 7,
+      "t": -571.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 19205,
+      "y": 1794,
+      "z": 2,
+      "t": -571.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1389,
+      "y": 592,
+      "z": 7,
+      "t": -571.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1390,
+      "y": 592,
+      "z": 7,
+      "t": -571.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1397,
+      "y": 584,
+      "z": 7,
+      "t": -571.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1391,
+      "y": 592,
+      "z": 7,
+      "t": -570.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1388,
+      "y": 589,
+      "z": 7,
+      "t": -570.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1396,
+      "y": 584,
+      "z": 7,
+      "t": -570.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1395,
+      "y": 584,
+      "z": 7,
+      "t": -570.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1394,
+      "y": 584,
+      "z": 7,
+      "t": -570.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1393,
+      "y": 584,
+      "z": 7,
+      "t": -570.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1391,
+      "y": 590,
+      "z": 7,
+      "t": -569.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1393,
+      "y": 590,
+      "z": 7,
+      "t": -560.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1391,
+      "y": 590,
+      "z": 7,
+      "t": -560.9
+    },
+    {
+      "type": "floor_change",
+      "direction": "up",
+      "pos": [
+        1403,
+        596,
+        6
+      ],
+      "z": 6,
+      "t": -554.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 1413,
+      "y": 597,
+      "z": 6,
+      "t": -553.3
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 21503,
+      "y": 573,
+      "z": 0,
+      "t": -553.3
+    },
+    {
+      "type": "floor_change",
+      "direction": "down",
+      "pos": [
+        101,
+        94,
+        7
+      ],
+      "z": 7,
+      "t": -553.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 25701,
+      "y": 39425,
+      "z": 5,
+      "t": -542.3
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 982,
+      "y": 1552,
+      "z": 0,
+      "t": -510.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 982,
+      "y": 56336,
+      "z": 5,
+      "t": -510.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 982,
+      "y": 47632,
+      "z": 5,
+      "t": -510.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 982,
+      "y": 56336,
+      "z": 5,
+      "t": -510.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 982,
+      "y": 58128,
+      "z": 2,
+      "t": -510.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 982,
+      "y": 56336,
+      "z": 5,
+      "t": -510.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 982,
+      "y": 58128,
+      "z": 2,
+      "t": -508.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 982,
+      "y": 56336,
+      "z": 5,
+      "t": -508.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 982,
+      "y": 56336,
+      "z": 5,
+      "t": -508.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 982,
+      "y": 784,
+      "z": 11,
+      "t": -508.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 25701,
+      "y": 1006,
+      "z": 7,
+      "t": -429.0
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 1,
+      "pos": [
+        429,
+        940,
+        7
+      ],
+      "t": -359.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 510,
+      "y": 940,
+      "z": 7,
+      "t": -337.3
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 510,
+      "y": 940,
+      "z": 7,
+      "t": -333.4
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 1,
+      "pos": [
+        516,
+        943,
+        7
+      ],
+      "t": -329.0
+    },
+    {
+      "type": "floor_change",
+      "direction": "up",
+      "pos": [
+        543,
+        970,
+        6
+      ],
+      "z": 6,
+      "t": -310.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 612,
+      "y": 163,
+      "z": 0,
+      "t": -306.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 868,
+      "y": 163,
+      "z": 0,
+      "t": -305.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 356,
+      "y": 163,
+      "z": 0,
+      "t": -304.9
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        534,
+        946,
+        6
+      ],
+      "t": -301.8
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        534,
+        946,
+        6
+      ],
+      "t": -301.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 356,
+      "y": 163,
+      "z": 0,
+      "t": -301.4
+    },
+    {
+      "type": "floor_change",
+      "direction": "up",
+      "pos": [
+        557,
+        962,
+        5
+      ],
+      "z": 5,
+      "t": -283.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 28161,
+      "y": 288,
+      "z": 0,
+      "t": -280.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 612,
+      "y": 163,
+      "z": 0,
+      "t": -278.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 41728,
+      "y": 10860,
+      "z": 2,
+      "t": -277.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 553,
+      "y": 948,
+      "z": 4,
+      "t": -276.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 547,
+      "y": 946,
+      "z": 4,
+      "t": -276.9
+    },
+    {
+      "type": "floor_change",
+      "direction": "up",
+      "pos": [
+        551,
+        949,
+        4
+      ],
+      "z": 4,
+      "t": -276.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 55041,
+      "y": 6155,
+      "z": 0,
+      "t": -276.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 548,
+      "y": 946,
+      "z": 4,
+      "t": -276.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 548,
+      "y": 946,
+      "z": 4,
+      "t": -275.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 28161,
+      "y": 288,
+      "z": 0,
+      "t": -275.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 547,
+      "y": 946,
+      "z": 4,
+      "t": -275.3
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 1,
+      "pos": [
+        548,
+        945,
+        4
+      ],
+      "t": -275.1
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 1,
+      "pos": [
+        548,
+        945,
+        4
+      ],
+      "t": -275.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 547,
+      "y": 945,
+      "z": 4,
+      "t": -275.1
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 1,
+      "pos": [
+        548,
+        945,
+        4
+      ],
+      "t": -275.0
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 1,
+      "pos": [
+        548,
+        945,
+        4
+      ],
+      "t": -275.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 55042,
+      "y": 1803,
+      "z": 0,
+      "t": -273.3
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 2,
+      "pos": [
+        550,
+        949,
+        4
+      ],
+      "t": -270.1
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 2,
+      "pos": [
+        550,
+        949,
+        4
+      ],
+      "t": -270.1
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 1,
+      "pos": [
+        553,
+        949,
+        4
+      ],
+      "t": -269.7
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 1,
+      "pos": [
+        553,
+        949,
+        4
+      ],
+      "t": -269.7
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 1,
+      "pos": [
+        553,
+        949,
+        4
+      ],
+      "t": -269.6
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 1,
+      "pos": [
+        553,
+        949,
+        4
+      ],
+      "t": -269.6
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 1,
+      "pos": [
+        553,
+        949,
+        4
+      ],
+      "t": -269.4
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 1,
+      "pos": [
+        553,
+        949,
+        4
+      ],
+      "t": -269.4
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        552,
+        949,
+        4
+      ],
+      "t": -269.1
+    },
+    {
+      "type": "floor_change",
+      "direction": "down",
+      "pos": [
+        552,
+        951,
+        5
+      ],
+      "z": 5,
+      "t": -269.1
+    },
+    {
+      "type": "floor_change",
+      "direction": "down",
+      "pos": [
+        556,
+        964,
+        6
+      ],
+      "z": 6,
+      "t": -264.9
+    },
+    {
+      "type": "floor_change",
+      "direction": "up",
+      "pos": [
+        562,
+        985,
+        5
+      ],
+      "z": 5,
+      "t": -260.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 562,
+      "y": 992,
+      "z": 5,
+      "t": -259.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 555,
+      "y": 998,
+      "z": 5,
+      "t": -258.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 557,
+      "y": 998,
+      "z": 5,
+      "t": -257.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 558,
+      "y": 998,
+      "z": 5,
+      "t": -257.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 559,
+      "y": 998,
+      "z": 5,
+      "t": -256.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 560,
+      "y": 998,
+      "z": 5,
+      "t": -255.8
+    },
+    {
+      "type": "floor_change",
+      "direction": "down",
+      "pos": [
+        563,
+        983,
+        6
+      ],
+      "z": 6,
+      "t": -247.3
+    },
+    {
+      "type": "floor_change",
+      "direction": "down",
+      "pos": [
+        541,
+        973,
+        7
+      ],
+      "z": 7,
+      "t": -237.3
+    },
+    {
+      "type": "floor_change",
+      "direction": "up",
+      "pos": [
+        518,
+        904,
+        6
+      ],
+      "z": 6,
+      "t": -204.0
+    },
+    {
+      "type": "floor_change",
+      "direction": "down",
+      "pos": [
+        518,
+        906,
+        7
+      ],
+      "z": 7,
+      "t": -202.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 18547,
+      "y": 30466,
+      "z": 10,
+      "t": -171.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 55039,
+      "y": 513,
+      "z": 0,
+      "t": -103.3
+    },
+    {
+      "type": "floor_change",
+      "direction": "up",
+      "pos": [
+        543,
+        971,
+        6
+      ],
+      "z": 6,
+      "t": -75.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 100,
+      "y": 163,
+      "z": 0,
+      "t": -73.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 356,
+      "y": 163,
+      "z": 0,
+      "t": -72.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 100,
+      "y": 163,
+      "z": 0,
+      "t": -72.4
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        536,
+        948,
+        6
+      ],
+      "t": -70.7
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        536,
+        948,
+        6
+      ],
+      "t": -70.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 100,
+      "y": 163,
+      "z": 0,
+      "t": -70.3
+    },
+    {
+      "type": "floor_change",
+      "direction": "up",
+      "pos": [
+        557,
+        962,
+        5
+      ],
+      "z": 5,
+      "t": -55.1
+    },
+    {
+      "type": "floor_change",
+      "direction": "down",
+      "pos": [
+        557,
+        964,
+        6
+      ],
+      "z": 6,
+      "t": -54.8
+    },
+    {
+      "type": "floor_change",
+      "direction": "up",
+      "pos": [
+        557,
+        962,
+        5
+      ],
+      "z": 5,
+      "t": -54.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 612,
+      "y": 163,
+      "z": 0,
+      "t": -52.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 55043,
+      "y": 2571,
+      "z": 0,
+      "t": -47.3
+    },
+    {
+      "type": "floor_change",
+      "direction": "down",
+      "pos": [
+        557,
+        964,
+        6
+      ],
+      "z": 6,
+      "t": -43.9
+    },
+    {
+      "type": "floor_change",
+      "direction": "down",
+      "pos": [
+        541,
+        973,
+        7
+      ],
+      "z": 7,
+      "t": -31.7
+    },
+    {
+      "type": "use_item",
+      "x": 532,
+      "y": 984,
+      "z": 7,
+      "item_id": 103,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 103",
+      "pos": [
+        529,
+        988,
+        7
+      ],
+      "player_pos": [
+        529,
+        988,
+        7
+      ],
+      "t": 0.5
+    },
+    {
+      "type": "use_item",
+      "x": 533,
+      "y": 983,
+      "z": 7,
+      "item_id": 103,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 103",
+      "pos": [
+        529,
+        988,
+        7
+      ],
+      "player_pos": [
+        529,
+        988,
+        7
+      ],
+      "t": 0.7
+    },
+    {
+      "type": "use_item",
+      "x": 534,
+      "y": 981,
+      "z": 7,
+      "item_id": 4566,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4566",
+      "pos": [
+        532,
+        985,
+        7
+      ],
+      "player_pos": [
+        532,
+        985,
+        7
+      ],
+      "t": 1.2
+    },
+    {
+      "type": "use_item",
+      "x": 532,
+      "y": 980,
+      "z": 7,
+      "item_id": 4763,
+      "stack_pos": 1,
+      "index": 0,
+      "label": "Use item 4763",
+      "pos": [
+        533,
+        984,
+        7
+      ],
+      "player_pos": [
+        533,
+        984,
+        7
+      ],
+      "t": 1.4
+    },
+    {
+      "type": "use_item",
+      "x": 532,
+      "y": 979,
+      "z": 7,
+      "item_id": 4763,
+      "stack_pos": 1,
+      "index": 0,
+      "label": "Use item 4763",
+      "pos": [
+        533,
+        982,
+        7
+      ],
+      "player_pos": [
+        533,
+        982,
+        7
+      ],
+      "t": 1.5
+    },
+    {
+      "type": "use_item",
+      "x": 531,
+      "y": 977,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        533,
+        981,
+        7
+      ],
+      "player_pos": [
+        533,
+        981,
+        7
+      ],
+      "t": 1.7
+    },
+    {
+      "type": "use_item",
+      "x": 532,
+      "y": 976,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        533,
+        980,
+        7
+      ],
+      "player_pos": [
+        533,
+        980,
+        7
+      ],
+      "t": 1.8
+    },
+    {
+      "type": "use_item",
+      "x": 533,
+      "y": 976,
+      "z": 7,
+      "item_id": 4769,
+      "stack_pos": 1,
+      "index": 0,
+      "label": "Use item 4769",
+      "pos": [
+        532,
+        979,
+        7
+      ],
+      "player_pos": [
+        532,
+        979,
+        7
+      ],
+      "t": 1.9
+    },
+    {
+      "type": "use_item",
+      "x": 534,
+      "y": 974,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        532,
+        978,
+        7
+      ],
+      "player_pos": [
+        532,
+        978,
+        7
+      ],
+      "t": 2.1
+    },
+    {
+      "type": "use_item",
+      "x": 534,
+      "y": 973,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        532,
+        977,
+        7
+      ],
+      "player_pos": [
+        532,
+        977,
+        7
+      ],
+      "t": 2.3
+    },
+    {
+      "type": "use_item",
+      "x": 535,
+      "y": 973,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        533,
+        976,
+        7
+      ],
+      "player_pos": [
+        533,
+        976,
+        7
+      ],
+      "t": 2.4
+    },
+    {
+      "type": "use_item",
+      "x": 536,
+      "y": 973,
+      "z": 7,
+      "item_id": 4769,
+      "stack_pos": 1,
+      "index": 0,
+      "label": "Use item 4769",
+      "pos": [
+        534,
+        976,
+        7
+      ],
+      "player_pos": [
+        534,
+        976,
+        7
+      ],
+      "t": 2.6
+    },
+    {
+      "type": "use_item",
+      "x": 538,
+      "y": 972,
+      "z": 7,
+      "item_id": 4765,
+      "stack_pos": 1,
+      "index": 0,
+      "label": "Use item 4765",
+      "pos": [
+        535,
+        975,
+        7
+      ],
+      "player_pos": [
+        535,
+        975,
+        7
+      ],
+      "t": 2.7
+    },
+    {
+      "type": "use_item",
+      "x": 539,
+      "y": 972,
+      "z": 7,
+      "item_id": 4562,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4562",
+      "pos": [
+        536,
+        975,
+        7
+      ],
+      "player_pos": [
+        536,
+        975,
+        7
+      ],
+      "t": 2.9
+    },
+    {
+      "type": "use_item",
+      "x": 539,
+      "y": 970,
+      "z": 7,
+      "item_id": 4769,
+      "stack_pos": 1,
+      "index": 0,
+      "label": "Use item 4769",
+      "pos": [
+        536,
+        974,
+        7
+      ],
+      "player_pos": [
+        536,
+        974,
+        7
+      ],
+      "t": 3.1
+    },
+    {
+      "type": "use_item",
+      "x": 540,
+      "y": 969,
+      "z": 7,
+      "item_id": 4769,
+      "stack_pos": 1,
+      "index": 0,
+      "label": "Use item 4769",
+      "pos": [
+        538,
+        973,
+        7
+      ],
+      "player_pos": [
+        538,
+        973,
+        7
+      ],
+      "t": 3.4
+    },
+    {
+      "type": "use_item",
+      "x": 540,
+      "y": 969,
+      "z": 7,
+      "item_id": 4769,
+      "stack_pos": 1,
+      "index": 0,
+      "label": "Use item 4769",
+      "pos": [
+        539,
+        973,
+        7
+      ],
+      "player_pos": [
+        539,
+        973,
+        7
+      ],
+      "t": 3.5
+    },
+    {
+      "type": "use_item",
+      "x": 541,
+      "y": 968,
+      "z": 7,
+      "item_id": 4540,
+      "stack_pos": 1,
+      "index": 0,
+      "label": "Use item 4540",
+      "pos": [
+        539,
+        971,
+        7
+      ],
+      "player_pos": [
+        539,
+        971,
+        7
+      ],
+      "t": 3.7
+    },
+    {
+      "type": "use_item",
+      "x": 540,
+      "y": 967,
+      "z": 7,
+      "item_id": 7024,
+      "stack_pos": 1,
+      "index": 0,
+      "label": "Use item 7024",
+      "pos": [
+        540,
+        971,
+        7
+      ],
+      "player_pos": [
+        540,
+        971,
+        7
+      ],
+      "t": 3.9
+    },
+    {
+      "type": "use_item",
+      "x": 540,
+      "y": 966,
+      "z": 7,
+      "item_id": 4515,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4515",
+      "pos": [
+        540,
+        970,
+        7
+      ],
+      "player_pos": [
+        540,
+        970,
+        7
+      ],
+      "t": 4.0
+    },
+    {
+      "type": "use_item",
+      "x": 537,
+      "y": 965,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        539,
+        969,
+        7
+      ],
+      "player_pos": [
+        539,
+        969,
+        7
+      ],
+      "t": 4.2
+    },
+    {
+      "type": "use_item",
+      "x": 537,
+      "y": 964,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        539,
+        968,
+        7
+      ],
+      "player_pos": [
+        539,
+        968,
+        7
+      ],
+      "t": 4.4
+    },
+    {
+      "type": "use_item",
+      "x": 536,
+      "y": 963,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        538,
+        968,
+        7
+      ],
+      "player_pos": [
+        538,
+        968,
+        7
+      ],
+      "t": 4.5
+    },
+    {
+      "type": "use_item",
+      "x": 536,
+      "y": 962,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        537,
+        967,
+        7
+      ],
+      "player_pos": [
+        537,
+        967,
+        7
+      ],
+      "t": 4.7
+    },
+    {
+      "type": "use_item",
+      "x": 535,
+      "y": 962,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        537,
+        966,
+        7
+      ],
+      "player_pos": [
+        537,
+        966,
+        7
+      ],
+      "t": 4.8
+    },
+    {
+      "type": "use_item",
+      "x": 535,
+      "y": 961,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        537,
+        965,
+        7
+      ],
+      "player_pos": [
+        537,
+        965,
+        7
+      ],
+      "t": 5.0
+    },
+    {
+      "type": "use_item",
+      "x": 534,
+      "y": 960,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        536,
+        965,
+        7
+      ],
+      "player_pos": [
+        536,
+        965,
+        7
+      ],
+      "t": 5.2
+    },
+    {
+      "type": "use_item",
+      "x": 534,
+      "y": 960,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        535,
+        964,
+        7
+      ],
+      "player_pos": [
+        535,
+        964,
+        7
+      ],
+      "t": 5.3
+    },
+    {
+      "type": "use_item",
+      "x": 534,
+      "y": 959,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        535,
+        963,
+        7
+      ],
+      "player_pos": [
+        535,
+        963,
+        7
+      ],
+      "t": 5.5
+    },
+    {
+      "type": "use_item",
+      "x": 534,
+      "y": 958,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        535,
+        961,
+        7
+      ],
+      "player_pos": [
+        535,
+        961,
+        7
+      ],
+      "t": 5.7
+    },
+    {
+      "type": "use_item",
+      "x": 534,
+      "y": 957,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        535,
+        960,
+        7
+      ],
+      "player_pos": [
+        535,
+        960,
+        7
+      ],
+      "t": 5.8
+    },
+    {
+      "type": "use_item",
+      "x": 533,
+      "y": 955,
+      "z": 7,
+      "item_id": 4536,
+      "stack_pos": 1,
+      "index": 0,
+      "label": "Use item 4536",
+      "pos": [
+        535,
+        959,
+        7
+      ],
+      "player_pos": [
+        535,
+        959,
+        7
+      ],
+      "t": 6.0
+    },
+    {
+      "type": "use_item",
+      "x": 532,
+      "y": 954,
+      "z": 7,
+      "item_id": 4531,
+      "stack_pos": 1,
+      "index": 0,
+      "label": "Use item 4531",
+      "pos": [
+        535,
+        958,
+        7
+      ],
+      "player_pos": [
+        535,
+        958,
+        7
+      ],
+      "t": 6.2
+    },
+    {
+      "type": "use_item",
+      "x": 530,
+      "y": 954,
+      "z": 7,
+      "item_id": 4531,
+      "stack_pos": 1,
+      "index": 0,
+      "label": "Use item 4531",
+      "pos": [
+        533,
+        958,
+        7
+      ],
+      "player_pos": [
+        533,
+        958,
+        7
+      ],
+      "t": 6.3
+    },
+    {
+      "type": "use_item",
+      "x": 528,
+      "y": 954,
+      "z": 7,
+      "item_id": 4531,
+      "stack_pos": 1,
+      "index": 0,
+      "label": "Use item 4531",
+      "pos": [
+        532,
+        958,
+        7
+      ],
+      "player_pos": [
+        532,
+        958,
+        7
+      ],
+      "t": 6.5
+    },
+    {
+      "type": "use_item",
+      "x": 528,
+      "y": 954,
+      "z": 7,
+      "item_id": 4531,
+      "stack_pos": 1,
+      "index": 0,
+      "label": "Use item 4531",
+      "pos": [
+        532,
+        957,
+        7
+      ],
+      "player_pos": [
+        532,
+        957,
+        7
+      ],
+      "t": 6.6
+    },
+    {
+      "type": "use_item",
+      "x": 528,
+      "y": 952,
+      "z": 7,
+      "item_id": 4515,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4515",
+      "pos": [
+        531,
+        956,
+        7
+      ],
+      "player_pos": [
+        531,
+        956,
+        7
+      ],
+      "t": 6.8
+    },
+    {
+      "type": "use_item",
+      "x": 526,
+      "y": 953,
+      "z": 7,
+      "item_id": 3621,
+      "stack_pos": 1,
+      "index": 0,
+      "label": "Use item 3621",
+      "pos": [
+        530,
+        956,
+        7
+      ],
+      "player_pos": [
+        530,
+        956,
+        7
+      ],
+      "t": 7.0
+    },
+    {
+      "type": "use_item",
+      "x": 524,
+      "y": 953,
+      "z": 7,
+      "item_id": 4515,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4515",
+      "pos": [
+        529,
+        956,
+        7
+      ],
+      "player_pos": [
+        529,
+        956,
+        7
+      ],
+      "t": 7.1
+    },
+    {
+      "type": "use_item",
+      "x": 524,
+      "y": 951,
+      "z": 7,
+      "item_id": 4515,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4515",
+      "pos": [
+        529,
+        955,
+        7
+      ],
+      "player_pos": [
+        529,
+        955,
+        7
+      ],
+      "t": 7.3
+    },
+    {
+      "type": "use_item",
+      "x": 524,
+      "y": 951,
+      "z": 7,
+      "item_id": 4515,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4515",
+      "pos": [
+        527,
+        955,
+        7
+      ],
+      "player_pos": [
+        527,
+        955,
+        7
+      ],
+      "t": 7.5
+    },
+    {
+      "type": "use_item",
+      "x": 523,
+      "y": 951,
+      "z": 7,
+      "item_id": 4515,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4515",
+      "pos": [
+        526,
+        955,
+        7
+      ],
+      "player_pos": [
+        526,
+        955,
+        7
+      ],
+      "t": 7.6
+    },
+    {
+      "type": "use_item",
+      "x": 522,
+      "y": 950,
+      "z": 7,
+      "item_id": 4515,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4515",
+      "pos": [
+        526,
+        954,
+        7
+      ],
+      "player_pos": [
+        526,
+        954,
+        7
+      ],
+      "t": 7.8
+    },
+    {
+      "type": "use_item",
+      "x": 524,
+      "y": 950,
+      "z": 7,
+      "item_id": 4515,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4515",
+      "pos": [
+        525,
+        954,
+        7
+      ],
+      "player_pos": [
+        525,
+        954,
+        7
+      ],
+      "t": 7.9
+    },
+    {
+      "type": "use_item",
+      "x": 526,
+      "y": 949,
+      "z": 7,
+      "item_id": 4515,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4515",
+      "pos": [
+        524,
+        953,
+        7
+      ],
+      "player_pos": [
+        524,
+        953,
+        7
+      ],
+      "t": 8.1
+    },
+    {
+      "type": "use_item",
+      "x": 526,
+      "y": 948,
+      "z": 7,
+      "item_id": 4515,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4515",
+      "pos": [
+        525,
+        952,
+        7
+      ],
+      "player_pos": [
+        525,
+        952,
+        7
+      ],
+      "t": 8.3
+    },
+    {
+      "type": "use_item",
+      "x": 528,
+      "y": 948,
+      "z": 7,
+      "item_id": 4515,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4515",
+      "pos": [
+        526,
+        952,
+        7
+      ],
+      "player_pos": [
+        526,
+        952,
+        7
+      ],
+      "t": 8.5
+    },
+    {
+      "type": "use_item",
+      "x": 530,
+      "y": 949,
+      "z": 7,
+      "item_id": 4515,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4515",
+      "pos": [
+        527,
+        951,
+        7
+      ],
+      "player_pos": [
+        527,
+        951,
+        7
+      ],
+      "t": 8.7
+    },
+    {
+      "type": "use_item",
+      "x": 530,
+      "y": 948,
+      "z": 7,
+      "item_id": 4515,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4515",
+      "pos": [
+        528,
+        951,
+        7
+      ],
+      "player_pos": [
+        528,
+        951,
+        7
+      ],
+      "t": 8.9
+    },
+    {
+      "type": "use_item",
+      "x": 528,
+      "y": 946,
+      "z": 7,
+      "item_id": 4515,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4515",
+      "pos": [
+        528,
+        951,
+        7
+      ],
+      "player_pos": [
+        528,
+        951,
+        7
+      ],
+      "t": 9.1
+    },
+    {
+      "type": "use_item",
+      "x": 529,
+      "y": 946,
+      "z": 7,
+      "item_id": 4515,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4515",
+      "pos": [
+        529,
+        949,
+        7
+      ],
+      "player_pos": [
+        529,
+        949,
+        7
+      ],
+      "t": 9.2
+    },
+    {
+      "type": "use_item",
+      "x": 530,
+      "y": 952,
+      "z": 7,
+      "item_id": 4515,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4515",
+      "pos": [
+        529,
+        947,
+        7
+      ],
+      "player_pos": [
+        529,
+        947,
+        7
+      ],
+      "t": 9.4
+    },
+    {
+      "type": "use_item",
+      "x": 530,
+      "y": 953,
+      "z": 7,
+      "item_id": 4521,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4521",
+      "pos": [
+        529,
+        948,
+        7
+      ],
+      "player_pos": [
+        529,
+        948,
+        7
+      ],
+      "t": 9.5
+    },
+    {
+      "type": "use_item",
+      "x": 532,
+      "y": 954,
+      "z": 7,
+      "item_id": 4531,
+      "stack_pos": 1,
+      "index": 0,
+      "label": "Use item 4531",
+      "pos": [
+        529,
+        949,
+        7
+      ],
+      "player_pos": [
+        529,
+        949,
+        7
+      ],
+      "t": 9.7
+    },
+    {
+      "type": "use_item",
+      "x": 532,
+      "y": 955,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        529,
+        951,
+        7
+      ],
+      "player_pos": [
+        529,
+        951,
+        7
+      ],
+      "t": 9.8
+    },
+    {
+      "type": "use_item",
+      "x": 533,
+      "y": 956,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        529,
+        952,
+        7
+      ],
+      "player_pos": [
+        529,
+        952,
+        7
+      ],
+      "t": 10.0
+    },
+    {
+      "type": "use_item",
+      "x": 534,
+      "y": 956,
+      "z": 7,
+      "item_id": 4536,
+      "stack_pos": 1,
+      "index": 0,
+      "label": "Use item 4536",
+      "pos": [
+        530,
+        952,
+        7
+      ],
+      "player_pos": [
+        530,
+        952,
+        7
+      ],
+      "t": 10.1
+    },
+    {
+      "type": "use_item",
+      "x": 535,
+      "y": 958,
+      "z": 7,
+      "item_id": 4536,
+      "stack_pos": 1,
+      "index": 0,
+      "label": "Use item 4536",
+      "pos": [
+        531,
+        954,
+        7
+      ],
+      "player_pos": [
+        531,
+        954,
+        7
+      ],
+      "t": 10.5
+    },
+    {
+      "type": "use_item",
+      "x": 535,
+      "y": 959,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        531,
+        955,
+        7
+      ],
+      "player_pos": [
+        531,
+        955,
+        7
+      ],
+      "t": 10.6
+    },
+    {
+      "type": "use_item",
+      "x": 536,
+      "y": 960,
+      "z": 7,
+      "item_id": 4532,
+      "stack_pos": 1,
+      "index": 0,
+      "label": "Use item 4532",
+      "pos": [
+        532,
+        955,
+        7
+      ],
+      "player_pos": [
+        532,
+        955,
+        7
+      ],
+      "t": 10.8
+    },
+    {
+      "type": "use_item",
+      "x": 536,
+      "y": 961,
+      "z": 7,
+      "item_id": 4536,
+      "stack_pos": 1,
+      "index": 0,
+      "label": "Use item 4536",
+      "pos": [
+        532,
+        956,
+        7
+      ],
+      "player_pos": [
+        532,
+        956,
+        7
+      ],
+      "t": 10.9
+    },
+    {
+      "type": "use_item",
+      "x": 536,
+      "y": 962,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        532,
+        958,
+        7
+      ],
+      "player_pos": [
+        532,
+        958,
+        7
+      ],
+      "t": 11.1
+    },
+    {
+      "type": "use_item",
+      "x": 536,
+      "y": 963,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        532,
+        959,
+        7
+      ],
+      "player_pos": [
+        532,
+        959,
+        7
+      ],
+      "t": 11.2
+    },
+    {
+      "type": "use_item",
+      "x": 536,
+      "y": 964,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        532,
+        960,
+        7
+      ],
+      "player_pos": [
+        532,
+        960,
+        7
+      ],
+      "t": 11.4
+    },
+    {
+      "type": "use_item",
+      "x": 537,
+      "y": 964,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        533,
+        960,
+        7
+      ],
+      "player_pos": [
+        533,
+        960,
+        7
+      ],
+      "t": 11.6
+    },
+    {
+      "type": "use_item",
+      "x": 538,
+      "y": 965,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        533,
+        962,
+        7
+      ],
+      "player_pos": [
+        533,
+        962,
+        7
+      ],
+      "t": 11.7
+    },
+    {
+      "type": "use_item",
+      "x": 538,
+      "y": 966,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        533,
+        963,
+        7
+      ],
+      "player_pos": [
+        533,
+        963,
+        7
+      ],
+      "t": 11.9
+    },
+    {
+      "type": "use_item",
+      "x": 539,
+      "y": 967,
+      "z": 7,
+      "item_id": 4532,
+      "stack_pos": 1,
+      "index": 0,
+      "label": "Use item 4532",
+      "pos": [
+        534,
+        963,
+        7
+      ],
+      "player_pos": [
+        534,
+        963,
+        7
+      ],
+      "t": 12.1
+    },
+    {
+      "type": "use_item",
+      "x": 539,
+      "y": 968,
+      "z": 7,
+      "item_id": 4536,
+      "stack_pos": 1,
+      "index": 0,
+      "label": "Use item 4536",
+      "pos": [
+        534,
+        964,
+        7
+      ],
+      "player_pos": [
+        534,
+        964,
+        7
+      ],
+      "t": 12.2
+    },
+    {
+      "type": "use_item",
+      "x": 539,
+      "y": 969,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        535,
+        965,
+        7
+      ],
+      "player_pos": [
+        535,
+        965,
+        7
+      ],
+      "t": 12.4
+    },
+    {
+      "type": "use_item",
+      "x": 540,
+      "y": 969,
+      "z": 7,
+      "item_id": 4769,
+      "stack_pos": 1,
+      "index": 0,
+      "label": "Use item 4769",
+      "pos": [
+        535,
+        966,
+        7
+      ],
+      "player_pos": [
+        535,
+        966,
+        7
+      ],
+      "t": 12.6
+    },
+    {
+      "type": "use_item",
+      "x": 540,
+      "y": 971,
+      "z": 7,
+      "item_id": 4566,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4566",
+      "pos": [
+        535,
+        967,
+        7
+      ],
+      "player_pos": [
+        535,
+        967,
+        7
+      ],
+      "t": 12.7
+    },
+    {
+      "type": "use_item",
+      "x": 540,
+      "y": 971,
+      "z": 7,
+      "item_id": 4566,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4566",
+      "pos": [
+        535,
+        969,
+        7
+      ],
+      "player_pos": [
+        535,
+        969,
+        7
+      ],
+      "t": 12.9
+    },
+    {
+      "type": "use_item",
+      "x": 540,
+      "y": 972,
+      "z": 7,
+      "item_id": 4561,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4561",
+      "pos": [
+        535,
+        970,
+        7
+      ],
+      "player_pos": [
+        535,
+        970,
+        7
+      ],
+      "t": 13.0
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        537,
+        970,
+        7
+      ],
+      "player_pos": [
+        536,
+        970,
+        7
+      ],
+      "t": 13.2
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        538,
+        971,
+        7
+      ],
+      "player_pos": [
+        537,
+        971,
+        7
+      ],
+      "t": 13.4
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        539,
+        971,
+        7
+      ],
+      "player_pos": [
+        538,
+        971,
+        7
+      ],
+      "t": 13.6
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        540,
+        971,
+        7
+      ],
+      "player_pos": [
+        539,
+        971,
+        7
+      ],
+      "t": 13.7
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        541,
+        971,
+        7
+      ],
+      "player_pos": [
+        540,
+        971,
+        7
+      ],
+      "t": 13.8
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        542,
+        971,
+        7
+      ],
+      "player_pos": [
+        541,
+        971,
+        7
+      ],
+      "t": 13.9
+    },
+    {
+      "type": "floor_change",
+      "direction": "up",
+      "pos": [
+        543,
+        971,
+        6
+      ],
+      "z": 6,
+      "t": 14.1
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        543,
+        970,
+        6
+      ],
+      "player_pos": [
+        543,
+        971,
+        6
+      ],
+      "t": 14.2
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        543,
+        969,
+        6
+      ],
+      "player_pos": [
+        543,
+        970,
+        6
+      ],
+      "t": 14.3
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        543,
+        969,
+        6
+      ],
+      "player_pos": [
+        543,
+        970,
+        6
+      ],
+      "t": 14.4
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        543,
+        968,
+        6
+      ],
+      "player_pos": [
+        543,
+        969,
+        6
+      ],
+      "t": 14.5
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        543,
+        967,
+        6
+      ],
+      "player_pos": [
+        543,
+        968,
+        6
+      ],
+      "t": 14.6
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        543,
+        965,
+        6
+      ],
+      "player_pos": [
+        543,
+        966,
+        6
+      ],
+      "t": 14.7
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        543,
+        965,
+        6
+      ],
+      "player_pos": [
+        543,
+        966,
+        6
+      ],
+      "t": 14.8
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        543,
+        964,
+        6
+      ],
+      "player_pos": [
+        543,
+        965,
+        6
+      ],
+      "t": 14.9
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        543,
+        963,
+        6
+      ],
+      "player_pos": [
+        543,
+        964,
+        6
+      ],
+      "t": 15.0
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        543,
+        961,
+        6
+      ],
+      "player_pos": [
+        543,
+        962,
+        6
+      ],
+      "t": 15.1
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        543,
+        960,
+        6
+      ],
+      "player_pos": [
+        543,
+        961,
+        6
+      ],
+      "t": 15.2
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        543,
+        959,
+        6
+      ],
+      "player_pos": [
+        543,
+        960,
+        6
+      ],
+      "t": 15.4
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        543,
+        958,
+        6
+      ],
+      "player_pos": [
+        543,
+        959,
+        6
+      ],
+      "t": 15.5
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        543,
+        958,
+        6
+      ],
+      "player_pos": [
+        543,
+        959,
+        6
+      ],
+      "t": 15.6
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        543,
+        957,
+        6
+      ],
+      "player_pos": [
+        543,
+        958,
+        6
+      ],
+      "t": 15.7
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        543,
+        955,
+        6
+      ],
+      "player_pos": [
+        543,
+        956,
+        6
+      ],
+      "t": 15.8
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        542,
+        955,
+        6
+      ],
+      "player_pos": [
+        543,
+        955,
+        6
+      ],
+      "t": 16.0
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        541,
+        955,
+        6
+      ],
+      "player_pos": [
+        542,
+        955,
+        6
+      ],
+      "t": 16.1
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        540,
+        955,
+        6
+      ],
+      "player_pos": [
+        541,
+        955,
+        6
+      ],
+      "t": 16.2
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        539,
+        955,
+        6
+      ],
+      "player_pos": [
+        540,
+        955,
+        6
+      ],
+      "t": 16.3
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        538,
+        955,
+        6
+      ],
+      "player_pos": [
+        539,
+        955,
+        6
+      ],
+      "t": 16.4
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        539,
+        955,
+        6
+      ],
+      "t": 16.5
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        539,
+        955,
+        6
+      ],
+      "t": 16.5
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        539,
+        954,
+        6
+      ],
+      "player_pos": [
+        539,
+        955,
+        6
+      ],
+      "t": 16.5
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        539,
+        953,
+        6
+      ],
+      "player_pos": [
+        539,
+        954,
+        6
+      ],
+      "t": 16.6
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        539,
+        953,
+        6
+      ],
+      "player_pos": [
+        539,
+        954,
+        6
+      ],
+      "t": 16.7
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        539,
+        951,
+        6
+      ],
+      "player_pos": [
+        539,
+        952,
+        6
+      ],
+      "t": 16.8
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        539,
+        951,
+        6
+      ],
+      "player_pos": [
+        539,
+        952,
+        6
+      ],
+      "t": 16.9
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        539,
+        950,
+        6
+      ],
+      "player_pos": [
+        539,
+        951,
+        6
+      ],
+      "t": 17.0
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        539,
+        949,
+        6
+      ],
+      "player_pos": [
+        539,
+        950,
+        6
+      ],
+      "t": 17.1
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        538,
+        948,
+        6
+      ],
+      "player_pos": [
+        539,
+        948,
+        6
+      ],
+      "t": 17.2
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        538,
+        947,
+        6
+      ],
+      "player_pos": [
+        538,
+        948,
+        6
+      ],
+      "t": 17.3
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        538,
+        946,
+        6
+      ],
+      "player_pos": [
+        538,
+        947,
+        6
+      ],
+      "t": 17.4
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        537,
+        946,
+        6
+      ],
+      "player_pos": [
+        538,
+        946,
+        6
+      ],
+      "t": 17.5
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        537,
+        945,
+        6
+      ],
+      "player_pos": [
+        537,
+        946,
+        6
+      ],
+      "t": 17.6
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        536,
+        945,
+        6
+      ],
+      "player_pos": [
+        537,
+        945,
+        6
+      ],
+      "t": 17.7
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        535,
+        945,
+        6
+      ],
+      "player_pos": [
+        536,
+        945,
+        6
+      ],
+      "t": 17.8
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        535,
+        944,
+        6
+      ],
+      "player_pos": [
+        535,
+        945,
+        6
+      ],
+      "t": 17.9
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        534,
+        944,
+        6
+      ],
+      "player_pos": [
+        535,
+        944,
+        6
+      ],
+      "t": 18.0
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        533,
+        944,
+        6
+      ],
+      "player_pos": [
+        534,
+        944,
+        6
+      ],
+      "t": 18.2
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        532,
+        944,
+        6
+      ],
+      "player_pos": [
+        533,
+        944,
+        6
+      ],
+      "t": 18.3
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        531,
+        944,
+        6
+      ],
+      "player_pos": [
+        532,
+        944,
+        6
+      ],
+      "t": 18.3
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        532,
+        944,
+        6
+      ],
+      "t": 18.4
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 3,
+      "pos": [
+        532,
+        944,
+        6
+      ],
+      "t": 18.4
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        532,
+        943,
+        6
+      ],
+      "player_pos": [
+        532,
+        944,
+        6
+      ],
+      "t": 18.5
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        532,
+        942,
+        6
+      ],
+      "player_pos": [
+        532,
+        943,
+        6
+      ],
+      "t": 18.6
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        532,
+        941,
+        6
+      ],
+      "player_pos": [
+        532,
+        942,
+        6
+      ],
+      "t": 18.7
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        531,
+        942,
+        6
+      ],
+      "player_pos": [
+        532,
+        942,
+        6
+      ],
+      "t": 18.8
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        530,
+        941,
+        6
+      ],
+      "player_pos": [
+        531,
+        941,
+        6
+      ],
+      "t": 18.9
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        531,
+        940,
+        6
+      ],
+      "player_pos": [
+        531,
+        941,
+        6
+      ],
+      "t": 19.0
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        530,
+        940,
+        6
+      ],
+      "player_pos": [
+        530,
+        941,
+        6
+      ],
+      "t": 19.1
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        530,
+        938,
+        6
+      ],
+      "player_pos": [
+        530,
+        939,
+        6
+      ],
+      "t": 19.2
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        530,
+        937,
+        6
+      ],
+      "player_pos": [
+        530,
+        938,
+        6
+      ],
+      "t": 19.3
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        530,
+        936,
+        6
+      ],
+      "player_pos": [
+        530,
+        937,
+        6
+      ],
+      "t": 19.4
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        530,
+        935,
+        6
+      ],
+      "player_pos": [
+        530,
+        936,
+        6
+      ],
+      "t": 19.8
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        530,
+        934,
+        6
+      ],
+      "player_pos": [
+        530,
+        935,
+        6
+      ],
+      "t": 20.0
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        530,
+        933,
+        6
+      ],
+      "player_pos": [
+        530,
+        934,
+        6
+      ],
+      "t": 20.1
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        530,
+        932,
+        6
+      ],
+      "player_pos": [
+        530,
+        933,
+        6
+      ],
+      "t": 20.2
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        530,
+        933,
+        6
+      ],
+      "player_pos": [
+        530,
+        932,
+        6
+      ],
+      "t": 20.3
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        531,
+        933,
+        6
+      ],
+      "player_pos": [
+        530,
+        933,
+        6
+      ],
+      "t": 20.5
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        532,
+        933,
+        6
+      ],
+      "player_pos": [
+        531,
+        933,
+        6
+      ],
+      "t": 20.6
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        533,
+        933,
+        6
+      ],
+      "player_pos": [
+        532,
+        933,
+        6
+      ],
+      "t": 20.7
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        532,
+        934,
+        6
+      ],
+      "player_pos": [
+        532,
+        933,
+        6
+      ],
+      "t": 20.8
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        533,
+        935,
+        6
+      ],
+      "player_pos": [
+        533,
+        934,
+        6
+      ],
+      "t": 20.9
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        533,
+        935,
+        6
+      ],
+      "player_pos": [
+        533,
+        934,
+        6
+      ],
+      "t": 21.0
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        533,
+        937,
+        6
+      ],
+      "player_pos": [
+        533,
+        936,
+        6
+      ],
+      "t": 21.1
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        533,
+        938,
+        6
+      ],
+      "player_pos": [
+        533,
+        937,
+        6
+      ],
+      "t": 21.2
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        533,
+        939,
+        6
+      ],
+      "player_pos": [
+        533,
+        938,
+        6
+      ],
+      "t": 21.4
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        533,
+        940,
+        6
+      ],
+      "player_pos": [
+        533,
+        939,
+        6
+      ],
+      "t": 21.5
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        533,
+        941,
+        6
+      ],
+      "player_pos": [
+        533,
+        940,
+        6
+      ],
+      "t": 21.6
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        533,
+        942,
+        6
+      ],
+      "player_pos": [
+        533,
+        941,
+        6
+      ],
+      "t": 21.7
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        533,
+        943,
+        6
+      ],
+      "player_pos": [
+        533,
+        942,
+        6
+      ],
+      "t": 21.8
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        534,
+        943,
+        6
+      ],
+      "player_pos": [
+        533,
+        943,
+        6
+      ],
+      "t": 21.9
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        535,
+        943,
+        6
+      ],
+      "player_pos": [
+        534,
+        943,
+        6
+      ],
+      "t": 22.0
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        535,
+        944,
+        6
+      ],
+      "player_pos": [
+        535,
+        943,
+        6
+      ],
+      "t": 22.1
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        536,
+        944,
+        6
+      ],
+      "player_pos": [
+        535,
+        944,
+        6
+      ],
+      "t": 22.2
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        537,
+        944,
+        6
+      ],
+      "player_pos": [
+        536,
+        944,
+        6
+      ],
+      "t": 22.3
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        537,
+        945,
+        6
+      ],
+      "player_pos": [
+        537,
+        944,
+        6
+      ],
+      "t": 22.4
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        538,
+        945,
+        6
+      ],
+      "player_pos": [
+        537,
+        945,
+        6
+      ],
+      "t": 22.5
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        538,
+        946,
+        6
+      ],
+      "player_pos": [
+        538,
+        945,
+        6
+      ],
+      "t": 22.6
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        538,
+        946,
+        6
+      ],
+      "player_pos": [
+        538,
+        945,
+        6
+      ],
+      "t": 22.7
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        539,
+        946,
+        6
+      ],
+      "player_pos": [
+        538,
+        946,
+        6
+      ],
+      "t": 22.8
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        538,
+        948,
+        6
+      ],
+      "player_pos": [
+        538,
+        947,
+        6
+      ],
+      "t": 22.9
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        540,
+        947,
+        6
+      ],
+      "player_pos": [
+        539,
+        947,
+        6
+      ],
+      "t": 23.0
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        539,
+        949,
+        6
+      ],
+      "player_pos": [
+        539,
+        948,
+        6
+      ],
+      "t": 23.1
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        540,
+        950,
+        6
+      ],
+      "player_pos": [
+        540,
+        949,
+        6
+      ],
+      "t": 23.2
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        541,
+        950,
+        6
+      ],
+      "player_pos": [
+        540,
+        950,
+        6
+      ],
+      "t": 23.3
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        540,
+        951,
+        6
+      ],
+      "player_pos": [
+        540,
+        950,
+        6
+      ],
+      "t": 23.4
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        541,
+        952,
+        6
+      ],
+      "player_pos": [
+        541,
+        951,
+        6
+      ],
+      "t": 23.5
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        541,
+        953,
+        6
+      ],
+      "player_pos": [
+        541,
+        952,
+        6
+      ],
+      "t": 23.6
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        541,
+        954,
+        6
+      ],
+      "player_pos": [
+        541,
+        953,
+        6
+      ],
+      "t": 23.7
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        541,
+        954,
+        6
+      ],
+      "player_pos": [
+        541,
+        953,
+        6
+      ],
+      "t": 23.8
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        541,
+        955,
+        6
+      ],
+      "player_pos": [
+        541,
+        954,
+        6
+      ],
+      "t": 23.9
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        542,
+        956,
+        6
+      ],
+      "player_pos": [
+        541,
+        956,
+        6
+      ],
+      "t": 24.1
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        543,
+        956,
+        6
+      ],
+      "player_pos": [
+        542,
+        956,
+        6
+      ],
+      "t": 24.2
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        543,
+        957,
+        6
+      ],
+      "player_pos": [
+        543,
+        956,
+        6
+      ],
+      "t": 24.3
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        543,
+        958,
+        6
+      ],
+      "player_pos": [
+        543,
+        957,
+        6
+      ],
+      "t": 24.4
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        543,
+        959,
+        6
+      ],
+      "player_pos": [
+        543,
+        958,
+        6
+      ],
+      "t": 24.5
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        543,
+        960,
+        6
+      ],
+      "player_pos": [
+        543,
+        959,
+        6
+      ],
+      "t": 24.7
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        543,
+        960,
+        6
+      ],
+      "player_pos": [
+        543,
+        959,
+        6
+      ],
+      "t": 24.8
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        543,
+        962,
+        6
+      ],
+      "player_pos": [
+        543,
+        961,
+        6
+      ],
+      "t": 24.9
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        543,
+        963,
+        6
+      ],
+      "player_pos": [
+        543,
+        962,
+        6
+      ],
+      "t": 25.0
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        543,
+        964,
+        6
+      ],
+      "player_pos": [
+        543,
+        963,
+        6
+      ],
+      "t": 25.1
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        543,
+        964,
+        6
+      ],
+      "player_pos": [
+        543,
+        963,
+        6
+      ],
+      "t": 25.2
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        543,
+        966,
+        6
+      ],
+      "player_pos": [
+        543,
+        965,
+        6
+      ],
+      "t": 25.3
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        544,
+        965,
+        6
+      ],
+      "player_pos": [
+        543,
+        965,
+        6
+      ],
+      "t": 25.4
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        544,
+        967,
+        6
+      ],
+      "player_pos": [
+        544,
+        966,
+        6
+      ],
+      "t": 25.5
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        544,
+        968,
+        6
+      ],
+      "player_pos": [
+        544,
+        967,
+        6
+      ],
+      "t": 25.6
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        544,
+        969,
+        6
+      ],
+      "player_pos": [
+        544,
+        968,
+        6
+      ],
+      "t": 25.7
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        544,
+        970,
+        6
+      ],
+      "player_pos": [
+        544,
+        969,
+        6
+      ],
+      "t": 25.8
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        543,
+        969,
+        6
+      ],
+      "player_pos": [
+        544,
+        969,
+        6
+      ],
+      "t": 25.9
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        543,
+        971,
+        6
+      ],
+      "player_pos": [
+        543,
+        970,
+        6
+      ],
+      "t": 26.0
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        544,
+        970,
+        6
+      ],
+      "player_pos": [
+        543,
+        970,
+        6
+      ],
+      "t": 26.1
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        545,
+        971,
+        6
+      ],
+      "player_pos": [
+        544,
+        971,
+        6
+      ],
+      "t": 26.3
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        545,
+        971,
+        6
+      ],
+      "player_pos": [
+        544,
+        971,
+        6
+      ],
+      "t": 26.4
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        545,
+        972,
+        6
+      ],
+      "player_pos": [
+        545,
+        971,
+        6
+      ],
+      "t": 26.5
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        546,
+        973,
+        6
+      ],
+      "player_pos": [
+        546,
+        972,
+        6
+      ],
+      "t": 26.6
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        547,
+        973,
+        6
+      ],
+      "player_pos": [
+        546,
+        973,
+        6
+      ],
+      "t": 26.7
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        548,
+        973,
+        6
+      ],
+      "player_pos": [
+        547,
+        973,
+        6
+      ],
+      "t": 26.8
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        548,
+        973,
+        6
+      ],
+      "player_pos": [
+        547,
+        973,
+        6
+      ],
+      "t": 26.9
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        549,
+        972,
+        6
+      ],
+      "player_pos": [
+        549,
+        973,
+        6
+      ],
+      "t": 27.1
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        549,
+        972,
+        6
+      ],
+      "player_pos": [
+        549,
+        973,
+        6
+      ],
+      "t": 27.2
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        550,
+        971,
+        6
+      ],
+      "player_pos": [
+        549,
+        971,
+        6
+      ],
+      "t": 27.3
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        551,
+        971,
+        6
+      ],
+      "player_pos": [
+        550,
+        971,
+        6
+      ],
+      "t": 27.4
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        552,
+        971,
+        6
+      ],
+      "player_pos": [
+        551,
+        971,
+        6
+      ],
+      "t": 27.5
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        552,
+        970,
+        6
+      ],
+      "player_pos": [
+        552,
+        971,
+        6
+      ],
+      "t": 27.7
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        552,
+        969,
+        6
+      ],
+      "player_pos": [
+        552,
+        970,
+        6
+      ],
+      "t": 27.8
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        553,
+        969,
+        6
+      ],
+      "player_pos": [
+        552,
+        969,
+        6
+      ],
+      "t": 27.9
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        553,
+        968,
+        6
+      ],
+      "player_pos": [
+        553,
+        969,
+        6
+      ],
+      "t": 28.0
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        554,
+        968,
+        6
+      ],
+      "player_pos": [
+        553,
+        968,
+        6
+      ],
+      "t": 28.1
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        555,
+        968,
+        6
+      ],
+      "player_pos": [
+        554,
+        968,
+        6
+      ],
+      "t": 28.3
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        556,
+        968,
+        6
+      ],
+      "player_pos": [
+        555,
+        968,
+        6
+      ],
+      "t": 28.4
+    },
+    {
+      "type": "use_item",
+      "x": 557,
+      "y": 968,
+      "z": 6,
+      "item_id": 8467,
+      "stack_pos": 2,
+      "index": 0,
+      "label": "Use item 8467",
+      "pos": [
+        556,
+        968,
+        6
+      ],
+      "player_pos": [
+        556,
+        968,
+        6
+      ],
+      "t": 29.1
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        556,
+        967,
+        6
+      ],
+      "player_pos": [
+        556,
+        968,
+        6
+      ],
+      "t": 29.5
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        556,
+        966,
+        6
+      ],
+      "player_pos": [
+        556,
+        967,
+        6
+      ],
+      "t": 29.6
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        556,
+        965,
+        6
+      ],
+      "player_pos": [
+        556,
+        966,
+        6
+      ],
+      "t": 29.8
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        556,
+        964,
+        6
+      ],
+      "player_pos": [
+        556,
+        965,
+        6
+      ],
+      "t": 29.9
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        556,
+        963,
+        6
+      ],
+      "player_pos": [
+        556,
+        964,
+        6
+      ],
+      "t": 30.0
+    },
+    {
+      "type": "floor_change",
+      "direction": "up",
+      "pos": [
+        556,
+        962,
+        5
+      ],
+      "z": 5,
+      "t": 30.2
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        556,
+        961,
+        5
+      ],
+      "player_pos": [
+        556,
+        962,
+        5
+      ],
+      "t": 30.2
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        556,
+        960,
+        5
+      ],
+      "player_pos": [
+        556,
+        961,
+        5
+      ],
+      "t": 30.4
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        556,
+        959,
+        5
+      ],
+      "player_pos": [
+        556,
+        960,
+        5
+      ],
+      "t": 30.5
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        556,
+        958,
+        5
+      ],
+      "player_pos": [
+        556,
+        959,
+        5
+      ],
+      "t": 30.6
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        556,
+        957,
+        5
+      ],
+      "player_pos": [
+        556,
+        958,
+        5
+      ],
+      "t": 30.7
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        556,
+        956,
+        5
+      ],
+      "player_pos": [
+        556,
+        957,
+        5
+      ],
+      "t": 30.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 5380,
+      "y": 1280,
+      "z": 0,
+      "t": 30.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 55042,
+      "y": 2571,
+      "z": 0,
+      "t": 30.9
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        556,
+        955,
+        5
+      ],
+      "player_pos": [
+        556,
+        956,
+        5
+      ],
+      "t": 31.0
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        555,
+        955,
+        5
+      ],
+      "player_pos": [
+        556,
+        955,
+        5
+      ],
+      "t": 31.1
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        554,
+        955,
+        5
+      ],
+      "player_pos": [
+        555,
+        955,
+        5
+      ],
+      "t": 31.2
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        554,
+        954,
+        5
+      ],
+      "player_pos": [
+        554,
+        955,
+        5
+      ],
+      "t": 31.3
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        553,
+        954,
+        5
+      ],
+      "player_pos": [
+        554,
+        954,
+        5
+      ],
+      "t": 31.4
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        553,
+        955,
+        5
+      ],
+      "player_pos": [
+        553,
+        954,
+        5
+      ],
+      "t": 31.7
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        554,
+        955,
+        5
+      ],
+      "player_pos": [
+        553,
+        955,
+        5
+      ],
+      "t": 31.8
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        555,
+        955,
+        5
+      ],
+      "player_pos": [
+        554,
+        955,
+        5
+      ],
+      "t": 32.0
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        555,
+        956,
+        5
+      ],
+      "player_pos": [
+        555,
+        955,
+        5
+      ],
+      "t": 32.1
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        556,
+        956,
+        5
+      ],
+      "player_pos": [
+        555,
+        956,
+        5
+      ],
+      "t": 32.2
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        556,
+        957,
+        5
+      ],
+      "player_pos": [
+        556,
+        956,
+        5
+      ],
+      "t": 32.3
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        556,
+        958,
+        5
+      ],
+      "player_pos": [
+        556,
+        957,
+        5
+      ],
+      "t": 32.4
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        556,
+        959,
+        5
+      ],
+      "player_pos": [
+        556,
+        958,
+        5
+      ],
+      "t": 32.5
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        556,
+        959,
+        5
+      ],
+      "player_pos": [
+        556,
+        958,
+        5
+      ],
+      "t": 32.7
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        556,
+        961,
+        5
+      ],
+      "player_pos": [
+        556,
+        960,
+        5
+      ],
+      "t": 32.8
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        556,
+        962,
+        5
+      ],
+      "player_pos": [
+        556,
+        961,
+        5
+      ],
+      "t": 32.9
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        556,
+        963,
+        5
+      ],
+      "player_pos": [
+        556,
+        962,
+        5
+      ],
+      "t": 33.0
+    },
+    {
+      "type": "floor_change",
+      "direction": "down",
+      "pos": [
+        556,
+        964,
+        6
+      ],
+      "z": 6,
+      "t": 33.1
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        556,
+        965,
+        6
+      ],
+      "player_pos": [
+        556,
+        964,
+        6
+      ],
+      "t": 33.2
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        556,
+        965,
+        6
+      ],
+      "player_pos": [
+        556,
+        964,
+        6
+      ],
+      "t": 33.3
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        556,
+        966,
+        6
+      ],
+      "player_pos": [
+        556,
+        965,
+        6
+      ],
+      "t": 33.5
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        556,
+        967,
+        6
+      ],
+      "player_pos": [
+        556,
+        966,
+        6
+      ],
+      "t": 33.6
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        556,
+        968,
+        6
+      ],
+      "player_pos": [
+        556,
+        967,
+        6
+      ],
+      "t": 33.7
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        556,
+        969,
+        6
+      ],
+      "player_pos": [
+        556,
+        968,
+        6
+      ],
+      "t": 33.8
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        557,
+        970,
+        6
+      ],
+      "player_pos": [
+        556,
+        970,
+        6
+      ],
+      "t": 33.9
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        557,
+        970,
+        6
+      ],
+      "player_pos": [
+        556,
+        970,
+        6
+      ],
+      "t": 34.0
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        558,
+        970,
+        6
+      ],
+      "player_pos": [
+        557,
+        970,
+        6
+      ],
+      "t": 34.1
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        559,
+        970,
+        6
+      ],
+      "player_pos": [
+        558,
+        970,
+        6
+      ],
+      "t": 34.2
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        559,
+        971,
+        6
+      ],
+      "player_pos": [
+        559,
+        970,
+        6
+      ],
+      "t": 34.3
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        560,
+        971,
+        6
+      ],
+      "player_pos": [
+        560,
+        970,
+        6
+      ],
+      "t": 34.4
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        560,
+        972,
+        6
+      ],
+      "player_pos": [
+        560,
+        971,
+        6
+      ],
+      "t": 34.5
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        560,
+        973,
+        6
+      ],
+      "player_pos": [
+        560,
+        972,
+        6
+      ],
+      "t": 34.6
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        560,
+        974,
+        6
+      ],
+      "player_pos": [
+        560,
+        973,
+        6
+      ],
+      "t": 34.7
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        560,
+        976,
+        6
+      ],
+      "player_pos": [
+        560,
+        975,
+        6
+      ],
+      "t": 34.8
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        560,
+        976,
+        6
+      ],
+      "player_pos": [
+        560,
+        975,
+        6
+      ],
+      "t": 34.9
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        560,
+        977,
+        6
+      ],
+      "player_pos": [
+        560,
+        976,
+        6
+      ],
+      "t": 35.0
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        560,
+        978,
+        6
+      ],
+      "player_pos": [
+        560,
+        977,
+        6
+      ],
+      "t": 35.1
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        560,
+        979,
+        6
+      ],
+      "player_pos": [
+        560,
+        978,
+        6
+      ],
+      "t": 35.2
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        560,
+        981,
+        6
+      ],
+      "player_pos": [
+        560,
+        980,
+        6
+      ],
+      "t": 35.3
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        560,
+        982,
+        6
+      ],
+      "player_pos": [
+        560,
+        981,
+        6
+      ],
+      "t": 35.4
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        560,
+        983,
+        6
+      ],
+      "player_pos": [
+        560,
+        982,
+        6
+      ],
+      "t": 35.5
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        559,
+        983,
+        6
+      ],
+      "player_pos": [
+        560,
+        983,
+        6
+      ],
+      "t": 35.7
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        559,
+        984,
+        6
+      ],
+      "player_pos": [
+        559,
+        983,
+        6
+      ],
+      "t": 35.9
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        559,
+        985,
+        6
+      ],
+      "player_pos": [
+        559,
+        984,
+        6
+      ],
+      "t": 36.0
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        558,
+        984,
+        6
+      ],
+      "player_pos": [
+        559,
+        984,
+        6
+      ],
+      "t": 36.1
+    },
+    {
+      "type": "use_item",
+      "x": 556,
+      "y": 984,
+      "z": 6,
+      "item_id": 8467,
+      "stack_pos": 2,
+      "index": 0,
+      "label": "Use item 8467",
+      "pos": [
+        558,
+        985,
+        6
+      ],
+      "player_pos": [
+        558,
+        985,
+        6
+      ],
+      "t": 36.7
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        557,
+        986,
+        6
+      ],
+      "player_pos": [
+        557,
+        985,
+        6
+      ],
+      "t": 38.6
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        556,
+        986,
+        6
+      ],
+      "player_pos": [
+        557,
+        986,
+        6
+      ],
+      "t": 38.8
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        555,
+        986,
+        6
+      ],
+      "player_pos": [
+        556,
+        986,
+        6
+      ],
+      "t": 38.9
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        555,
+        987,
+        6
+      ],
+      "player_pos": [
+        555,
+        986,
+        6
+      ],
+      "t": 39.3
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        555,
+        988,
+        6
+      ],
+      "player_pos": [
+        555,
+        987,
+        6
+      ],
+      "t": 39.4
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        554,
+        987,
+        6
+      ],
+      "player_pos": [
+        555,
+        987,
+        6
+      ],
+      "t": 39.4
+    },
+    {
+      "type": "use_item",
+      "x": 550,
+      "y": 990,
+      "z": 6,
+      "item_id": 4405,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4405",
+      "pos": [
+        554,
+        988,
+        6
+      ],
+      "player_pos": [
+        554,
+        988,
+        6
+      ],
+      "t": 39.9
+    },
+    {
+      "type": "use_item",
+      "x": 550,
+      "y": 991,
+      "z": 6,
+      "item_id": 4404,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4404",
+      "pos": [
+        554,
+        988,
+        6
+      ],
+      "player_pos": [
+        554,
+        988,
+        6
+      ],
+      "t": 40.1
+    },
+    {
+      "type": "use_item",
+      "x": 549,
+      "y": 992,
+      "z": 6,
+      "item_id": 4401,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4401",
+      "pos": [
+        553,
+        989,
+        6
+      ],
+      "player_pos": [
+        553,
+        989,
+        6
+      ],
+      "t": 40.2
+    },
+    {
+      "type": "use_item",
+      "x": 548,
+      "y": 992,
+      "z": 6,
+      "item_id": 4396,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 4396",
+      "pos": [
+        551,
+        989,
+        6
+      ],
+      "player_pos": [
+        551,
+        989,
+        6
+      ],
+      "t": 40.4
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        550,
+        991,
+        6
+      ],
+      "player_pos": [
+        549,
+        991,
+        6
+      ],
+      "t": 40.9
+    },
+    {
+      "type": "use_item",
+      "x": 550,
+      "y": 989,
+      "z": 6,
+      "item_id": 8467,
+      "stack_pos": 2,
+      "index": 0,
+      "label": "Use item 8467",
+      "pos": [
+        550,
+        991,
+        6
+      ],
+      "player_pos": [
+        550,
+        991,
+        6
+      ],
+      "t": 41.5
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        549,
+        990,
+        6
+      ],
+      "player_pos": [
+        550,
+        990,
+        6
+      ],
+      "t": 42.3
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        549,
+        989,
+        6
+      ],
+      "player_pos": [
+        549,
+        990,
+        6
+      ],
+      "t": 42.4
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        549,
+        988,
+        6
+      ],
+      "player_pos": [
+        549,
+        989,
+        6
+      ],
+      "t": 42.5
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        549,
+        987,
+        6
+      ],
+      "player_pos": [
+        549,
+        988,
+        6
+      ],
+      "t": 42.6
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        549,
+        986,
+        6
+      ],
+      "player_pos": [
+        549,
+        987,
+        6
+      ],
+      "t": 42.7
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        548,
+        987,
+        6
+      ],
+      "player_pos": [
+        549,
+        987,
+        6
+      ],
+      "t": 42.8
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        547,
+        986,
+        6
+      ],
+      "player_pos": [
+        548,
+        986,
+        6
+      ],
+      "t": 42.9
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        546,
+        986,
+        6
+      ],
+      "player_pos": [
+        547,
+        986,
+        6
+      ],
+      "t": 43.0
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        547,
+        985,
+        6
+      ],
+      "player_pos": [
+        547,
+        986,
+        6
+      ],
+      "t": 43.1
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        546,
+        984,
+        6
+      ],
+      "player_pos": [
+        546,
+        985,
+        6
+      ],
+      "t": 43.3
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        546,
+        983,
+        6
+      ],
+      "player_pos": [
+        546,
+        984,
+        6
+      ],
+      "t": 43.4
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        545,
+        984,
+        6
+      ],
+      "player_pos": [
+        546,
+        984,
+        6
+      ],
+      "t": 43.5
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        544,
+        983,
+        6
+      ],
+      "player_pos": [
+        545,
+        983,
+        6
+      ],
+      "t": 43.6
+    },
+    {
+      "type": "use_item",
+      "x": 543,
+      "y": 982,
+      "z": 6,
+      "item_id": 8467,
+      "stack_pos": 2,
+      "index": 0,
+      "label": "Use item 8467",
+      "pos": [
+        544,
+        983,
+        6
+      ],
+      "player_pos": [
+        544,
+        983,
+        6
+      ],
+      "t": 44.1
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        544,
+        982,
+        6
+      ],
+      "player_pos": [
+        544,
+        983,
+        6
+      ],
+      "t": 44.2
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        544,
+        981,
+        6
+      ],
+      "player_pos": [
+        544,
+        982,
+        6
+      ],
+      "t": 44.4
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        543,
+        981,
+        6
+      ],
+      "player_pos": [
+        544,
+        981,
+        6
+      ],
+      "t": 44.5
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        543,
+        980,
+        6
+      ],
+      "player_pos": [
+        543,
+        981,
+        6
+      ],
+      "t": 44.6
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        543,
+        979,
+        6
+      ],
+      "player_pos": [
+        543,
+        980,
+        6
+      ],
+      "t": 44.7
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        543,
+        978,
+        6
+      ],
+      "player_pos": [
+        543,
+        979,
+        6
+      ],
+      "t": 44.8
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        543,
+        977,
+        6
+      ],
+      "player_pos": [
+        543,
+        978,
+        6
+      ],
+      "t": 44.9
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        544,
+        977,
+        6
+      ],
+      "player_pos": [
+        543,
+        977,
+        6
+      ],
+      "t": 45.0
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        544,
+        976,
+        6
+      ],
+      "player_pos": [
+        544,
+        977,
+        6
+      ],
+      "t": 45.1
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        544,
+        976,
+        6
+      ],
+      "player_pos": [
+        544,
+        977,
+        6
+      ],
+      "t": 45.2
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        544,
+        974,
+        6
+      ],
+      "player_pos": [
+        544,
+        975,
+        6
+      ],
+      "t": 45.3
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        544,
+        973,
+        6
+      ],
+      "player_pos": [
+        544,
+        974,
+        6
+      ],
+      "t": 45.4
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        544,
+        972,
+        6
+      ],
+      "player_pos": [
+        544,
+        973,
+        6
+      ],
+      "t": 45.5
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        544,
+        971,
+        6
+      ],
+      "player_pos": [
+        544,
+        972,
+        6
+      ],
+      "t": 45.7
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        543,
+        971,
+        6
+      ],
+      "player_pos": [
+        544,
+        971,
+        6
+      ],
+      "t": 45.8
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        542,
+        971,
+        6
+      ],
+      "player_pos": [
+        543,
+        971,
+        6
+      ],
+      "t": 45.9
+    },
+    {
+      "type": "floor_change",
+      "direction": "down",
+      "pos": [
+        541,
+        971,
+        7
+      ],
+      "z": 7,
+      "t": 46.0
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        540,
+        971,
+        7
+      ],
+      "player_pos": [
+        541,
+        971,
+        7
+      ],
+      "t": 46.1
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        540,
+        971,
+        7
+      ],
+      "player_pos": [
+        541,
+        971,
+        7
+      ],
+      "t": 46.2
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        539,
+        971,
+        7
+      ],
+      "player_pos": [
+        540,
+        971,
+        7
+      ],
+      "t": 46.3
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        539,
+        970,
+        7
+      ],
+      "player_pos": [
+        539,
+        971,
+        7
+      ],
+      "t": 46.5
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        538,
+        971,
+        7
+      ],
+      "player_pos": [
+        538,
+        970,
+        7
+      ],
+      "t": 46.7
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        538,
+        972,
+        7
+      ],
+      "player_pos": [
+        538,
+        971,
+        7
+      ],
+      "t": 46.9
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        538,
+        973,
+        7
+      ],
+      "player_pos": [
+        538,
+        972,
+        7
+      ],
+      "t": 47.0
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        537,
+        973,
+        7
+      ],
+      "player_pos": [
+        538,
+        973,
+        7
+      ],
+      "t": 47.1
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        537,
+        974,
+        7
+      ],
+      "player_pos": [
+        537,
+        973,
+        7
+      ],
+      "t": 47.3
+    },
+    {
+      "type": "cancel_walk",
+      "direction": 2,
+      "pos": [
+        537,
+        974,
+        7
+      ],
+      "t": 47.4
+    },
+    {
+      "type": "use_item",
+      "x": 537,
+      "y": 970,
+      "z": 7,
+      "item_id": 231,
+      "stack_pos": 0,
+      "index": 0,
+      "label": "Use item 231",
+      "pos": [
+        537,
+        974,
+        7
+      ],
+      "player_pos": [
+        537,
+        974,
+        7
+      ],
+      "t": 47.8
+    },
+    {
+      "type": "use_item",
+      "x": 537,
+      "y": 969,
+      "z": 7,
+      "item_id": 8467,
+      "stack_pos": 2,
+      "index": 0,
+      "label": "Use item 8467",
+      "pos": [
+        537,
+        974,
+        7
+      ],
+      "player_pos": [
+        537,
+        974,
+        7
+      ],
+      "t": 48.0
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        537,
+        971,
+        7
+      ],
+      "player_pos": [
+        537,
+        970,
+        7
+      ],
+      "t": 49.5
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        537,
+        972,
+        7
+      ],
+      "player_pos": [
+        537,
+        971,
+        7
+      ],
+      "t": 49.6
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        537,
+        973,
+        7
+      ],
+      "player_pos": [
+        537,
+        972,
+        7
+      ],
+      "t": 49.8
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        537,
+        974,
+        7
+      ],
+      "player_pos": [
+        537,
+        973,
+        7
+      ],
+      "t": 49.9
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        537,
+        975,
+        7
+      ],
+      "player_pos": [
+        537,
+        974,
+        7
+      ],
+      "t": 50.0
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        537,
+        976,
+        7
+      ],
+      "player_pos": [
+        537,
+        975,
+        7
+      ],
+      "t": 50.1
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        537,
+        977,
+        7
+      ],
+      "player_pos": [
+        537,
+        976,
+        7
+      ],
+      "t": 50.5
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        537,
+        978,
+        7
+      ],
+      "player_pos": [
+        537,
+        977,
+        7
+      ],
+      "t": 50.8
+    },
+    {
+      "type": "use_item",
+      "x": 536,
+      "y": 979,
+      "z": 7,
+      "item_id": 8467,
+      "stack_pos": 3,
+      "index": 0,
+      "label": "Use item 8467",
+      "pos": [
+        537,
+        978,
+        7
+      ],
+      "player_pos": [
+        537,
+        978,
+        7
+      ],
+      "t": 51.3
+    }
+  ]
+}

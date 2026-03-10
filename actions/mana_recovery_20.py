@@ -1,4 +1,4 @@
-"""Mana Recovery: uses Senzu (item 8465) when mana drops below threshold."""
+"""Mana Recovery 20%: uses Senzu (item 8465) when mana drops below 20%."""
 import sys
 import os
 import time
@@ -25,15 +25,15 @@ async def run(bot):
 
                 # Periodic state log for debugging
                 if (now - last_state_log) >= STATE_LOG_INTERVAL:
-                    bot.log(f"Mana Recovery: state MP={mp} connected={bot.is_connected}")
+                    bot.log(f"Mana Recovery 20%: state MP={mp} connected={bot.is_connected}")
                     last_state_log = now
 
                 if mp <= MANA_THRESHOLD and (now - last_use) >= COOLDOWN:
                     pkt = build_use_item_packet(0xFFFF, 0, 0, SENZU_ID, 0, 0)
                     await bot.inject_to_server(pkt)
                     last_use = now
-                    bot.log(f"Mana Recovery: used Senzu (MP={mp})")
+                    bot.log(f"Mana Recovery 20%: used Senzu (MP={mp})")
         except Exception as e:
-            bot.log(f"Mana Recovery ERROR: {e}")
+            bot.log(f"Mana Recovery 20% ERROR: {e}")
             traceback.print_exc()
         await bot.sleep(INTERVAL)

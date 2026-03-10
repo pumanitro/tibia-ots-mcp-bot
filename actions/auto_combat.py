@@ -1,9 +1,9 @@
-"""Auto combat: 2+ monsters nearby → Explosive Wave, else Darkness Blaster (mana>=5%) or rune 3165 on target.
+"""Auto combat: 2+ monsters nearby → Energy Grenade, else Darkness Blaster (mana>=5%) or rune 3165 on target.
 
 Replaces auto_rune_and_spell + aoe_spell with a single unified action.
 
 Priority each tick (200ms):
-  1. AOE   — 2+ alive monsters within 1 sq (Chebyshev) → cast 'Explosive Wave'
+  1. AOE   — 2+ alive monsters within 1 sq (Chebyshev) → cast 'Energy Grenade'
   2. Spell — has attack target and mana >= 5% → cast 'Darkness Blaster'
   3. Rune  — has attack target and mana < 5% → use rune 3165 on target
 
@@ -23,7 +23,7 @@ from constants import ITEM_RUNE_3165, MONSTER_ID_MIN
 INTERVAL = 0.2
 
 # AOE settings
-AOE_SPELL = "Explosive Wave"
+AOE_SPELL = "Energy Grenade"
 AOE_MIN_CREATURES = 2
 AOE_MAX_DISTANCE = 1  # Chebyshev distance (1 square)
 AOE_MAX_AGE = 60      # ignore stale creature data (seconds)

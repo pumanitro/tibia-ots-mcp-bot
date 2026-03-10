@@ -1,0 +1,3363 @@
+{
+  "name": "Kiddy_The_Islet",
+  "created_at": "2026-02-26T22:16:51.284663+00:00",
+  "version": 1,
+  "start_position": [
+    963,
+    776,
+    7
+  ],
+  "waypoints": [
+    {
+      "type": "tile_transform_item",
+      "x": 968,
+      "y": 767,
+      "z": 7,
+      "t": -15.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 968,
+      "y": 766,
+      "z": 7,
+      "t": -15.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 969,
+      "y": 766,
+      "z": 7,
+      "t": -15.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 970,
+      "y": 766,
+      "z": 7,
+      "t": -14.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 971,
+      "y": 766,
+      "z": 7,
+      "t": -14.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 970,
+      "y": 777,
+      "z": 7,
+      "t": -13.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 971,
+      "y": 769,
+      "z": 7,
+      "t": -13.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 970,
+      "y": 769,
+      "z": 7,
+      "t": -13.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 969,
+      "y": 770,
+      "z": 7,
+      "t": -13.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 966,
+      "y": 775,
+      "z": 7,
+      "t": -12.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 967,
+      "y": 773,
+      "z": 7,
+      "t": -11.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 964,
+      "y": 776,
+      "z": 7,
+      "t": -11.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 966,
+      "y": 774,
+      "z": 7,
+      "t": -11.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 964,
+      "y": 774,
+      "z": 7,
+      "t": -10.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 964,
+      "y": 777,
+      "z": 7,
+      "t": -9.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 964,
+      "y": 776,
+      "z": 7,
+      "t": -6.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 964,
+      "y": 776,
+      "z": 7,
+      "t": 0.3
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 964,
+      "y": 775,
+      "z": 7,
+      "t": 0.5
+    },
+    {
+      "type": "use_item",
+      "x": 964,
+      "y": 775,
+      "z": 7,
+      "item_id": 8452,
+      "stack_pos": 1,
+      "index": 1,
+      "label": "Use item 8452",
+      "pos": [
+        963,
+        776,
+        7
+      ],
+      "player_pos": [
+        963,
+        776,
+        7
+      ],
+      "t": 1.4
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        964,
+        776,
+        7
+      ],
+      "player_pos": [
+        963,
+        776,
+        7
+      ],
+      "t": 1.6
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        964,
+        775,
+        7
+      ],
+      "player_pos": [
+        964,
+        776,
+        7
+      ],
+      "t": 1.7
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        965,
+        775,
+        7
+      ],
+      "player_pos": [
+        964,
+        775,
+        7
+      ],
+      "t": 1.9
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        966,
+        775,
+        7
+      ],
+      "player_pos": [
+        965,
+        775,
+        7
+      ],
+      "t": 2.1
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        966,
+        774,
+        7
+      ],
+      "player_pos": [
+        966,
+        775,
+        7
+      ],
+      "t": 2.2
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        966,
+        773,
+        7
+      ],
+      "player_pos": [
+        966,
+        774,
+        7
+      ],
+      "t": 2.3
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        967,
+        773,
+        7
+      ],
+      "player_pos": [
+        966,
+        773,
+        7
+      ],
+      "t": 2.5
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        967,
+        772,
+        7
+      ],
+      "player_pos": [
+        967,
+        773,
+        7
+      ],
+      "t": 2.7
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        968,
+        772,
+        7
+      ],
+      "player_pos": [
+        967,
+        772,
+        7
+      ],
+      "t": 2.8
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        968,
+        771,
+        7
+      ],
+      "player_pos": [
+        968,
+        772,
+        7
+      ],
+      "t": 2.9
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        968,
+        770,
+        7
+      ],
+      "player_pos": [
+        968,
+        771,
+        7
+      ],
+      "t": 3.1
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        968,
+        769,
+        7
+      ],
+      "player_pos": [
+        968,
+        770,
+        7
+      ],
+      "t": 3.2
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        968,
+        768,
+        7
+      ],
+      "player_pos": [
+        968,
+        769,
+        7
+      ],
+      "t": 3.3
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        968,
+        767,
+        7
+      ],
+      "player_pos": [
+        968,
+        768,
+        7
+      ],
+      "t": 3.8
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        968,
+        766,
+        7
+      ],
+      "player_pos": [
+        968,
+        767,
+        7
+      ],
+      "t": 4.1
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        969,
+        766,
+        7
+      ],
+      "player_pos": [
+        968,
+        766,
+        7
+      ],
+      "t": 4.3
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        970,
+        766,
+        7
+      ],
+      "player_pos": [
+        969,
+        766,
+        7
+      ],
+      "t": 4.4
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        971,
+        766,
+        7
+      ],
+      "player_pos": [
+        970,
+        766,
+        7
+      ],
+      "t": 4.6
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        971,
+        765,
+        7
+      ],
+      "player_pos": [
+        971,
+        766,
+        7
+      ],
+      "t": 4.7
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        971,
+        764,
+        7
+      ],
+      "player_pos": [
+        971,
+        765,
+        7
+      ],
+      "t": 4.8
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        971,
+        763,
+        7
+      ],
+      "player_pos": [
+        971,
+        764,
+        7
+      ],
+      "t": 5.0
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        972,
+        763,
+        7
+      ],
+      "player_pos": [
+        971,
+        763,
+        7
+      ],
+      "t": 5.1
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        973,
+        763,
+        7
+      ],
+      "player_pos": [
+        972,
+        763,
+        7
+      ],
+      "t": 5.3
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        973,
+        762,
+        7
+      ],
+      "player_pos": [
+        973,
+        763,
+        7
+      ],
+      "t": 5.4
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        974,
+        762,
+        7
+      ],
+      "player_pos": [
+        973,
+        762,
+        7
+      ],
+      "t": 5.5
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        974,
+        761,
+        7
+      ],
+      "player_pos": [
+        974,
+        762,
+        7
+      ],
+      "t": 5.7
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        974,
+        760,
+        7
+      ],
+      "player_pos": [
+        974,
+        761,
+        7
+      ],
+      "t": 5.8
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        974,
+        759,
+        7
+      ],
+      "player_pos": [
+        974,
+        760,
+        7
+      ],
+      "t": 5.9
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        974,
+        758,
+        7
+      ],
+      "player_pos": [
+        974,
+        759,
+        7
+      ],
+      "t": 6.1
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        974,
+        757,
+        7
+      ],
+      "player_pos": [
+        974,
+        758,
+        7
+      ],
+      "t": 6.2
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        975,
+        757,
+        7
+      ],
+      "player_pos": [
+        974,
+        757,
+        7
+      ],
+      "t": 6.3
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        975,
+        756,
+        7
+      ],
+      "player_pos": [
+        975,
+        757,
+        7
+      ],
+      "t": 6.5
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        976,
+        757,
+        7
+      ],
+      "player_pos": [
+        975,
+        757,
+        7
+      ],
+      "t": 6.9
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        977,
+        756,
+        7
+      ],
+      "player_pos": [
+        976,
+        756,
+        7
+      ],
+      "t": 7.0
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        977,
+        755,
+        7
+      ],
+      "player_pos": [
+        977,
+        756,
+        7
+      ],
+      "t": 7.1
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        978,
+        755,
+        7
+      ],
+      "player_pos": [
+        977,
+        755,
+        7
+      ],
+      "t": 7.3
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        979,
+        755,
+        7
+      ],
+      "player_pos": [
+        978,
+        755,
+        7
+      ],
+      "t": 7.4
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        979,
+        754,
+        7
+      ],
+      "player_pos": [
+        979,
+        755,
+        7
+      ],
+      "t": 7.5
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        979,
+        753,
+        7
+      ],
+      "player_pos": [
+        979,
+        754,
+        7
+      ],
+      "t": 7.7
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        980,
+        753,
+        7
+      ],
+      "player_pos": [
+        979,
+        753,
+        7
+      ],
+      "t": 7.8
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        980,
+        752,
+        7
+      ],
+      "player_pos": [
+        980,
+        753,
+        7
+      ],
+      "t": 7.9
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        981,
+        752,
+        7
+      ],
+      "player_pos": [
+        980,
+        752,
+        7
+      ],
+      "t": 8.1
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        982,
+        752,
+        7
+      ],
+      "player_pos": [
+        981,
+        752,
+        7
+      ],
+      "t": 8.2
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        983,
+        752,
+        7
+      ],
+      "player_pos": [
+        982,
+        752,
+        7
+      ],
+      "t": 8.3
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        983,
+        753,
+        7
+      ],
+      "player_pos": [
+        983,
+        752,
+        7
+      ],
+      "t": 8.6
+    },
+    {
+      "type": "walk",
+      "direction": "autowalk",
+      "pos": [
+        984,
+        754,
+        7
+      ],
+      "player_pos": [
+        983,
+        753,
+        7
+      ],
+      "t": 9.4
+    },
+    {
+      "type": "walk",
+      "direction": "autowalk",
+      "pos": [
+        985,
+        755,
+        7
+      ],
+      "player_pos": [
+        984,
+        754,
+        7
+      ],
+      "t": 10.2
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        986,
+        755,
+        7
+      ],
+      "player_pos": [
+        985,
+        755,
+        7
+      ],
+      "t": 10.6
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        987,
+        755,
+        7
+      ],
+      "player_pos": [
+        986,
+        755,
+        7
+      ],
+      "t": 10.8
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        988,
+        755,
+        7
+      ],
+      "player_pos": [
+        987,
+        755,
+        7
+      ],
+      "t": 10.9
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        989,
+        755,
+        7
+      ],
+      "player_pos": [
+        988,
+        755,
+        7
+      ],
+      "t": 11.1
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        989,
+        754,
+        7
+      ],
+      "player_pos": [
+        989,
+        755,
+        7
+      ],
+      "t": 11.2
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        989,
+        753,
+        7
+      ],
+      "player_pos": [
+        989,
+        754,
+        7
+      ],
+      "t": 11.3
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        989,
+        752,
+        7
+      ],
+      "player_pos": [
+        989,
+        753,
+        7
+      ],
+      "t": 11.5
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        989,
+        753,
+        7
+      ],
+      "player_pos": [
+        989,
+        752,
+        7
+      ],
+      "t": 11.9
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        989,
+        754,
+        7
+      ],
+      "player_pos": [
+        989,
+        753,
+        7
+      ],
+      "t": 12.1
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        989,
+        755,
+        7
+      ],
+      "player_pos": [
+        989,
+        754,
+        7
+      ],
+      "t": 12.2
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        990,
+        755,
+        7
+      ],
+      "player_pos": [
+        989,
+        755,
+        7
+      ],
+      "t": 12.3
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        990,
+        756,
+        7
+      ],
+      "player_pos": [
+        990,
+        755,
+        7
+      ],
+      "t": 12.7
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        990,
+        757,
+        7
+      ],
+      "player_pos": [
+        990,
+        756,
+        7
+      ],
+      "t": 12.8
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        991,
+        757,
+        7
+      ],
+      "player_pos": [
+        990,
+        757,
+        7
+      ],
+      "t": 13.0
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        991,
+        758,
+        7
+      ],
+      "player_pos": [
+        991,
+        757,
+        7
+      ],
+      "t": 13.1
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        992,
+        758,
+        7
+      ],
+      "player_pos": [
+        991,
+        758,
+        7
+      ],
+      "t": 13.2
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        993,
+        758,
+        7
+      ],
+      "player_pos": [
+        992,
+        758,
+        7
+      ],
+      "t": 13.4
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        994,
+        758,
+        7
+      ],
+      "player_pos": [
+        993,
+        758,
+        7
+      ],
+      "t": 13.5
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        995,
+        758,
+        7
+      ],
+      "player_pos": [
+        994,
+        758,
+        7
+      ],
+      "t": 13.6
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        996,
+        758,
+        7
+      ],
+      "player_pos": [
+        995,
+        758,
+        7
+      ],
+      "t": 13.8
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        997,
+        758,
+        7
+      ],
+      "player_pos": [
+        996,
+        758,
+        7
+      ],
+      "t": 13.9
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        998,
+        758,
+        7
+      ],
+      "player_pos": [
+        997,
+        758,
+        7
+      ],
+      "t": 14.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 999,
+      "y": 755,
+      "z": 7,
+      "t": 14.4
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        998,
+        757,
+        7
+      ],
+      "player_pos": [
+        998,
+        758,
+        7
+      ],
+      "t": 14.7
+    },
+    {
+      "type": "walk",
+      "direction": "east",
+      "pos": [
+        999,
+        757,
+        7
+      ],
+      "player_pos": [
+        998,
+        757,
+        7
+      ],
+      "t": 14.9
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        998,
+        757,
+        7
+      ],
+      "player_pos": [
+        999,
+        757,
+        7
+      ],
+      "t": 15.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 998,
+      "y": 761,
+      "z": 7,
+      "t": 15.8
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        998,
+        756,
+        7
+      ],
+      "player_pos": [
+        998,
+        757,
+        7
+      ],
+      "t": 15.9
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 999,
+      "y": 756,
+      "z": 7,
+      "t": 16.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 3886,
+      "y": 1280,
+      "z": 0,
+      "t": 28.1
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        998,
+        757,
+        7
+      ],
+      "player_pos": [
+        998,
+        756,
+        7
+      ],
+      "t": 30.3
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        998,
+        758,
+        7
+      ],
+      "player_pos": [
+        998,
+        757,
+        7
+      ],
+      "t": 30.5
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        998,
+        759,
+        7
+      ],
+      "player_pos": [
+        998,
+        758,
+        7
+      ],
+      "t": 30.7
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        998,
+        760,
+        7
+      ],
+      "player_pos": [
+        998,
+        759,
+        7
+      ],
+      "t": 30.8
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        998,
+        761,
+        7
+      ],
+      "player_pos": [
+        998,
+        760,
+        7
+      ],
+      "t": 30.9
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        997,
+        761,
+        7
+      ],
+      "player_pos": [
+        998,
+        761,
+        7
+      ],
+      "t": 31.1
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        997,
+        762,
+        7
+      ],
+      "player_pos": [
+        997,
+        761,
+        7
+      ],
+      "t": 31.3
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        997,
+        763,
+        7
+      ],
+      "player_pos": [
+        997,
+        762,
+        7
+      ],
+      "t": 31.4
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        997,
+        764,
+        7
+      ],
+      "player_pos": [
+        997,
+        763,
+        7
+      ],
+      "t": 31.5
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        997,
+        765,
+        7
+      ],
+      "player_pos": [
+        997,
+        764,
+        7
+      ],
+      "t": 31.7
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        996,
+        765,
+        7
+      ],
+      "player_pos": [
+        997,
+        765,
+        7
+      ],
+      "t": 31.8
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        996,
+        766,
+        7
+      ],
+      "player_pos": [
+        996,
+        765,
+        7
+      ],
+      "t": 31.9
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        995,
+        766,
+        7
+      ],
+      "player_pos": [
+        996,
+        766,
+        7
+      ],
+      "t": 32.1
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        994,
+        766,
+        7
+      ],
+      "player_pos": [
+        995,
+        766,
+        7
+      ],
+      "t": 32.2
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        994,
+        767,
+        7
+      ],
+      "player_pos": [
+        994,
+        766,
+        7
+      ],
+      "t": 32.4
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        994,
+        768,
+        7
+      ],
+      "player_pos": [
+        994,
+        767,
+        7
+      ],
+      "t": 32.6
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        993,
+        768,
+        7
+      ],
+      "player_pos": [
+        994,
+        768,
+        7
+      ],
+      "t": 32.7
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        993,
+        769,
+        7
+      ],
+      "player_pos": [
+        993,
+        768,
+        7
+      ],
+      "t": 32.9
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        992,
+        769,
+        7
+      ],
+      "player_pos": [
+        993,
+        769,
+        7
+      ],
+      "t": 33.0
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 985,
+      "y": 773,
+      "z": 7,
+      "t": 33.0
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        991,
+        769,
+        7
+      ],
+      "player_pos": [
+        992,
+        769,
+        7
+      ],
+      "t": 33.1
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        991,
+        768,
+        7
+      ],
+      "player_pos": [
+        991,
+        769,
+        7
+      ],
+      "t": 33.3
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        991,
+        767,
+        7
+      ],
+      "player_pos": [
+        991,
+        768,
+        7
+      ],
+      "t": 33.4
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        990,
+        767,
+        7
+      ],
+      "player_pos": [
+        991,
+        767,
+        7
+      ],
+      "t": 33.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 987,
+      "y": 773,
+      "z": 7,
+      "t": 33.5
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        989,
+        767,
+        7
+      ],
+      "player_pos": [
+        990,
+        767,
+        7
+      ],
+      "t": 33.7
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        988,
+        767,
+        7
+      ],
+      "player_pos": [
+        989,
+        767,
+        7
+      ],
+      "t": 33.8
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        988,
+        766,
+        7
+      ],
+      "player_pos": [
+        988,
+        767,
+        7
+      ],
+      "t": 33.9
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        987,
+        766,
+        7
+      ],
+      "player_pos": [
+        988,
+        766,
+        7
+      ],
+      "t": 34.2
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        987,
+        765,
+        7
+      ],
+      "player_pos": [
+        987,
+        766,
+        7
+      ],
+      "t": 34.4
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        987,
+        766,
+        7
+      ],
+      "player_pos": [
+        987,
+        765,
+        7
+      ],
+      "t": 34.7
+    },
+    {
+      "type": "walk",
+      "direction": "autowalk",
+      "pos": [
+        986,
+        767,
+        7
+      ],
+      "player_pos": [
+        987,
+        766,
+        7
+      ],
+      "t": 36.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 987,
+      "y": 767,
+      "z": 7,
+      "t": 36.6
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        986,
+        768,
+        7
+      ],
+      "player_pos": [
+        986,
+        767,
+        7
+      ],
+      "t": 37.0
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        986,
+        769,
+        7
+      ],
+      "player_pos": [
+        986,
+        768,
+        7
+      ],
+      "t": 37.6
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        985,
+        769,
+        7
+      ],
+      "player_pos": [
+        986,
+        769,
+        7
+      ],
+      "t": 38.0
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        985,
+        770,
+        7
+      ],
+      "player_pos": [
+        985,
+        769,
+        7
+      ],
+      "t": 38.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 986,
+      "y": 768,
+      "z": 7,
+      "t": 38.2
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        985,
+        771,
+        7
+      ],
+      "player_pos": [
+        985,
+        770,
+        7
+      ],
+      "t": 38.6
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        984,
+        771,
+        7
+      ],
+      "player_pos": [
+        985,
+        771,
+        7
+      ],
+      "t": 38.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 986,
+      "y": 770,
+      "z": 7,
+      "t": 38.9
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        984,
+        772,
+        7
+      ],
+      "player_pos": [
+        984,
+        771,
+        7
+      ],
+      "t": 39.5
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        983,
+        772,
+        7
+      ],
+      "player_pos": [
+        984,
+        772,
+        7
+      ],
+      "t": 39.7
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 985,
+      "y": 771,
+      "z": 7,
+      "t": 39.7
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        982,
+        772,
+        7
+      ],
+      "player_pos": [
+        983,
+        772,
+        7
+      ],
+      "t": 40.1
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 984,
+      "y": 772,
+      "z": 7,
+      "t": 40.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 983,
+      "y": 773,
+      "z": 7,
+      "t": 41.5
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        982,
+        773,
+        7
+      ],
+      "player_pos": [
+        982,
+        772,
+        7
+      ],
+      "t": 41.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 983,
+      "y": 772,
+      "z": 7,
+      "t": 41.8
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        981,
+        773,
+        7
+      ],
+      "player_pos": [
+        982,
+        773,
+        7
+      ],
+      "t": 42.0
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        980,
+        773,
+        7
+      ],
+      "player_pos": [
+        981,
+        773,
+        7
+      ],
+      "t": 42.5
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        979,
+        773,
+        7
+      ],
+      "player_pos": [
+        980,
+        773,
+        7
+      ],
+      "t": 42.8
+    },
+    {
+      "type": "use_item",
+      "x": 978,
+      "y": 774,
+      "z": 7,
+      "item_id": 8455,
+      "stack_pos": 1,
+      "index": 1,
+      "label": "Use item 8455",
+      "pos": [
+        979,
+        773,
+        7
+      ],
+      "player_pos": [
+        979,
+        773,
+        7
+      ],
+      "t": 43.2
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        979,
+        774,
+        7
+      ],
+      "player_pos": [
+        979,
+        773,
+        7
+      ],
+      "t": 45.4
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        978,
+        774,
+        7
+      ],
+      "player_pos": [
+        979,
+        774,
+        7
+      ],
+      "t": 45.6
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 980,
+      "y": 773,
+      "z": 7,
+      "t": 45.7
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        977,
+        774,
+        7
+      ],
+      "player_pos": [
+        978,
+        774,
+        7
+      ],
+      "t": 46.1
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        976,
+        774,
+        7
+      ],
+      "player_pos": [
+        977,
+        774,
+        7
+      ],
+      "t": 46.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 979,
+      "y": 774,
+      "z": 7,
+      "t": 46.5
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        975,
+        774,
+        7
+      ],
+      "player_pos": [
+        976,
+        774,
+        7
+      ],
+      "t": 46.7
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        975,
+        775,
+        7
+      ],
+      "player_pos": [
+        975,
+        774,
+        7
+      ],
+      "t": 47.2
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        975,
+        776,
+        7
+      ],
+      "player_pos": [
+        975,
+        775,
+        7
+      ],
+      "t": 47.5
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        975,
+        777,
+        7
+      ],
+      "player_pos": [
+        975,
+        776,
+        7
+      ],
+      "t": 48.2
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 975,
+      "y": 775,
+      "z": 7,
+      "t": 48.5
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        974,
+        777,
+        7
+      ],
+      "player_pos": [
+        975,
+        777,
+        7
+      ],
+      "t": 48.5
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        974,
+        778,
+        7
+      ],
+      "player_pos": [
+        974,
+        777,
+        7
+      ],
+      "t": 48.7
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        974,
+        779,
+        7
+      ],
+      "player_pos": [
+        974,
+        778,
+        7
+      ],
+      "t": 49.2
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        973,
+        779,
+        7
+      ],
+      "player_pos": [
+        974,
+        779,
+        7
+      ],
+      "t": 49.4
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 975,
+      "y": 778,
+      "z": 7,
+      "t": 49.4
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        972,
+        779,
+        7
+      ],
+      "player_pos": [
+        973,
+        779,
+        7
+      ],
+      "t": 49.9
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        972,
+        780,
+        7
+      ],
+      "player_pos": [
+        972,
+        779,
+        7
+      ],
+      "t": 50.0
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        971,
+        780,
+        7
+      ],
+      "player_pos": [
+        972,
+        780,
+        7
+      ],
+      "t": 50.3
+    },
+    {
+      "type": "walk",
+      "direction": "south",
+      "pos": [
+        971,
+        781,
+        7
+      ],
+      "player_pos": [
+        971,
+        780,
+        7
+      ],
+      "t": 50.7
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        971,
+        780,
+        7
+      ],
+      "player_pos": [
+        971,
+        781,
+        7
+      ],
+      "t": 51.2
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        971,
+        779,
+        7
+      ],
+      "player_pos": [
+        971,
+        780,
+        7
+      ],
+      "t": 51.5
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        971,
+        778,
+        7
+      ],
+      "player_pos": [
+        971,
+        779,
+        7
+      ],
+      "t": 51.6
+    },
+    {
+      "type": "walk",
+      "direction": "autowalk",
+      "pos": [
+        970,
+        777,
+        7
+      ],
+      "player_pos": [
+        971,
+        778,
+        7
+      ],
+      "t": 68.6
+    },
+    {
+      "type": "walk",
+      "direction": "autowalk",
+      "pos": [
+        969,
+        776,
+        7
+      ],
+      "player_pos": [
+        970,
+        777,
+        7
+      ],
+      "t": 70.0
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        968,
+        776,
+        7
+      ],
+      "player_pos": [
+        969,
+        776,
+        7
+      ],
+      "t": 72.8
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        968,
+        775,
+        7
+      ],
+      "player_pos": [
+        968,
+        776,
+        7
+      ],
+      "t": 72.9
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        968,
+        774,
+        7
+      ],
+      "player_pos": [
+        968,
+        775,
+        7
+      ],
+      "t": 73.1
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        967,
+        774,
+        7
+      ],
+      "player_pos": [
+        968,
+        774,
+        7
+      ],
+      "t": 73.2
+    },
+    {
+      "type": "walk",
+      "direction": "west",
+      "pos": [
+        966,
+        774,
+        7
+      ],
+      "player_pos": [
+        967,
+        774,
+        7
+      ],
+      "t": 73.3
+    },
+    {
+      "type": "walk",
+      "direction": "north",
+      "pos": [
+        966,
+        773,
+        7
+      ],
+      "player_pos": [
+        966,
+        774,
+        7
+      ],
+      "t": 73.5
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 966,
+      "y": 775,
+      "z": 7,
+      "t": 73.8
+    },
+    {
+      "type": "tile_transform_item",
+      "x": 966,
+      "y": 774,
+      "z": 7,
+      "t": 75.3
+    }
+  ],
+  "last_stats": {
+    "xp_per_hour": 112876190,
+    "kills_per_hour": 99.7,
+    "senzu_per_hour": 108.8,
+    "session_seconds": 397,
+    "timestamp": "2026-03-09T18:59:00.729384+00:00",
+    "segment_analysis": [
+      {
+        "index": 0,
+        "type": "use_item",
+        "target": [
+          964,
+          775,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 5.3,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 1,
+        "type": "walk_to",
+        "target": [
+          964,
+          776,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.0,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 2,
+        "type": "walk_to",
+        "target": [
+          966,
+          775,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.3,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 3,
+        "type": "walk_to",
+        "target": [
+          967,
+          773,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 4.7,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 4,
+        "type": "walk_to",
+        "target": [
+          968,
+          771,
+          7
+        ],
+        "kills": 0.2,
+        "xp": 518833,
+        "avg_time": 0.3,
+        "xp_per_second": 413191.0,
+        "rating": "high"
+      },
+      {
+        "index": 5,
+        "type": "walk_to",
+        "target": [
+          968,
+          768,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.3,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 6,
+        "type": "walk_to",
+        "target": [
+          969,
+          766,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.3,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 7,
+        "type": "walk_to",
+        "target": [
+          971,
+          765,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.4,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 8,
+        "type": "walk_to",
+        "target": [
+          972,
+          763,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.3,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 9,
+        "type": "walk_to",
+        "target": [
+          974,
+          762,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.2,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 10,
+        "type": "walk_to",
+        "target": [
+          974,
+          759,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.5,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 11,
+        "type": "walk_to",
+        "target": [
+          975,
+          757,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.3,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 12,
+        "type": "walk_to",
+        "target": [
+          977,
+          756,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.3,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 13,
+        "type": "walk_to",
+        "target": [
+          979,
+          755,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.4,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 14,
+        "type": "walk_to",
+        "target": [
+          980,
+          753,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.3,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 15,
+        "type": "walk_to",
+        "target": [
+          982,
+          752,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.3,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 16,
+        "type": "walk_to",
+        "target": [
+          984,
+          754,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.3,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 17,
+        "type": "walk_to",
+        "target": [
+          986,
+          755,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.3,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 18,
+        "type": "walk_to",
+        "target": [
+          989,
+          755,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.5,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 19,
+        "type": "walk_to",
+        "target": [
+          989,
+          752,
+          7
+        ],
+        "kills": 0.2,
+        "xp": 518833,
+        "avg_time": 2.8,
+        "xp_per_second": 46240.3,
+        "rating": "high"
+      },
+      {
+        "index": 20,
+        "type": "walk_to",
+        "target": [
+          989,
+          755,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.0,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 21,
+        "type": "walk_to",
+        "target": [
+          990,
+          757,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.2,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 22,
+        "type": "walk_to",
+        "target": [
+          992,
+          758,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.2,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 23,
+        "type": "walk_to",
+        "target": [
+          995,
+          758,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.6,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 24,
+        "type": "walk_to",
+        "target": [
+          998,
+          758,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.5,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 25,
+        "type": "walk_to",
+        "target": [
+          998,
+          757,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.0,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 26,
+        "type": "walk_to",
+        "target": [
+          998,
+          756,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.0,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 27,
+        "type": "walk_to",
+        "target": [
+          998,
+          757,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.0,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 28,
+        "type": "walk_to",
+        "target": [
+          998,
+          760,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.0,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 29,
+        "type": "walk_to",
+        "target": [
+          997,
+          762,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 1.0,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 30,
+        "type": "walk_to",
+        "target": [
+          997,
+          765,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.5,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 31,
+        "type": "walk_to",
+        "target": [
+          995,
+          766,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.1,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 32,
+        "type": "walk_to",
+        "target": [
+          994,
+          768,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.4,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 33,
+        "type": "walk_to",
+        "target": [
+          992,
+          769,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.9,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 34,
+        "type": "walk_to",
+        "target": [
+          991,
+          769,
+          7
+        ],
+        "kills": 0.2,
+        "xp": 518833,
+        "avg_time": 3.7,
+        "xp_per_second": 34627.1,
+        "rating": "high"
+      },
+      {
+        "index": 35,
+        "type": "walk_to",
+        "target": [
+          990,
+          767,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.1,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 36,
+        "type": "walk_to",
+        "target": [
+          989,
+          767,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.1,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 37,
+        "type": "walk_to",
+        "target": [
+          987,
+          766,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.3,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 38,
+        "type": "walk_to",
+        "target": [
+          986,
+          767,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.2,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 39,
+        "type": "walk_to",
+        "target": [
+          986,
+          768,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.0,
+        "xp_per_second": 0,
+        "rating": "dead"
+      },
+      {
+        "index": 40,
+        "type": "walk_to",
+        "target": [
+          985,
+          770,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.3,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 41,
+        "type": "walk_to",
+        "target": [
+          985,
+          771,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.2,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 42,
+        "type": "walk_to",
+        "target": [
+          984,
+          771,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 3.7,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 43,
+        "type": "walk_to",
+        "target": [
+          984,
+          772,
+          7
+        ],
+        "kills": 0.5,
+        "xp": 1037666,
+        "avg_time": 0.3,
+        "xp_per_second": 865322.5,
+        "rating": "high"
+      },
+      {
+        "index": 44,
+        "type": "walk_to",
+        "target": [
+          983,
+          772,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.1,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 45,
+        "type": "walk_to",
+        "target": [
+          982,
+          772,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.2,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 46,
+        "type": "walk_to",
+        "target": [
+          982,
+          773,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.0,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 47,
+        "type": "walk_to",
+        "target": [
+          981,
+          773,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.3,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 48,
+        "type": "walk_to",
+        "target": [
+          979,
+          773,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.7,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 49,
+        "type": "use_item",
+        "target": [
+          978,
+          774,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 5.3,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 50,
+        "type": "walk_to",
+        "target": [
+          979,
+          774,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.0,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 51,
+        "type": "walk_to",
+        "target": [
+          978,
+          774,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.0,
+        "xp_per_second": 0,
+        "rating": "dead"
+      },
+      {
+        "index": 52,
+        "type": "walk_to",
+        "target": [
+          977,
+          774,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.0,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 53,
+        "type": "walk_to",
+        "target": [
+          976,
+          774,
+          7
+        ],
+        "kills": 0.5,
+        "xp": 1037666,
+        "avg_time": 27.9,
+        "xp_per_second": 9312.4,
+        "rating": "medium"
+      },
+      {
+        "index": 54,
+        "type": "walk_to",
+        "target": [
+          975,
+          774,
+          7
+        ],
+        "kills": 0.2,
+        "xp": 518833,
+        "avg_time": 19.9,
+        "xp_per_second": 6502.2,
+        "rating": "low"
+      },
+      {
+        "index": 55,
+        "type": "walk_to",
+        "target": [
+          975,
+          777,
+          7
+        ],
+        "kills": 0.5,
+        "xp": 1037666,
+        "avg_time": 1.5,
+        "xp_per_second": 172032.7,
+        "rating": "high"
+      },
+      {
+        "index": 56,
+        "type": "walk_to",
+        "target": [
+          974,
+          777,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.0,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 57,
+        "type": "walk_to",
+        "target": [
+          973,
+          779,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.3,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 58,
+        "type": "walk_to",
+        "target": [
+          972,
+          779,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.3,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 59,
+        "type": "walk_to",
+        "target": [
+          971,
+          781,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 1.1,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 60,
+        "type": "walk_to",
+        "target": [
+          971,
+          778,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 1.6,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 61,
+        "type": "walk_to",
+        "target": [
+          969,
+          776,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 1.3,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      },
+      {
+        "index": 62,
+        "type": "walk_to",
+        "target": [
+          968,
+          774,
+          7
+        ],
+        "kills": 0.2,
+        "xp": 518833,
+        "avg_time": 7.1,
+        "xp_per_second": 18386.6,
+        "rating": "high"
+      },
+      {
+        "index": 63,
+        "type": "walk_to",
+        "target": [
+          966,
+          773,
+          7
+        ],
+        "kills": 0.0,
+        "xp": 0,
+        "avg_time": 0.3,
+        "xp_per_second": 0.0,
+        "rating": "dead"
+      }
+    ]
+  }
+}

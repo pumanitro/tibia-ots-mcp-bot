@@ -422,17 +422,27 @@ async def run(bot):
                             continue
                         if max(abs(cx - ref_x), abs(cy - ref_y)) > PROXIMITY_RANGE:
                             continue
+                    # Translate DLL positions to packet coordinate space so
+                    # consumers (auto_combat, aoe_spell) using gs.position
+                    # get consistent distance calculations.
+                    if dll_px > 0 and px > 0:
+                        tx = cx - dll_px + px
+                        ty = cy - dll_py + py
+                    else:
+                        tx, ty = cx, cy
                     dll_creatures[cid] = {
                         "health": c.get("hp", 0),
                         "name": c.get("name", "?"),
-                        "x": cx, "y": cy, "z": cz,
+                        "x": tx, "y": ty, "z": pz,
                         "t": now,
                         "source": "dll",
                     }
 
-                # Diagnostic: dump raw bytes for creatures to find real position offset
-                # Dumps both creatures with pos=(0,0,0) AND with valid pos for comparison
-                if px > 0 and py > 0 and not dump_creature_pending and len(dump_creature_sent) < 4:
+                # Diagnostic: dump raw bytes for POS_ZERO creatures (high refs = on-screen)
+                # Prioritize (0,0,0) creatures with refs >= 5, then valid-pos for comparison
+                if px > 0 and py > 0 and not dump_creature_pending and len(dump_creature_sent) < 8:
+                    # Sort: POS_ZERO with high refs first, then valid pos
+                    candidates = []
                     for c in creatures:
                         cid_d = c.get("id", 0)
                         if cid_d == 0 or cid_d == my_player_id or cid_d == gs.player_id:
@@ -440,15 +450,25 @@ async def run(bot):
                         if cid_d in dump_creature_sent:
                             continue
                         if not (0x40000000 <= cid_d < 0x80000000):
-                            continue  # only dump monsters
+                            continue
                         if c.get("hp", 0) <= 0:
                             continue
                         dcx, dcy = c.get("x", 0), c.get("y", 0)
+                        refs = c.get("refs", 0)
+                        is_zero = dcx == 0 and dcy == 0
+                        # Priority: POS_ZERO with high refs first
+                        priority = 0 if (is_zero and refs >= 5) else 1
+                        candidates.append((priority, -refs, c))
+                    candidates.sort(key=lambda t: (t[0], t[1]))
+                    for _, _, c in candidates:
+                        cid_d = c.get("id", 0)
+                        dcx, dcy = c.get("x", 0), c.get("y", 0)
                         has_pos = dcx > 0 and dcy > 0
                         tag = "VALID_POS" if has_pos else "ZERO_POS"
+                        refs = c.get("refs", 0)
                         _dbg(f"DUMP_CREATURE: sending for 0x{cid_d:08X} ({c.get('name','?')}) "
-                             f"hp={c.get('hp',0)} pos=({dcx},{dcy},{c.get('z',0)}) [{tag}]")
-                        bot.log(f"[DLL] dump_creature 0x{cid_d:08X} ({c.get('name','?')}) [{tag}]")
+                             f"hp={c.get('hp',0)} pos=({dcx},{dcy},{c.get('z',0)}) refs={refs} [{tag}]")
+                        bot.log(f"[DLL] dump_creature 0x{cid_d:08X} ({c.get('name','?')}) refs={refs} [{tag}]")
                         bridge.send_command({"cmd": "dump_creature", "creature_id": cid_d})
                         dump_creature_sent.add(cid_d)
                         dump_creature_pending = True
@@ -541,17 +561,23 @@ async def run(bot):
                     for cid, info in dll_creatures.items():
                         gs.creatures[cid] = info
 
-                # Remove DLL creatures no longer in filtered set
+                # Remove DLL creatures no longer in filtered set, but with
+                # a grace period to survive brief tree-walk race conditions.
+                # The DLL tree walk can miss a creature for 1-2 cycles when
+                # the game thread is modifying the red-black tree concurrently.
+                CREATURE_RETAIN = 0.5  # seconds to keep creature after last seen
                 stale = [
                     cid for cid, info in gs.creatures.items()
                     if info.get("source") == "dll" and cid not in dll_creatures
+                    and now - info.get("t", 0) > CREATURE_RETAIN
                 ]
                 for cid in stale:
                     del gs.creatures[cid]
             elif creatures is not None:
-                # Empty list — no creatures nearby, clear DLL entries
+                # Empty list — still apply grace period before clearing
                 stale = [cid for cid, info in gs.creatures.items()
-                         if info.get("source") == "dll"]
+                         if info.get("source") == "dll"
+                         and now - info.get("t", 0) > 0.5]
                 for cid in stale:
                     del gs.creatures[cid]
 
