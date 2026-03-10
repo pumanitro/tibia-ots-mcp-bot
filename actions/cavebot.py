@@ -10,6 +10,7 @@ from protocol import (
     Direction,
     build_use_item_packet,
     build_use_item_ex_packet,
+    build_use_on_creature_packet,
     build_walk_packet,
     build_stop_walk_packet,
 )
@@ -22,6 +23,8 @@ MAX_RETRIES = 1
 REACHABLE_PROBE_TIMEOUT = 0.4  # seconds — one walk attempt, fast bail
 PAUSE_MAX_TIMEOUT = 60  # seconds — safety cap on monster-fight pause
 NO_DAMAGE_TIMEOUT = 3.0  # seconds — if monster HP unchanged, assume behind wall/PZ
+MAX_CLICK_RANGE = 8      # Chebyshev — max range for server to accept ground-click
+CONSECUTIVE_FAIL_RESYNC = 3  # re-sync to nearest node after this many walk_to failures
 
 # Map direction name strings to Direction enum values
 DIR_NAME_TO_ENUM = {
@@ -362,6 +365,79 @@ def _log_floor_change(bot, result, prefix):
         bot.log(f"{prefix}   -> ({after[0]},{after[1]},{after[2]}) [floor changed]")
 
 
+def _direction_toward(current, target):
+    """Return the Direction enum that moves closest toward target."""
+    dx = target[0] - current[0]
+    dy = target[1] - current[1]
+    if dx == 0 and dy == 0:
+        return None
+    if abs(dx) > 0 and abs(dy) > 0:
+        if dx > 0 and dy > 0:
+            return Direction.SOUTHEAST
+        if dx > 0 and dy < 0:
+            return Direction.NORTHEAST
+        if dx < 0 and dy > 0:
+            return Direction.SOUTHWEST
+        return Direction.NORTHWEST
+    if abs(dx) >= abs(dy):
+        return Direction.EAST if dx > 0 else Direction.WEST
+    return Direction.SOUTH if dy > 0 else Direction.NORTH
+
+
+async def _approach_target(bot, target, item_id, prefix=""):
+    """Walk toward target in intermediate ground-clicks when it's beyond click range.
+
+    Returns True if now within MAX_CLICK_RANGE, False if stuck.
+    """
+    for step in range(12):
+        current = bot.position
+        dx = target[0] - current[0]
+        dy = target[1] - current[1]
+        chebyshev = max(abs(dx), abs(dy))
+        if chebyshev <= MAX_CLICK_RANGE:
+            return True
+        if current[2] != target[2]:
+            return True  # floor mismatch handled elsewhere
+
+        # Intermediate point ~(MAX_CLICK_RANGE-1) tiles toward target
+        scale = (MAX_CLICK_RANGE - 1) / chebyshev
+        mid_x = current[0] + int(round(dx * scale))
+        mid_y = current[1] + int(round(dy * scale))
+
+        pkt = build_use_item_packet(mid_x, mid_y, target[2], item_id, 0, 0)
+        await bot.inject_to_server(pkt)
+
+        result = await _wait_for_position(
+            bot, [mid_x, mid_y, target[2]], 4.0, tolerance=2,
+        )
+        new_pos = bot.position
+        moved = (new_pos[0] != current[0] or new_pos[1] != current[1])
+
+        if moved:
+            new_cheb = max(abs(new_pos[0] - target[0]), abs(new_pos[1] - target[1]))
+            bot.log(f"{prefix}   approach -> ({new_pos[0]},{new_pos[1]}) cheb={new_cheb}")
+            continue
+
+        # Didn't move — try directional walk steps as fallback
+        d = _direction_toward(current, target)
+        if d:
+            walk_pkt = build_walk_packet(d)
+            for _ in range(3):
+                await bot.inject_to_server(walk_pkt)
+                await bot.sleep(0.25)
+                np = bot.position
+                if np[0] != current[0] or np[1] != current[1]:
+                    new_cheb = max(abs(np[0] - target[0]), abs(np[1] - target[1]))
+                    bot.log(f"{prefix}   approach walk -> ({np[0]},{np[1]}) cheb={new_cheb}")
+                    break
+            else:
+                bot.log(f"{prefix}   approach stuck at ({current[0]},{current[1]})")
+                return False
+
+    cheb = max(abs(bot.position[0] - target[0]), abs(bot.position[1] - target[1]))
+    return cheb <= MAX_CLICK_RANGE
+
+
 async def _execute_walk_to(bot, node, prefix="", exact=False):
     """Send use_item on ground tile (server pathfinds) and wait for arrival."""
     target = node["target"]
@@ -374,6 +450,21 @@ async def _execute_walk_to(bot, node, prefix="", exact=False):
     last_cancel_pos = None
 
     bot.log(f"{prefix} walk_to ({target[0]},{target[1]},{target[2]}) dist={dist}{' [exact]' if exact else ''}")
+
+    # Phase 0: approach if target is beyond server click range
+    chebyshev = max(abs(current[0] - target[0]), abs(current[1] - target[1]))
+    if chebyshev > MAX_CLICK_RANGE and current[2] == target[2]:
+        bot.log(f"{prefix}   too far (cheb={chebyshev}), approaching...")
+        approached = await _approach_target(bot, target, item_id, prefix)
+        if not approached:
+            current = bot.position
+            dist = _distance(current, target)
+            bot.log(f"{prefix}   failed: at ({current[0]},{current[1]},{current[2]}) dist={dist}")
+            return False
+        # Update position after approach
+        current = bot.position
+        start_z = current[2]
+        dist = _distance(current, target)
 
     # Use a while loop so cancel_walks don't consume normal retry attempts.
     attempt = 0
@@ -651,33 +742,187 @@ async def _execute_use_item_node(bot, node, prefix=""):
             if attempt < MAX_RETRIES - 1:
                 after = bot.position
                 bot.log(f"{prefix}   retry {attempt+1}/{MAX_RETRIES} at ({after[0]},{after[1]},{after[2]})")
+        # Fallback: item might be in inventory, not on ground.
+        # Retry with USE_ITEM_EX from hotkey slot (0xFFFF) to target tile.
+        bot.log(f"{prefix}   USE_ITEM failed, trying USE_ITEM_EX from hotkey...")
+        ex_pkt = build_use_item_ex_packet(
+            0xFFFF, 0, 0,
+            node["item_id"], 0,
+            node["x"], node["y"], node["z"], 0,
+        )
+        before = bot.position
+        before_time = time.time()
+        await bot.inject_to_server(ex_pkt)
+        deadline = time.time() + USE_ITEM_TIMEOUT
+        while time.time() < deadline:
+            for evt in gs.server_events:
+                ts, etype, edata = evt
+                if ts > before_time and etype in ("floor_change_up", "floor_change_down"):
+                    landed = edata["pos"]
+                    bot.log(f"{prefix}   [SUCCESS] USE_ITEM_EX fallback -> ({landed[0]},{landed[1]},{landed[2]})")
+                    return True
+            after = bot.position
+            if after[2] != before[2]:
+                bot.log(f"{prefix}   [SUCCESS] USE_ITEM_EX fallback floor change -> ({after[0]},{after[1]},{after[2]})")
+                return True
+            if after[0] != before[0] or after[1] != before[1]:
+                bot.log(f"{prefix}   [SUCCESS] USE_ITEM_EX fallback -> ({after[0]},{after[1]},{after[2]})")
+                return True
+            if _check_tile_transform(bot, target[0], target[1], target[2], before_time):
+                bot.log(f"{prefix}   [SUCCESS] USE_ITEM_EX fallback tile transform")
+                return True
+            await bot.sleep(0.1)
+
         after = bot.position
         bot.log(f"{prefix}   [FAILURE] no tile update or movement at ({after[0]},{after[1]},{after[2]})")
         return False
 
 
+async def _quick_change_check(bot, gs, before, before_time):
+    """Non-blocking check if position/floor changed."""
+    for evt in gs.server_events:
+        ts, etype, edata = evt
+        if ts > before_time and etype in ("floor_change_up", "floor_change_down"):
+            return edata["pos"]
+    after = bot.position
+    if after[2] != before[2]:
+        return after
+    if abs(after[0] - before[0]) > 1 or abs(after[1] - before[1]) > 1:
+        return after
+    return None
+
+
+async def _wait_for_change(bot, gs, before, before_time, timeout):
+    """Wait for floor change or position change."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        result = await _quick_change_check(bot, gs, before, before_time)
+        if result is not None:
+            return result
+        await bot.sleep(0.05)
+    return None
+
+
 async def _execute_use_item_ex_node(bot, node, prefix=""):
-    """Execute a use_item_ex (rope/shovel) and wait for position."""
+    """Execute a use_item_ex (rope/shovel) and wait for floor/position change.
+
+    Tools like rope/shovel target a ground tile but cause a floor change.
+    The recorded from_x/from_y/from_z may be stale (container slot changed
+    between sessions), so if the recorded position fails, we try each slot
+    one at a time with a quick check after each to avoid packet flooding.
+    """
     label = node.get("label", f"item {node['item_id']}")
     target = node["target"]
+    item_id = node["item_id"]
+    to_x, to_y, to_z = node["to_x"], node["to_y"], node["to_z"]
+    to_sp = node.get("to_stack_pos", 0)
+    from_x = node["from_x"]
+    from_y = node["from_y"]
+    from_z = node["from_z"]
+    is_container = (from_x == 0xFFFF)
 
     bot.log(f"{prefix} {label} -> ({target[0]},{target[1]},{target[2]})")
 
-    pkt = build_use_item_ex_packet(
-        node["from_x"], node["from_y"], node["from_z"],
-        node["item_id"], node.get("stack_pos", 0),
-        node["to_x"], node["to_y"], node["to_z"],
-        node.get("to_stack_pos", 0),
-    )
-    await bot.inject_to_server(pkt)
+    gs = _get_state().game_state
 
-    arrived = await _wait_for_position(bot, target, USE_ITEM_TIMEOUT, tolerance=1)
+    player_id = gs.player_id
+
+    # --- Attempt 1: hotkey-style USE_ITEM_EX (server finds item automatically) ---
+    bot.log(f"{prefix}   trying hotkey USE_ITEM_EX to ({to_x},{to_y},{to_z})...")
+    pkt_hotkey = build_use_item_ex_packet(
+        0xFFFF, 0, 0,
+        item_id, 0,
+        to_x, to_y, to_z, 0,
+    )
+    before = bot.position
+    before_time = time.time()
+    await bot.inject_to_server(pkt_hotkey)
+    await bot.sleep(0.5)
+    if bot.position == before:
+        await bot.inject_to_server(pkt_hotkey)
+    result = await _wait_for_change(bot, gs, before, before_time, 3.0)
+    if result is not None:
+        bot.log(f"{prefix}   [SUCCESS] hotkey -> ({result[0]},{result[1]},{result[2]})")
+        return True
+
+    # --- Attempt 2: hotkey-style USE_ON_CREATURE on self ---
+    if player_id:
+        bot.log(f"{prefix}   trying hotkey USE_ON_CREATURE on self...")
+        pkt_hk_oc = build_use_on_creature_packet(
+            0xFFFF, 0, 0,
+            item_id, 0,
+            player_id,
+        )
+        before = bot.position
+        before_time = time.time()
+        await bot.inject_to_server(pkt_hk_oc)
+        result = await _wait_for_change(bot, gs, before, before_time, 2.0)
+        if result is not None:
+            bot.log(f"{prefix}   [SUCCESS] hotkey OC -> ({result[0]},{result[1]},{result[2]})")
+            return True
+
+    # --- Attempt 3: recorded container slot ---
+    pkt = build_use_item_ex_packet(
+        from_x, from_y, from_z,
+        item_id, node.get("stack_pos", 0),
+        to_x, to_y, to_z, to_sp,
+    )
+    before = bot.position
+    before_time = time.time()
+    await bot.inject_to_server(pkt)
+    await bot.sleep(0.5)
+    if bot.position == before:
+        await bot.inject_to_server(pkt)
+    result = await _wait_for_change(bot, gs, before, before_time, 3.0)
+    if result is not None:
+        bot.log(f"{prefix}   [SUCCESS] recorded -> ({result[0]},{result[1]},{result[2]})")
+        return True
+
+    # --- Attempt 4: USE_ON_CREATURE with recorded slot ---
+    if is_container and player_id:
+        bot.log(f"{prefix}   trying USE_ON_CREATURE recorded slot...")
+        before = bot.position
+        before_time = time.time()
+        pkt_oc = build_use_on_creature_packet(
+            from_x, from_y, from_z,
+            item_id, node.get("stack_pos", 0),
+            player_id,
+        )
+        await bot.inject_to_server(pkt_oc)
+        result = await _wait_for_change(bot, gs, before, before_time, 2.0)
+        if result is not None:
+            bot.log(f"{prefix}   [SUCCESS] OC -> ({result[0]},{result[1]},{result[2]})")
+            return True
+
+        # --- Attempt 5: scan slots in containers 0x40, 0x41, 0x42 ---
+        seen_cids = set()
+        for cid in [from_y, 0x40, 0x41, 0x42]:
+            if cid in seen_cids:
+                continue
+            seen_cids.add(cid)
+            bot.log(f"{prefix}   scanning container 0x{cid:02X} slots...")
+            before = bot.position
+            before_time = time.time()
+            for slot in range(20):
+                if cid == from_y and slot == from_z:
+                    continue  # already tried
+                pkt2 = build_use_on_creature_packet(
+                    0xFFFF, cid, slot,
+                    item_id, slot,
+                    player_id,
+                )
+                await bot.inject_to_server(pkt2)
+                # Wait 300ms with frequent checks — stop immediately on success
+                for _ in range(6):
+                    await bot.sleep(0.05)
+                    result = await _quick_change_check(bot, gs, before, before_time)
+                    if result is not None:
+                        bot.log(f"{prefix}   [SUCCESS] cid=0x{cid:02X} slot {slot} -> ({result[0]},{result[1]},{result[2]})")
+                        return True
+
     after = bot.position
-    if not arrived:
-        bot.log(f"{prefix}   [FAILURE] missed: at ({after[0]},{after[1]},{after[2]})")
-    else:
-        bot.log(f"{prefix}   [SUCCESS] -> ({after[0]},{after[1]},{after[2]})")
-    return arrived
+    bot.log(f"{prefix}   [FAILURE] no change at ({after[0]},{after[1]},{after[2]})")
+    return False
 
 
 async def _walk_to_exact(bot, target, max_steps=8):
@@ -827,6 +1072,7 @@ async def _run_playback(bot):
 
         aborted = False
         i = 0
+        consecutive_walk_failures = 0
         while i < len(actions_map):
             node = actions_map[i]
             if not state.playback_active or not bot.is_connected:
@@ -973,7 +1219,14 @@ async def _run_playback(bot):
                         bot.log(f"{prefix} Lure fight: {reason}")
                         gs.lure_active = False  # enable auto_targeting
 
+                        # Snapshot monster HP at fight start for unreachable detection
                         fight_start = time.time()
+                        hp_snapshot = {}
+                        for cid, info in gs.creatures.items():
+                            if (cid >= MONSTER_ID_MIN
+                                    and 0 < info.get("health", 0) <= 100):
+                                hp_snapshot[cid] = info.get("health", 0)
+
                         while state.playback_active and bot.is_connected:
                             remaining = _count_nearby_monsters(gs, lure_distance)
                             has_target = (gs.attack_target_id
@@ -989,6 +1242,27 @@ async def _run_playback(bot):
                             if gs.in_protection_zone:
                                 bot.log(f"{prefix} Entered PZ, resuming lure")
                                 break
+                            # Unreachable detection: after NO_DAMAGE_TIMEOUT, blacklist
+                            # monsters whose HP hasn't changed since fight start
+                            if elapsed > NO_DAMAGE_TIMEOUT:
+                                now_check = time.time()
+                                for cid, info in list(gs.creatures.items()):
+                                    if (cid >= MONSTER_ID_MIN
+                                            and 0 < info.get("health", 0) <= 100
+                                            and cid in hp_snapshot
+                                            and info.get("health", 0) >= hp_snapshot[cid]
+                                            and cid not in gs.unreachable_creatures):
+                                        gs.unreachable_creatures[cid] = now_check + UNREACHABLE_EXPIRY
+                                        name = info.get("name", "?")
+                                        bot.log(f"{prefix} Lure: {name} 0x{cid:08X} no damage in {elapsed:.1f}s — blacklisting")
+                                # Re-snapshot remaining creatures (newly spawned during fight)
+                                hp_snapshot = {}
+                                for cid, info in gs.creatures.items():
+                                    if (cid >= MONSTER_ID_MIN
+                                            and 0 < info.get("health", 0) <= 100
+                                            and cid not in gs.unreachable_creatures):
+                                        hp_snapshot[cid] = info.get("health", 0)
+                                fight_start = time.time()  # reset timer for remaining monsters
                             await bot.sleep(0.2)
 
                         gs.lure_active = True  # suppress targeting, resume luring
@@ -1008,21 +1282,27 @@ async def _run_playback(bot):
                     gs_check.lure_active = False
 
             # ── Floor skip: if player Z doesn't match what this node expects,
-            #    skip ahead to the first node matching current floor.
-            player_z = bot.position[2]
+            #    skip to the NEAREST node on the current floor (by position).
+            player_pos = bot.position
+            player_z = player_pos[2]
             expected_z = _node_expected_z(node)
             if player_z != expected_z:
-                skip_to = None
-                for j in range(i + 1, len(actions_map)):
+                best_j = None
+                best_dist = float("inf")
+                for j in range(len(actions_map)):
                     if _node_expected_z(actions_map[j]) == player_z:
-                        skip_to = j
-                        break
-                if skip_to is not None:
-                    bot.log(f"{prefix} Z mismatch (on Z={player_z}, node expects Z={expected_z}), skipping to [{skip_to+1}/{len(actions_map)}]")
-                    i = skip_to
+                        t = actions_map[j]["target"]
+                        d = max(abs(player_pos[0] - t[0]), abs(player_pos[1] - t[1]))
+                        if d < best_dist:
+                            best_dist = d
+                            best_j = j
+                if best_j is not None:
+                    bot.log(f"{prefix} Z mismatch (on Z={player_z}, node expects Z={expected_z}), "
+                            f"nearest Z={player_z} node [{best_j+1}/{len(actions_map)}] dist={best_dist}")
+                    i = best_j
                     continue
                 else:
-                    bot.log(f"{prefix} Z mismatch (on Z={player_z}, node expects Z={expected_z}), no matching node ahead")
+                    bot.log(f"{prefix} Z mismatch (on Z={player_z}, node expects Z={expected_z}), no matching node")
                     i += 1
                     continue
 
@@ -1070,7 +1350,33 @@ async def _run_playback(bot):
 
             if not success:
                 state.playback_failed_nodes.add(i)
+                if ntype == "walk_to":
+                    consecutive_walk_failures += 1
+                else:
+                    consecutive_walk_failures = 0
+
+                # Re-sync: after N consecutive walk_to failures, jump to nearest node
+                if consecutive_walk_failures >= CONSECUTIVE_FAIL_RESYNC:
+                    player_pos = bot.position
+                    best_idx = None
+                    best_d = float("inf")
+                    # Search forward up to 50 nodes for nearest reachable one
+                    for j in range(i + 1, min(i + 50, len(actions_map))):
+                        if _node_expected_z(actions_map[j]) == player_pos[2]:
+                            t = actions_map[j]["target"]
+                            d = max(abs(player_pos[0] - t[0]), abs(player_pos[1] - t[1]))
+                            if d < best_d:
+                                best_d = d
+                                best_idx = j
+                    if best_idx is not None and best_idx > i + 1:
+                        bot.log(f"{prefix} Re-sync after {consecutive_walk_failures} failures: "
+                                f"jump [{best_idx+1}/{len(actions_map)}] cheb={best_d}")
+                        i = best_idx
+                        consecutive_walk_failures = 0
+                        continue
                 bot.log(f"{prefix} Node failed, continuing...")
+            else:
+                consecutive_walk_failures = 0
 
             i += 1
 
